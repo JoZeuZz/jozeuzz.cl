@@ -4,6 +4,32 @@
 **Host aportado por el responsable:** Debian 13.7 x86_64, sesión **root**, Claude Code 2.1.296 y OpenCode 1.17.18. Git y rama `docs/fase-0-definicion` correctos. **No se cambiará de usuario** por decisión expresa del responsable.
 **Referencia:** [orquestación propuesta](ORQUESTACION-IA-PROPUESTA.md), [Issue #5](https://github.com/JoZeuZz/jozeuzz.cl/issues/5).
 
+## Estado observado por el responsable (sesión aportada 2026-10-13)
+
+- `docs/fase-0-definicion` sincronizada mediante `git pull --ff-only`; cambios de documentación recibidos.
+- Claude Code 2.1.296 confirma: «Plugin 'superpowers@claude-plugins-official' is already installed globally». Aún falta comprobar su **carga funcional** invocando una skill.
+- OpenCode 1.17.18: aparecen `opencode.json` y `opencode.jsonc`, cada uno declara dos plugins, uno con «superpowers» en el nombre. **Configurado no significa cargado ni prueba de precedencia.** El `find ~/.config/opencode/plugins ~/.config/opencode/skills` no devolvió enlaces de Superpowers; esto es compatible con la instalación mediante paquete, pero debe validarse.
+- `opencode models` enumera `openai/gpt-5.6-sol`, `openai/gpt-6.1-sol` y `github-copilot/claude-sonnet-4.6`. La enumeración no confirma acceso/cuota; usar smoke tests separados.
+- Decisión reiterada: operador conserva root.
+
+### Siguientes smoke tests no destructivos
+
+Primero, en `claude --permission-mode plan`, solicitar cargar la skill `brainstorming` con la herramienta de skills, identificar su origen y describir un requisito de proceso. Prohibir cualquier edición.
+
+Para OpenCode comprobar `opencode run --help` y `opencode agent list` antes de usar opciones de la versión instalada. Los comandos documentados por el CLI incluyen `--model/-m` y `--agent`. Probar sólo lectura con modelos diferentes y, en una sesión distinta, solicitar `skill` list/load `brainstorming`:
+
+```bash
+cd /home/proyectos/jozeuzz
+opencode run --agent plan -m openai/gpt-5.6-sol \
+  'Responde únicamente PROVEEDOR-OPENAI-OK. No utilices herramientas ni modifiques archivos.'
+opencode run --agent plan -m github-copilot/claude-sonnet-4.6 \
+  'Responde únicamente PROVEEDOR-COPILOT-OK. No utilices herramientas ni modifiques archivos.'
+```
+
+**Importante**: el texto de una instrucción no es una barrera de permisos con root; usar configuraciones y aprobación de herramientas cuando corresponda. No añadir `--auto`. Registrar sólo respuesta, ID de modelo, errores redactados, estado de Git y resultado de carga de skills. No compartir tokens ni `auth.json`.
+
+Antes de modificar la configuración, diagnosticar ambos archivos mediante un script local que imprima **solo los valores de `plugin` y nombres de keys**, no los objetos `provider`, claves ni secretos. Si ambos contienen Superpowers, no volver a añadirlo. Confirmar qué archivo carga la versión instalada mediante diagnóstico del proceso/logs, sin asumir un orden de precedencia para JSON/JSONC en el mismo directorio.
+
 ## 0. Restricciones mientras agentes corren como root
 
 Root dispone de control sobre todo el host; ninguna instrucción de sistema ni clasificación automática de herramientas sustituye permisos del sistema operativo. Por tanto:
