@@ -94,7 +94,7 @@ Cada ejecución recibe `task-id`, Issue/PR, objetivo, alcance, criterios, archiv
 - Ejecutar al menos una revisión cruzada por **proveedor distinto** en tareas relevantes: A implementa → B revisa → A corrige → C revisa aspectos críticos si corresponde → humano aprueba.
 - La revisión de seguridad y la de funcionamiento deben contener evidencia independiente, no "aprobación por mayoría" de modelos.
 - Los agentes no tienen permiso de push directo a `main`, deploy productivo, DNS, migraciones destructivas, lectura de secretos ajenos o infraestructura sin autorización.
-- Claude Code/OpenCode no deben ejecutarse como root. En Debian crear/usar un usuario de desarrollo y mantener permisos mínimos; pertenecer al grupo Docker equivale prácticamente a privilegios root.
+- **Decisión del operador (2026-10-13):** el entorno seguirá ejecutando agentes desde la cuenta root. Se acepta conscientemente el riesgo: plugins, hooks y comandos de agentes pueden modificar cualquier recurso del host. Exigir revisión de código y procedencia antes de instalar extensiones, no activar bypass de permisos, no proporcionar secretos a tareas, mantener modo plan para descubrimiento y ejecutar tareas autónomas en aislamiento técnico real (contenedor/VM restringidos) antes de escalar. Un worktree no es una sandbox.
 
 ### Handoff y continuidad
 Proponer artefactos localmente en `.ai/runs/<task-id>/` (ignorar logs o datos sensibles en Git) con:
@@ -131,7 +131,7 @@ Caveman agrupa (a) skills de estilo de respuesta, (b) transformaciones de tool r
 El propio repositorio advierte que proxy local escucha loopback, que los handles de recuperación requieren almacenamiento local protegido y que su modo Auto puede enviar cierto contexto a Caveman Cloud. Las cifras de ahorro publicadas son resultados de benchmarks específicos, **no garantías transferibles a nuestro entorno**.
 
 ## 7. Compatibilidad inicial a verificar
-Entorno aportado por el usuario: Debian 13.7, x86_64, Git 2.47.3, Node 20.19.2, npm 9.2.0, Docker 29.9.0, Compose 5.6.0, Claude Code 2.1.296, OpenCode 1.17.18. Actualmente sesiones ejecutadas como **root**; solucionar antes de instalar hooks o permitir edición autónoma.
+Entorno aportado por el usuario: Debian 13.7, x86_64, Git 2.47.3, Node 20.19.2, npm 9.2.0, Docker 29.9.0, Compose 5.6.0, Claude Code 2.1.296, OpenCode 1.17.18. El responsable **ha decidido mantener root**. No se cambiará de usuario. Consultar [bootstrap Debian](AI-BOOTSTRAP-DEBIAN.md) para controles compensatorios, instalación manual y smoke tests; no confundir modo plan con aislamiento a nivel de OS.
 
 Superpowers: OpenCode 1.x usa la clave `plugin`, no `plugins`. La guía V2 es para 2.0.4+. Claude Code instala Superpowers en plugin marketplace. Comprobar si existe Superpowers previo en OpenCode y no instalar duplicados. Recordar que OpenCode 1.17.18 puede tener diferencias respecto de documentación para 1.18+; ejecutar pruebas de descubrimiento.
 
@@ -150,7 +150,7 @@ Caveman CLI indica Node >=22.13; antes de usarlo preparar Node 24 LTS compatible
 
 ## 9. Fases propuestas
 - **0A documentación:** incorporar esta propuesta a PR #1; revisar contradicciones C1–C9 señaladas por Claude en docs.
-- **0B seguridad local:** abandonar root, inventariar plugins actuales, corregir Node por usuario, preparar worktrees.
+- **0B seguridad local:** conservar root por decisión humana con controles compensatorios, inventariar plugins y hooks, preparar actualizaciones de Node sin romper otros proyectos y probar aislamiento para ejecución autónoma.
 - **0C instalación controlada:** Superpowers por host, skill catalogue complementario compartido, subagentes y comprobación de permisos/modelos.
 - **0D piloto jz-ai mínimo:** status, dispatch, review, handoff y bloqueo; gates A–E.
 - **0E arquitectura del producto:** POC Next.js/Payload/PostgreSQL, con tres ejecutores colaborando sobre trabajo controlado.
