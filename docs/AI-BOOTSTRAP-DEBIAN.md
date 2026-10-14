@@ -30,6 +30,28 @@ opencode run --agent plan -m github-copilot/claude-sonnet-4.6 \
 
 Antes de modificar la configuración, diagnosticar ambos archivos mediante un script local que imprima **solo los valores de `plugin` y nombres de keys**, no los objetos `provider`, claves ni secretos. Si ambos contienen Superpowers, no volver a añadirlo. Confirmar qué archivo carga la versión instalada mediante diagnóstico del proceso/logs, sin asumir un orden de precedencia para JSON/JSONC en el mismo directorio.
 
+## Smoke tests e inventario validados (2026-10-14, datos aportados por el operador)
+
+Las pruebas siguientes fueron **ejecutadas en la máquina Debian del operador**, no mediante GitHub; esta sección conserva los resultados observados, sin simular verificaciones remotas.
+
+| Prueba | Evidencia observada | Resultado |
+|---|---|---|
+| OpenCode + OpenAI | `opencode run --agent plan -m openai/gpt-5.6-sol` → `PROVEEDOR-OPENAI-OK` | Responde |
+| OpenCode + Copilot | `opencode run --agent plan -m github-copilot/claude-sonnet-4.6` → `PROVEEDOR-COPILOT-OK` | Responde |
+| Superpowers en OpenCode | `→ Skill "brainstorming"`; cargó desde caché del paquete `obra/superpowers` | Carga confirmada |
+| Estado de Git | `git status --short` sin salida tras las pruebas | Árbol limpio |
+| Claude Code | `/plugin install` informó «already installed globally» | Instalación declarada; falta carga real |
+
+Inventario de tres directorios: `/root/.claude/skills` 15 manifiestos, `/root/.agents/skills` 94, `/root/.config/opencode/skills` 7. Total: **116 manifiestos**, **109 nombres únicos** y **7 nombres repetidos**. Repetidos: `cavecrew`, `caveman`, `caveman-commit`, `caveman-compress`, `caveman-help`, `caveman-review`, `caveman-stats`. Estas cifras **excluyen otros mecanismos de registro**, incluidas skills desde plugins. «Duplicado por nombre» no acredita copia de contenido.
+
+### Gate siguiente: auditoría semántica de skills ya instaladas
+
+Antes de instalar nada más, comparar manifiestos de: `orchestrate`, `skill-router`, `agent-teams`, `llm-council`, `batch-orchestration`, `parallel-worktrees`, `session-handoff`, `cavecrew` y `caveman`. Revisar las instrucciones, provenance, hashes, herramientas/hook/scripts, colisiones con Superpowers y si tienen efectos secundarios.
+
+Para Caveman repetidas, comparar **hash SHA256 y realpath** de todos los `SKILL.md`; no eliminar archivos hasta comprobar si son enlaces simbólicos o versiones distintas. Se necesita además distinguir **skills de Caveman** de **proxy Caveman efectivamente habilitado**: la existencia de habilidades no prueba compresión de tokens.
+
+Si Claude Code confirma invocación real de `brainstorming` y se auditan estos perfiles, pasar a una matriz de routing por tarea y pilotos de subagentes, sin activar auto model routing ni edición autónoma en root.
+
 ## 0. Restricciones mientras agentes corren como root
 
 Root dispone de control sobre todo el host; ninguna instrucción de sistema ni clasificación automática de herramientas sustituye permisos del sistema operativo. Por tanto:
