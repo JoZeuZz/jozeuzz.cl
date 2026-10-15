@@ -1,0 +1,121 @@
+import { isAbsolute, relative, sep } from 'node:path';
+import { finding } from './findings.js';
+import { isInside } from './paths.js';
+import { cleanText, redactUrl, safeErrorCode } from './sanitize.js';
+
+export const MAX_PROVENANCE_BYTES = 1024 * 1024;
+export const LOCK_FIELDS = ['source', 'sourceType', 'sourceUrl', 'skillPath', 'skillFolderHash', 'installedAt', 'updatedAt'];
+export const PLUGIN_FIELDS = ['scope', 'installPath', 'version', 'gitCommitSha', 'installedAt', 'lastUpdated'];
+
+export async function loadProvenance(ctx, files) {
+  const findings = [];
+  const lockJson = await readJsonFile(ctx, files.skillLock, 'skill-lock', findings);
+  const pluginsJson = await readJsonFile(ctx, files.installedPlugins, 'installed-plugins', findings);
+  return {
+    skillLock: lockJson === null ? null : parseSkillLock(lockJson, files.skillLock, findings),
+    plugins: pluginsJson === null ? null : await parseInstalledPlugins(ctx, pluginsJson, files.installedPlugins, findings),
+    findings,
+  };
+}
+
+async function readJsonFile(ctx, path, subject, findings) {
+  if (!path) return null;
+  let result;
+  try {
+    result = await ctx.fs.readBounded(path, MAX_PROVENANCE_BYTES);
+  } catch (error) {
+    if (error.code !== 'ENOENT') findings.push(invalid(subject, path, `No se pudo leer (${safeErrorCode(error) ?? 'error'}).`));
+    return null;
+  }
+  if (!result.ok) {
+    findings.push(invalid(subject, path, result.reason === 'too-large' ? `Supera ${MAX_PROVENANCE_BYTES} bytes.` : 'No es un archivo regular.'));
+    return null;
+  }
+  try {
+    return JSON.parse(result.bytes.toString('utf8'));
+  } catch {
+    findings.push(invalid(subject, path, 'JSON inválido.'));
+    return null;
+  }
+}
+
+function invalid(subject, path, message) {
+  return finding('PROVENANCE_INVALID', subject, [path], message);
+}
+
+function parseSkillLock(json, path, findings) {
+  if (!isPlainObject(json) || !isPlainObject(json.skills)) {
+    findings.push(invalid('skill-lock', path, 'Estructura inesperada: falta el objeto "skills".'));
+    return null;
+  }
+  const map = new Map();
+  for (const [name, value] of Object.entries(json.skills)) {
+    if (isPlainObject(value)) map.set(name, pick(value, LOCK_FIELDS));
+  }
+  return map;
+}
+
+async function parseInstalledPlugins(ctx, json, path, findings) {
+  if (!isPlainObject(json) || !isPlainObject(json.plugins)) {
+    findings.push(invalid('installed-plugins', path, 'Estructura inesperada: falta el objeto "plugins".'));
+    return null;
+  }
+  const map = new Map();
+  for (const [id, value] of Object.entries(json.plugins)) {
+    if (!Array.isArray(value)) continue;
+    const entries = [];
+    for (const raw of value.filter(isPlainObject)) {
+      const entry = pick(raw, PLUGIN_FIELDS);
+      entries.push({ ...entry, installRealPath: await canonicalPath(ctx, entry.installPath) });
+    }
+    map.set(id, entries);
+  }
+  return map;
+}
+
+// realpath es metadata: resuelve componentes sin abrir el destino.
+async function canonicalPath(ctx, path) {
+  if (!path || !isAbsolute(path)) return null;
+  try {
+    return await ctx.fs.realpath(path);
+  } catch {
+    return null;
+  }
+}
+
+function pick(source, fields) {
+  const out = {};
+  for (const field of fields) {
+    const value = Object.hasOwn(source, field) ? source[field] : undefined;
+    out[field] = typeof value === 'string' ? cleanText(field === 'sourceUrl' ? redactUrl(value) : value) : null;
+  }
+  return out;
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+export function lockEntryFor(manifest, agentsRoot, skillLock) {
+  if (!skillLock || !agentsRoot || !isInside(manifest.realPath, agentsRoot)) return null;
+  const [name] = relative(agentsRoot, manifest.realPath).split(sep);
+  const entry = skillLock.get(name);
+  return entry ? { kind: 'skill-lock', ...entry } : null;
+}
+
+export function pluginRecord(plugin, plugins) {
+  if (!plugin) return null;
+  const id = `${plugin.name}@${plugin.marketplace}`;
+  const entries = plugins ? plugins.get(id) ?? [] : null;
+  const match = entries?.find((entry) => entry.installRealPath !== null && entry.installRealPath === plugin.versionDir);
+  return {
+    id,
+    marketplace: plugin.marketplace,
+    name: plugin.name,
+    cacheVersion: plugin.cacheVersion,
+    installed: entries === null ? 'unknown' : match ? 'yes' : 'no',
+    enabled: 'unknown',
+    loaded: 'unverified',
+    registry: match ? { version: match.version, gitCommitSha: match.gitCommitSha, installedAt: match.installedAt, lastUpdated: match.lastUpdated } : null,
+  };
+}

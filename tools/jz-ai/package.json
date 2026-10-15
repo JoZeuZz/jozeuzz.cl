@@ -1,0 +1,10 @@
+{
+  "name": "jz-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Plano de control local de jozeuzz.cl. M0: diagnóstico e inventario de skills de solo lectura.",
+  "type": "module",
+  "bin": { "jz-ai": "./bin/jz-ai.js" },
+  "engines": { "node": ">=20.19" },
+  "scripts": { "test": "node --test" }
+}
