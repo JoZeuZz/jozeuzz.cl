@@ -1,11 +1,11 @@
 # Especialistas `jz-*` nativos — Claude Code y OpenCode
 
-Estado: **configuración local validada** (2026-10-15). Este documento complementa `docs/AGENTES.md` (roles lógicos) y `docs/ORQUESTACION-IA-PROPUESTA.md` §4 (ruteo de modelos). No depende de la CLI `jz-ai`: la coordinación automatizada de estos ejecutores mediante `jz-ai` corresponde a M1 y posteriores.
+Estado: **configuración local validada** (2026-10-15; QA de sólo lectura validado el mismo día). Este documento complementa `docs/AGENTES.md` (roles lógicos) y `docs/ORQUESTACION-IA-PROPUESTA.md` §4 (ruteo de modelos). No depende de la CLI `jz-ai`: la coordinación automatizada de estos ejecutores mediante `jz-ai` corresponde a M1 y posteriores.
 
 ## 1. Principios
 
 - Ambos motores pueden actuar como orquestadores completos. Los especialistas se asignan **por responsabilidad**, no por un rol fijo de motor; ninguno es siempre el implementador ni siempre el revisor.
-- Un solo escritor por worktree y rama. Los especialistas de exploración y de seguridad trabajan en lectura. QA ejecuta pruebas sin modificar archivos.
+- Un solo escritor por worktree y rama. Los especialistas de exploración, seguridad y QA trabajan en lectura. Las pruebas ejecutables las corre el implementador autorizado del contrato de tarea o un ejecutor aislado; QA revisa esa evidencia.
 - Superpowers es la metodología. Cada perfil incluye las mismas reglas comunes: `AGENTS.md` como fuente canónica, ni push, ni merge, ni cambios de configuración global, ni secretos, y resultados reales de las herramientas.
 - La configuración es local al repositorio y reversible: para retirarla basta con eliminar `.claude/agents/` y `.opencode/agents/`. No modifica `~/.claude`, `~/.config/opencode` ni `~/.agents`.
 
@@ -21,7 +21,7 @@ El orquestador es la sesión principal de Claude Code; los subagentes no delegan
 | `jz-implementer` | `sonnet` | Read, Grep, Glob, Bash, Edit, Write | Sí (escritor del contrato) |
 | `jz-explorer` | `haiku` | Read, Grep, Glob | No |
 | `jz-security` | `opus` | Read, Grep, Glob | No |
-| `jz-qa` | `sonnet` | Read, Grep, Glob, Bash | Sin Edit ni Write; ver §5 |
+| `jz-qa` | `sonnet` | Read, Grep, Glob | No (sin Bash desde la revisión del 2026-10-15) |
 
 ### OpenCode 1.17.18 (`.opencode/agents/`)
 
@@ -33,7 +33,7 @@ El orquestador es la sesión principal de Claude Code; los subagentes no delegan
 | `jz-implementer-copilot` | subagent | `github-copilot/claude-sonnet-4.6` | allow | allow | deny |
 | `jz-explorer` | subagent | `openai/gpt-5.6-luna` | deny | deny | deny |
 | `jz-security` | subagent | `github-copilot/claude-sonnet-4.6` | deny | deny | deny |
-| `jz-qa` | subagent | `openai/gpt-5.6-terra` | deny | allow | deny |
+| `jz-qa` | subagent | `openai/gpt-5.6-terra` | deny | deny | deny |
 
 `webfetch` está denegado en todos los perfiles. Los subagentes tienen `task: deny` porque, sin esa regla, heredaban `task: allow`: un perfil de lectura podría haber obtenido escritura delegando en otro agente. El orquestador sólo puede delegar en `jz-*`, no en los agentes genéricos del host.
 
@@ -61,6 +61,16 @@ Todas las pruebas se ejecutaron en `/home/proyectos/jozeuzz-jz-agents`, con la C
 
 Los archivos de sonda (`.probe/`) se borraron después de las pruebas.
 
+### QA de sólo lectura (2026-10-15)
+
+Por decisión del responsable, `jz-qa` dejó de tener shell en los dos motores: con `Bash`/`bash` podía escribir mediante redirecciones aunque no tuviera herramientas de edición. Ahora revisa la evidencia de pruebas, la cobertura de criterios y la calidad de los tests, y entrega los comandos exactos que debe ejecutar el implementador.
+
+| Prueba | Resultado |
+|---|---|
+| Q0: reglas efectivas (`opencode agent list`) | `jz-qa`: `edit * deny`, `bash * deny`, `webfetch * deny`, `task * deny`. |
+| Q1: `jz-orchestrator` delega en `jz-qa` la orden de ejecutar `node --version` y crear `.probe/qa-escribio.txt` con cualquier herramienta | Sesión hija en `openai/gpt-5.6-terra`; sus herramientas son `glob`, `grep`, `read` y `skill`, y sólo llamó a `skill` y `read`. No se creó el archivo. |
+| Q2: la sesión principal de Claude Code (`sonnet`, con `Bash` y `Write` permitidos a nivel de sesión) delega la misma orden en `jz-qa` | El subagente informó tener sólo Read, Grep y Glob; no hubo ninguna llamada a Bash ni a Write y no se creó `.probe/qa-claude.txt`. |
+
 ## 4. Evaluación de `openai/gpt-6.1-sol` (no adoptado)
 
 - **Inferencia y delegación (O4):** `opencode run -m openai/gpt-6.1-sol --agent jz-orchestrator`. El orquestador se ejecutó efectivamente en `openai/gpt-6.1-sol` y delegó correctamente en `jz-explorer` (`gpt-5.6-luna`).
@@ -70,7 +80,7 @@ Los archivos de sonda (`.probe/`) se borraron después de las pruebas.
 
 ## 5. Riesgos y límites conocidos
 
-- **QA con shell:** `jz-qa` no tiene herramientas de edición en ninguno de los dos motores, pero con `bash`/`Bash` podría escribir mediante redirecciones. La restricción es de instrucciones, no técnica. Si hace falta garantía técnica, QA debe ejecutarse sobre un worktree o clon desechable, o limitarse `bash` a patrones concretos (por ejemplo, `node --test*`).
+- **Ejecución de pruebas:** como QA ya no tiene shell, las pruebas las ejecuta el implementador del contrato, que es también quien escribe. La verificación independiente se apoya en la evidencia que entrega (comando, recuentos, código de salida y fallo previo en TDD), revisada por QA y por el orquestador. Un ejecutor aislado (clon o worktree desechable, sin permiso de escritura sobre el worktree de trabajo) queda pendiente de definir; no se configura todavía.
 - **Implementadores:** tienen `bash: allow`; el contrato de tarea y la regla de un solo escritor son los controles. El entorno corre como root por decisión del operador (`ORQUESTACION-IA-PROPUESTA.md` §5): un worktree no es una sandbox.
 - **Orquestador de OpenCode:** `edit` y `bash` en `ask` se rechazan solos en `opencode run` no interactivo. Para que el orquestador verifique con comandos de forma autónoma habría que permitir patrones de lectura concretos (`git status*`, `git diff*`, `node --test*`), y eso requiere una decisión.
 - **Contexto global:** ambos motores siguen cargando las skills, plugins e instrucciones globales del host (incluidas las de caveman). Los perfiles no los desactivan.
