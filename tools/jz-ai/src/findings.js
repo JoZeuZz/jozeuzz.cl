@@ -43,6 +43,8 @@ export const CHECK_SEVERITY = Object.freeze({
   'repo.head-unavailable': 'warn',
   'repo.git-failed': 'error',
   'repo.git-unavailable': 'warn',
+  'repo.env-scan-truncated': 'warn',
+  'repo.env-scan-failed': 'warn',
   'paths.*.permissive': 'warn',
   'paths.*.unexpected-type': 'warn',
 });

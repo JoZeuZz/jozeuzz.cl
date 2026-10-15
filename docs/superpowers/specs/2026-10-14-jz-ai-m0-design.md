@@ -352,6 +352,8 @@ Con `--json`, stdout contiene `{ "schemaVersion": 1, "command": "<cmd>", "tool":
 | `opencode-caveman-flag` | `~/.config/opencode/.caveman-active` | `session-state` | `no` |
 | `repo-env` | `<repo>/.env`, `<repo>/.env.*` | `secrets` | `yes` |
 
+`<repo>/.env*` se detecta enumerando la raíz del repositorio sólo con lectura acotada (§6.2): como máximo `REPO_ROOT_ENTRIES` = 1 000 entradas, y todas cuentan para el límite. Si la raíz tiene más entradas, no se informa ningún `repo-env:*`, porque un subconjunto dependería del orden del sistema de archivos, y se emite `repo.env-scan-truncated`. Si la enumeración falla, se emite `repo.env-scan-failed` citando sólo el código de error. En ambos casos no se afirma la ausencia de archivos `.env*` y el resultado es `partial`.
+
 Además, cualquier archivo cuya ruta canónica tenga un nombre base que coincida con `auth.json`, `.credentials.json`, `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`, `.env`, `.env.*`, `.netrc`, `cookies*` o que contenga `token`, `secret` o `credential` se considera sensible **aunque esté dentro de una raíz de skills**: no se abre y se emite `SENSITIVE_PATH_SKIPPED` (warn). Los permisos Unix nunca convierten un archivo en no sensible; en `doctor`, una ruta sensible con `mode & 0o077` produce el check `paths.<id>.permissive` (warn). No existe otro código para permisos.
 
 **Variables de entorno:** sólo se informa si están definidas (`set: yes|no`), nunca su valor. «Definida» significa propiedad propia del entorno (`Object.hasOwn`) con valor de tipo cadena, **aunque esté vacía**. Variables: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `FIREWORKS_API_KEY`, `LLM_COUNCIL_BASE_URL`, `LLM_COUNCIL_MODELS`, `LLM_COUNCIL_CHAIRMAN`, `CAVECREW_REVIEWER_MODEL`, `CAVECREW_BUILDER_MODEL`, `CAVECREW_INVESTIGATOR_MODEL`, `CAVEMAN_DEFAULT_MODE`, `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`. El check `env.provider-keys` sólo considera claves con valor no vacío.
@@ -439,6 +441,8 @@ Como en 6.8, esta tabla es la fuente de verdad y el catálogo de `findings.js` l
 | `repo.head-unavailable` | `warn` | `HEAD` no resoluble (repositorio sin commits o de otro propietario) |
 | `repo.git-failed` | `error` | `rev-parse` agotó el tiempo o excedió `maxBuffer`; resultado `partial` |
 | `repo.git-unavailable` | `warn` | dentro de un repositorio sin `git` utilizable; resultado `partial` |
+| `repo.env-scan-truncated` | `warn` | la raíz del repositorio supera 1 000 entradas: no se informa ningún `<repo>/.env*` ni se afirma su ausencia (§8); resultado `partial` |
+| `repo.env-scan-failed` | `warn` | no se pudo enumerar la raíz del repositorio: no se afirma la ausencia de `<repo>/.env*` (§8); resultado `partial` |
 | `paths.<id>.permissive` | `warn` | ruta sensible con `mode & 0o077` |
 | `paths.<id>.unexpected-type` | `warn` | ruta esperada como archivo es symlink u otro tipo; se informa sin seguir |
 
@@ -590,4 +594,4 @@ Revisiones de diseño: OpenCode/OpenAI (`gpt-5.6-sol`) y OpenCode/Copilot (`clau
 | CP1-D | Carrera en ancestros entre comprobación y lectura | Aceptado provisionalmente por el responsable (raíces controladas por root); sin mitigación en M0; reevaluar si cambian propiedad, permisos o confianza de las raíces | §14 |
 | CP1-E | `installPath` saneado antes de resolverse: una ruta con `U+0000` final producía `installed: yes` (segunda revisión del Checkpoint 1) | Aceptado: se resuelve la ruta original; con `U+0000` es no verificable | §6.6 |
 | CP1-F | Presupuesto agotado exactamente: se abría el directorio siguiente con máximo cero | Aceptado: con presupuesto cero no se abre; `LIMIT_REACHED` o `SIBLINGS_TRUNCATED` según el presupuesto | §6.2 |
-| CP1-G | Listado de la raíz del repositorio en `doctor` para `<repo>/.env*` | Pendiente de decisión del responsable antes de Task 11: límite, señal y efecto en `completeness` (propuesta en el plan, Task 11) | §8, §10.2 |
+| CP1-G | Listado de la raíz del repositorio en `doctor` para `<repo>/.env*` | Aceptado por el responsable: lectura acotada a 1 000 entradas; `repo.env-scan-truncated` y `repo.env-scan-failed` (`warn`, `partial`); nunca se afirma ausencia sin enumeración completa | §8, §10.2 |
