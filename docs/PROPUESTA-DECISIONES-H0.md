@@ -2,7 +2,7 @@
 
 > **Estado:** propuesta para discusión. **Ninguna decisión de este documento está aprobada** salvo las marcadas como «indicada por el responsable», que sólo falta registrar.
 > **Fecha:** 2026-10-15. **Base:** `docs/ROADMAP-MVP.md` (`0e57214`), `docs/ANALISIS-INCONSISTENCIAS-ROADMAP-MVP.md` (`a433333`) y sus fuentes.
-> **Uso previsto:** cuando el responsable responda, este archivo (o uno derivado) pasa a ser el registro de decisiones de H0 que pide el criterio 1 de la sección 6.3 del análisis.
+> **Sustituida para H0-a** por `docs/REGISTRO-DECISIONES-H0A.md`, que recoge la revisión del responsable del 2026-10-15 (cambios en PH0-08, PH0-11, PH0-13 y PH0-15). Este documento se conserva como análisis de opciones.
 
 Las referencias `I-xx` remiten al análisis de inconsistencias y las `D-xx` a la tabla de decisiones de stack del roadmap (sección 5). Este documento no elige ninguna de las 19 tecnologías pendientes.
 
