@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util';
 import { createContext } from './context.js';
-import { renderJson, renderSkillsText } from './render.js';
+import { runDoctor } from './doctor.js';
+import { renderDoctorText, renderJson, renderSkillsText } from './render.js';
 import { safeErrorCode } from './sanitize.js';
 import { runSkills } from './skills.js';
 import { TOOL } from './tool.js';
@@ -20,6 +21,7 @@ Opciones:
 `;
 
 const COMMANDS = {
+  doctor: { run: runDoctor, text: renderDoctorText },
   skills: { run: runSkills, text: renderSkillsText },
 };
 

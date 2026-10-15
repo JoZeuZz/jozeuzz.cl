@@ -38,3 +38,35 @@ function pluginLabel(plugin) {
   if (!plugin) return null;
   return `${plugin.id} ${plugin.cacheVersion} installed=${plugin.installed} enabled=${plugin.enabled} loaded=${plugin.loaded}`;
 }
+
+export function renderDoctorText(doc, home) {
+  const p = pathFormatter(home);
+  const r = doc.runtime;
+  const lines = [
+    `jz-ai doctor: estado ${COMPLETENESS[doc.completeness]}`,
+    '',
+    '[runtime]',
+    row(['NODE', 'PLATFORM', 'ARCH', 'UID', 'ROOT']),
+    row([r.node, r.platform, r.arch, r.uid, r.isRoot ? 'yes' : 'no']),
+    '',
+    '[tools]',
+    row(['NAME', 'FOUND', 'VERSION', 'CONFIDENCE', 'SOURCE', 'PATH']),
+  ];
+  for (const t of doc.tools) lines.push(row([t.name, t.found, t.version.value ?? 'unknown', t.version.confidence, t.version.source, p(t.path)]));
+  lines.push('', '[repo]');
+  if (doc.repo.inside === 'yes') {
+    lines.push(
+      row(['ROOT', 'BRANCH', 'HEAD', 'DETACHED', 'WORKING_TREE']),
+      row([p(doc.repo.root), doc.repo.branch, doc.repo.head, doc.repo.detached, doc.repo.workingTree]),
+    );
+  } else {
+    lines.push('fuera de un repositorio Git');
+  }
+  lines.push('', '[paths]', row(['ID', 'CATEGORY', 'SENSITIVE', 'EXISTS', 'TYPE', 'MODE', 'CONTENT_READ', 'PATH']));
+  for (const x of doc.paths) lines.push(row([x.id, x.category, x.sensitive, x.exists, x.type, x.mode, x.contentRead, p(x.path)]));
+  lines.push('', '[env]', row(['NAME', 'SET']));
+  for (const e of doc.env) lines.push(row([e.name, e.set]));
+  lines.push('', '[checks]', row(['SEVERITY', 'ID', 'MESSAGE']));
+  for (const c of doc.checks) lines.push(row([c.severity, c.id, c.message]));
+  return `${lines.join('\n')}\n`;
+}
