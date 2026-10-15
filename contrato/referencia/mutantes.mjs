@@ -31,4 +31,5 @@ export const MUTANTES = [
   m('M20', 'servicio inactivo visible', ['CO-03'], { servicioInactivoVisible: true }),
   m('M21', 'sin límite de envíos', ['IN-11'], { sinLimite: true }),
   m('M22', 'la respuesta del intake incluye el nombre', ['IN-01'], { respuestaIncluyeNombre: true }),
+  m('M23', 'GraphQL abierto: responde 2xx y expone el esquema', ['CA-02'], { graphqlAbierto: true }),
 ];

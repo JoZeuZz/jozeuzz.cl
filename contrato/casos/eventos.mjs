@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { esAceptado } from '../juicio.mjs';
 import { abrirAdmin, aceptado, canalesEscritura, crearSolicitud, estadoDe, eventosDe, rechazado, solicitudEn } from './util.mjs';
 
-const caso = (id, titulo, run) => ({ id, area: 'eventos', titulo, run });
+const caso = (id, titulo, run, alcance = 'poc-1b') => ({ id, area: 'eventos', titulo, run, alcance });
 const CLAVES_EVENTO = ['actor', 'estado_anterior', 'estado_nuevo', 'fecha', 'id', 'motivo_cierre', 'solicitud'];
 
 function verificarEvento(e, ref, anterior, nuevo, motivo, ctx) {

@@ -5,9 +5,9 @@ import crearDriver from '../referencia/driver.mjs';
 import { MUTANTES } from '../referencia/mutantes.mjs';
 import { runCases } from '../runner.mjs';
 
-test('hay 22 mutantes con ids únicos y casos existentes', () => {
-  assert.equal(MUTANTES.length, 22);
-  assert.equal(new Set(MUTANTES.map((m) => m.id)).size, 22);
+test('hay 23 mutantes (22 originales + graphqlAbierto) con ids únicos y casos existentes', () => {
+  assert.equal(MUTANTES.length, 23);
+  assert.equal(new Set(MUTANTES.map((m) => m.id)).size, 23);
   const ids = new Set(CASOS.map((c) => c.id));
   for (const m of MUTANTES) for (const c of m.detectadoPor) assert.ok(ids.has(c), `${m.id}: caso inexistente ${c}`);
 });

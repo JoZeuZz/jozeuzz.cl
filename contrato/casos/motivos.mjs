@@ -3,7 +3,7 @@ import { MOTIVOS } from '../fixture.mjs';
 import { esAceptado } from '../juicio.mjs';
 import { abrirAdmin, aceptado, crearSolicitud, estadoDe, listar, rechazado, solicitudEn } from './util.mjs';
 
-const caso = (id, titulo, run) => ({ id, area: 'motivos', titulo, run });
+const caso = (id, titulo, run, alcance = 'poc-1b') => ({ id, area: 'motivos', titulo, run, alcance });
 
 async function sinCambio(admin, ref, antes, ctx) {
   const d = await estadoDe(admin, ref);

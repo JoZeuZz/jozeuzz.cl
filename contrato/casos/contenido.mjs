@@ -3,7 +3,7 @@ import { INEXISTENTE } from '../fixture.mjs';
 import { esAceptado } from '../juicio.mjs';
 import { abrirAdmin, aceptado, assertSinTexto, barrer, canalesPorTipo, visible } from './util.mjs';
 
-const caso = (id, titulo, run) => ({ id, area: 'contenido', titulo, run });
+const caso = (id, titulo, run, alcance = 'poc-1a') => ({ id, area: 'contenido', titulo, run, alcance });
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 const T_PUB = 'SNT-TITULO-PUBLICADO';
 const T_BOR = 'SNT-TITULO-BORRADOR';

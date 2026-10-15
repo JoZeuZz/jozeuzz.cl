@@ -136,6 +136,12 @@ export function crearDriverConOpciones(op = {}) {
 
   const canal = (nombre, tipo, fn) => ({ nombre, tipo, leer: async (o) => fn(o) });
 
+  // Canal cerrado: GraphQL no existe en el oráculo (el mutante graphqlAbierto lo abre y expone el esquema).
+  const graphql = (o) => {
+    if (!op.graphqlAbierto) return NO();
+    return ok(JSON.stringify({ data: { __schema: { types: [] }, objetivo: o.tipo, proyectos: [...proyectos.values()] } }));
+  };
+
   // ---------- Canal genérico de escritura ----------
   const generico = {
     nombre: 'api-generica',
@@ -305,6 +311,9 @@ export function crearDriverConOpciones(op = {}) {
   // ---------- Driver ----------
   return {
     nombre: 'referencia-en-memoria',
+    enMemoria: true,
+    canalesCerrados: [canal('graphql', 'graphql', graphql)],
+    noAplica: { accion: 'el oráculo en memoria no tiene acciones de servidor' },
     async reset(semilla) {
       proyectos = new Map();
       servicios = new Map();

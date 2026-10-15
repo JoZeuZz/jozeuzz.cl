@@ -159,3 +159,26 @@ export async function instantanea(driver, refs, admin) {
 }
 
 export const PRIVADOS = CENTINELAS.privados;
+
+/**
+ * Instantánea del contenido observable sin depender de eventos ni de intake (alcance POC-1a):
+ * solicitudes visibles al administrador, estado de los proyectos y visibilidad pública.
+ */
+export async function instantaneaContenido(driver, refs, admin) {
+  const sols = (await listar(admin)).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const proyectos = {};
+  for (const slug of [refs.proyecto_publicado, refs.proyecto_borrador, 'snt-anon-nuevo']) {
+    const r = await admin.obtenerProyecto(slug);
+    proyectos[slug] = { status: r.status, data: r.data ?? null };
+  }
+  const publico = {};
+  for (const canal of canalesPorTipo(driver, 'html')) {
+    publico[canal.nombre] = {
+      servicio_activo: visible(await canal.leer({ tipo: 'servicio', ref: refs.servicio_activo }), 'SNT-SERVICIO-ACTIVO'),
+      servicio_inactivo: visible(await canal.leer({ tipo: 'servicio', ref: refs.servicio_inactivo }), 'SNT-SERVICIO-INACTIVO'),
+      proyecto_publicado: visible(await canal.leer({ tipo: 'proyecto', ref: refs.proyecto_publicado }), 'SNT-TITULO-PUBLICADO'),
+      proyecto_borrador: visible(await canal.leer({ tipo: 'proyecto', ref: refs.proyecto_borrador }), 'SNT-TITULO-BORRADOR'),
+    };
+  }
+  return { sols, proyectos, publico };
+}

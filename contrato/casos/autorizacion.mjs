@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { contieneAlguno } from '../juicio.mjs';
-import { abrirAdmin, aceptado, canalesEscritura, denegado, eventosDe, instantanea, PRIVADOS, solicitudEn } from './util.mjs';
+import { INEXISTENTE } from '../fixture.mjs';
+import { abrirAdmin, aceptado, canalesEscritura, denegado, eventosDe, instantanea, instantaneaContenido, PRIVADOS } from './util.mjs';
 
-const caso = (id, titulo, run) => ({ id, area: 'autorizacion', titulo, run });
+const caso = (id, titulo, run, alcance = 'poc-1b') => ({ id, area: 'autorizacion', titulo, run, alcance });
 
 function operaciones(admin, refs) {
   const s = refs.solicitud_sembrada;
@@ -16,6 +17,32 @@ function operaciones(admin, refs) {
     ['publicarProyecto', () => admin.publicarProyecto(refs.proyecto_borrador)],
     ['retirarProyecto', () => admin.retirarProyecto(refs.proyecto_publicado)],
   ];
+}
+
+/** Operaciones administrativas de contenido y lectura, sin eventos ni transiciones (alcance POC-1a). */
+function operacionesContenido(admin, refs) {
+  return [
+    ['listarSolicitudes', () => admin.listarSolicitudes({})],
+    ['obtenerSolicitud', () => admin.obtenerSolicitud(refs.solicitud_sembrada)],
+    ['obtenerProyecto', () => admin.obtenerProyecto(refs.proyecto_borrador)],
+    ['publicarProyecto', () => admin.publicarProyecto(refs.proyecto_borrador)],
+    ['retirarProyecto', () => admin.retirarProyecto(refs.proyecto_publicado)],
+  ];
+}
+
+async function contenidoSinPrivilegios(driver, refs, sesion, nombre) {
+  const { admin: adminReal } = await abrirAdmin(driver);
+  const antes = await instantaneaContenido(driver, refs, adminReal);
+  const intruso = driver.admin(sesion);
+  for (const [op, ejecutar] of operacionesContenido(intruso, refs)) {
+    const res = await ejecutar();
+    denegado(res, `${nombre}: ${op}`);
+    assert.ok(
+      !contieneAlguno(JSON.stringify(res.data ?? null), PRIVADOS),
+      `${nombre}: ${op} devolvió datos privados en una respuesta denegada`,
+    );
+  }
+  assert.deepEqual(await instantaneaContenido(driver, refs, adminReal), antes, `${nombre}: las operaciones denegadas no deben tener efectos`);
 }
 
 async function sesionSinPrivilegios(driver, refs, sesion, nombre) {
@@ -74,4 +101,40 @@ export const CASOS_AUTORIZACION = [
     }
     assert.deepEqual(await instantanea(driver, refs, admin), antes, 'los intentos anónimos no deben tener efectos');
   }),
+  caso('AU-05', 'sesión anónima e inválida: lecturas y cambios de contenido denegados y sin efectos', async ({ driver, refs }) => {
+    await contenidoSinPrivilegios(driver, refs, driver.sesionAnonima, 'anónima');
+    await contenidoSinPrivilegios(driver, refs, driver.sesionInvalida, 'inválida');
+  }, 'poc-1a'),
+  caso('AU-06', 'canales de escritura con sesión anónima e inválida sobre contenido: denegado y sin efectos', async ({ driver, refs }) => {
+    const { admin } = await abrirAdmin(driver);
+    const antes = await instantaneaContenido(driver, refs, admin);
+    for (const [nombreSesion, sesion] of [['anónima', driver.sesionAnonima], ['inválida', driver.sesionInvalida]]) {
+      for (const canal of canalesEscritura(driver)) {
+        const intentos = [
+          ['crear proyecto', () => canal.crear(sesion, { tipo: 'proyecto', datos: { slug: 'snt-anon-nuevo', titulo: 'SNT-ANON', estado: 'publicado' } })],
+          ['actualizar solicitud', () => canal.actualizar(sesion, { tipo: 'solicitud', ref: refs.solicitud_sembrada, cambios: { estado: 'cerrada', motivo_cierre: 'spam', observaciones_internas: 'SNT-HACK', nombre: 'SNT-HACK' } })],
+          ['eliminar solicitud', () => canal.eliminar(sesion, { tipo: 'solicitud', ref: refs.solicitud_sembrada })],
+          ['actualizar proyecto borrador', () => canal.actualizar(sesion, { tipo: 'proyecto', ref: refs.proyecto_borrador, cambios: { estado: 'publicado', titulo: 'SNT-HACK' } })],
+          ['actualizar proyecto publicado', () => canal.actualizar(sesion, { tipo: 'proyecto', ref: refs.proyecto_publicado, cambios: { titulo: 'SNT-HACK' } })],
+          ['eliminar proyecto publicado', () => canal.eliminar(sesion, { tipo: 'proyecto', ref: refs.proyecto_publicado })],
+          ['eliminar proyecto borrador', () => canal.eliminar(sesion, { tipo: 'proyecto', ref: refs.proyecto_borrador })],
+          ['actualizar servicio activo', () => canal.actualizar(sesion, { tipo: 'servicio', ref: refs.servicio_activo, cambios: { titulo: 'SNT-HACK' } })],
+          ['actualizar servicio inactivo', () => canal.actualizar(sesion, { tipo: 'servicio', ref: refs.servicio_inactivo, cambios: { activo: true } })],
+          ['eliminar servicio', () => canal.eliminar(sesion, { tipo: 'servicio', ref: refs.servicio_activo })],
+          ['actualizar evento', () => canal.actualizar(sesion, { tipo: 'evento', ref: INEXISTENTE, cambios: { actor: 'SNT-HACK' } })],
+          ['eliminar evento', () => canal.eliminar(sesion, { tipo: 'evento', ref: INEXISTENTE })],
+        ];
+        for (const [nombre, ejecutar] of intentos) {
+          const res = await ejecutar();
+          denegado(res, `[${canal.nombre}] ${nombreSesion}: ${nombre}`);
+          assert.ok(!contieneAlguno(res.body, PRIVADOS), `[${canal.nombre}] ${nombreSesion}: ${nombre}: la respuesta denegada contiene datos privados`);
+        }
+      }
+    }
+    assert.deepEqual(await instantaneaContenido(driver, refs, admin), antes, 'los intentos anónimos e inválidos no deben tener efectos');
+  }, 'poc-1a'),
+  caso('AU-07', 'sesión de administrador: las operaciones de contenido aceptadas (control positivo de AU-05)', async ({ driver, refs }) => {
+    const { admin } = await abrirAdmin(driver);
+    for (const [op, ejecutar] of operacionesContenido(admin, refs)) aceptado(await ejecutar(), `administrador: ${op}`);
+  }, 'poc-1a'),
 ];

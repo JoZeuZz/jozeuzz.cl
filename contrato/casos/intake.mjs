@@ -18,7 +18,7 @@ async function rechazaSinRegistro(driver, admin, payload, ctx) {
   assert.equal(await contarSolicitudes(admin), antes, `${ctx}: no debe crearse ningún registro`);
 }
 
-const caso = (id, titulo, run) => ({ id, area: 'intake', titulo, run });
+const caso = (id, titulo, run, alcance = 'poc-3') => ({ id, area: 'intake', titulo, run, alcance });
 
 export const CASOS_INTAKE = [
   caso('IN-01', 'envío válido sin servicio: aceptado, sin eco de datos y en recibida', async ({ driver }) => {

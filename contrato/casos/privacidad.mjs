@@ -3,7 +3,7 @@ import { INEXISTENTE, payloadValido } from '../fixture.mjs';
 import { esAceptado, esExpuesto } from '../juicio.mjs';
 import { abrirAdmin, aceptado, assertSinTexto, barrer, crearSolicitud, describir, enviar, eventosDe, logsSinTexto, PRIVADOS } from './util.mjs';
 
-const caso = (id, titulo, run) => ({ id, area: 'privacidad', titulo, run });
+const caso = (id, titulo, run, alcance = 'poc-1b') => ({ id, area: 'privacidad', titulo, run, alcance });
 
 export const CASOS_PRIVACIDAD = [
   caso('PR-01', 'ningún canal público expone una solicitud (por ref ni en lista)', async ({ driver, refs }) => {
@@ -63,7 +63,7 @@ export const CASOS_PRIVACIDAD = [
       publicos.some((r) => esAceptado(r) && r.body.includes('SNT-MEDIO-PUBLICO')),
       'el medio público debe ser accesible (2xx con su centinela) en algún canal medio',
     );
-  }),
+  }, 'poc-1a'),
   caso('PR-05', 'los logs tras operaciones administrativas no contienen observaciones ni PII', async ({ driver, refs }) => {
     const { admin } = await abrirAdmin(driver);
     const nueva = await crearSolicitud(driver, admin);
@@ -87,5 +87,10 @@ export const CASOS_PRIVACIDAD = [
     medir('sondeos', barrido.length, 'lecturas');
     assertSinTexto(barrido, [...PRIVADOS, nueva.payload.nombre, nueva.payload.contacto, nueva.payload.descripcion], 'PR-06');
   }),
+  caso('PR-07', 'barrido de la semilla: ningún canal × objetivo contiene un centinela privado', async ({ driver, refs, medir }) => {
+    const barrido = await barrer(driver, refs);
+    medir('sondeos', barrido.length, 'lecturas');
+    assertSinTexto(barrido, PRIVADOS, 'PR-07');
+  }, 'poc-1a'),
 ];
 

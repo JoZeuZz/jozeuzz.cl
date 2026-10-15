@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { ESTADOS } from '../fixture.mjs';
 import { abrirAdmin, aceptado, canalesEscritura, crearSolicitud, estadoDe, eventosDe, llevarA, listar, rechazado, solicitudEn } from './util.mjs';
 
-const caso = (id, titulo, run) => ({ id, area: 'estados', titulo, run });
+const caso = (id, titulo, run, alcance = 'poc-1b') => ({ id, area: 'estados', titulo, run, alcance });
 
 function transicionRechazada(id, desde, hacia) {
   return caso(id, `${desde} → ${hacia} rechazada, el estado no cambia`, async ({ driver }) => {

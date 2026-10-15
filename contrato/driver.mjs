@@ -37,10 +37,17 @@
 //     reenviar el mismo `envio` simula un doble envío
 // admin(sesion) → Admin
 // logs() → Promise<string[]>          líneas de log producidas desde el último reset
+// canalesCerrados: Canal[]            (opcional) canales que el stack debe tener cerrados (p. ej. GraphQL): CA-02
+//                                     exige que ningún objetivo responda 2xx ni exponga centinelas
+// noAplica: { [tipo]: string }        (opcional) justificación por cada tipo de canal que el stack no tiene
+// baseUrl: string                     drivers HTTP: URL base, para que la batería sondee rutas propias (CA-02)
+// enMemoria: true                     drivers sin HTTP (oráculo): sustituye a baseUrl
+// Las operaciones aún no construidas lanzan `new NoImplementado(detalle)` (errores.mjs).
 
 import { CLAVES_REFS } from './fixture.mjs';
 
 const TIPOS_CANAL = ['html', 'api', 'graphql', 'accion', 'medio', 'sitemap'];
+const TIPOS_OBLIGATORIOS = ['html', 'api', 'medio', 'sitemap'];
 
 function exigir(condicion, miembro) {
   if (!condicion) throw new Error(`Driver inválido: falta o es incorrecto «${miembro}»`);
@@ -72,6 +79,29 @@ export function assertDriverShape(driver) {
   exigir(typeof driver.intake.preparar === 'function', 'intake.preparar');
   exigir(typeof driver.intake.enviar === 'function', 'intake.enviar');
   exigir(typeof driver.admin === 'function', 'admin');
+  // Canales públicos mínimos por tipo: html, api, medio y sitemap.
+  for (const tipo of TIPOS_OBLIGATORIOS) {
+    exigir(driver.canalesPublicos.some((c) => c.tipo === tipo), `canalesPublicos (al menos un canal de tipo «${tipo}»)`);
+  }
+  // Cada tipo de canal está cubierto: público, cerrado (con leer) o declarado «no aplica» con justificación.
+  const cerrados = driver.canalesCerrados ?? [];
+  exigir(Array.isArray(cerrados), 'canalesCerrados (lista)');
+  cerrados.forEach((c, i) => {
+    exigir(typeof c?.nombre === 'string', `canalesCerrados[${i}].nombre`);
+    exigir(TIPOS_CANAL.includes(c.tipo), `canalesCerrados[${i}].tipo (uno de ${TIPOS_CANAL.join('|')})`);
+    exigir(typeof c.leer === 'function', `canalesCerrados[${i}].leer`);
+  });
+  const noAplica = driver.noAplica ?? {};
+  exigir(noAplica && typeof noAplica === 'object' && !Array.isArray(noAplica), 'noAplica (objeto tipo → justificación)');
+  for (const tipo of TIPOS_CANAL) {
+    const cubierto = driver.canalesPublicos.some((c) => c.tipo === tipo) || cerrados.some((c) => c.tipo === tipo);
+    const justificado = typeof noAplica[tipo] === 'string' && noAplica[tipo].trim() !== '';
+    exigir(cubierto || justificado, `tipo de canal «${tipo}» sin cubrir: añádelo a canalesPublicos, a canalesCerrados o a noAplica con justificación`);
+  }
+  exigir(
+    (typeof driver.baseUrl === 'string' && driver.baseUrl !== '') || driver.enMemoria === true,
+    'baseUrl (driver HTTP) o enMemoria: true (oráculo)',
+  );
   exigir(typeof driver.logs === 'function', 'logs');
   return true;
 }
