@@ -37,6 +37,8 @@ export default buildConfig({
   upload: { limits: { fileSize: 5_000_000 } },
   db: postgresAdapter({
     pool: { connectionString: process.env.DATABASE_URL || '' },
+    // Los scripts de reset no sincronizan el schema (lo hace el servidor de desarrollo): arranque más rápido.
+    push: process.env.POC_NO_PUSH !== '1',
     // Drizzle rechaza «public» como schemaName: sólo se fija un schema propio (pruebas: poc_test).
     ...(process.env.POC_DB_SCHEMA && process.env.POC_DB_SCHEMA !== 'public'
       ? { schemaName: process.env.POC_DB_SCHEMA }
