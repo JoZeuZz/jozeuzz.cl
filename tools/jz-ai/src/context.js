@@ -1,4 +1,5 @@
 import { isAbsolute } from 'node:path';
+import { createGitRunner } from './exec.js';
 import { createFsRead } from './fs-read.js';
 
 export const GIT_PATH = '/usr/bin/git';
@@ -16,14 +17,16 @@ export function resolveHome(env) {
 }
 
 export function createContext({ env = process.env, cwd = process.cwd(), gitPath = GIT_PATH } = {}) {
+  const { home, homeProblem } = resolveHome(env);
   return {
     fs: createFsRead(),
     env,
     cwd,
-    ...resolveHome(env),
+    home,
+    homeProblem,
     gitPath,
     uid: typeof process.getuid === 'function' ? process.getuid() : null,
     runtime: { node: process.version, platform: process.platform, arch: process.arch },
-    createGitRunner: null,
+    createGitRunner: (gitPath) => createGitRunner({ gitPath, home }),
   };
 }

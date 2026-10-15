@@ -118,3 +118,18 @@ export async function auditFixture(home) {
     '.agents/.skill-lock.json': JSON.stringify({ version: 3, skills: { caveman: { source: 'JuliusBrussee/caveman', sourceType: 'github' } } }),
   });
 }
+
+export function gitFixture(dir, { commit = true } = {}) {
+  const git = (...args) => execFileSync('git', ['-c', 'user.name=Prueba', '-c', 'user.email=prueba@example.invalid', '-c', 'init.defaultBranch=main', ...args], {
+    cwd: dir,
+    encoding: 'utf8',
+    env: { PATH: process.env.PATH, HOME: dir, GIT_CONFIG_NOSYSTEM: '1' },
+  });
+  git('init', '-q');
+  if (commit) {
+    execFileSync('sh', ['-c', 'printf "a\\n" > a.txt'], { cwd: dir });
+    git('add', 'a.txt');
+    git('commit', '-q', '-m', 'init');
+  }
+  return git;
+}
