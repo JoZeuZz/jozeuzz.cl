@@ -50,6 +50,28 @@ services:
       db:
         condition: service_healthy
 
+  # Producción local (perfil prod): misma imagen Node, build + next start, schema y medios propios.
+  # Migraciones Payload (sin push). Sólo 127.0.0.1:3102.
+  app-prod:
+    <<: *node
+    profiles: [prod]
+    environment:
+      NEXT_TELEMETRY_DISABLED: "1"
+      DATABASE_URL: postgres://poc:${POC_DB_PASSWORD:?ejecuta ./poc.sh init}@db:5432/poc
+      PAYLOAD_SECRET: ${PAYLOAD_SECRET:?ejecuta ./poc.sh init}
+      POC_SERVER_URL: http://127.0.0.1:3102
+      POC_DB_SCHEMA: poc_prod
+      POC_MEDIA_DIR: /app/media-store-prod
+      POC_DIST_DIR: .next-prod
+      POC_NO_PUSH: "1"
+    command: ["npm", "run", "start"]
+    ports:
+      - "127.0.0.1:3102:3000"
+    networks: [interna, externa]
+    depends_on:
+      db:
+        condition: service_healthy
+
   e2e:
     image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf
     profiles: [e2e]

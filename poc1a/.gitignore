@@ -10,3 +10,7 @@
 next-env.d.ts
 .env
 /.npm-cache/
+/.next-prod/
+/media-store-prod/
+/.next-prod/
+/media-store-prod/

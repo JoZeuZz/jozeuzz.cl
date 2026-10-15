@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { NoImplementado } from '../contrato/errores.mjs';
 
 const aqui = path.dirname(fileURLToPath(import.meta.url));
+// Para producción: POC_RESET_ENV='POC_DB_SCHEMA=poc_prod POC_MEDIA_DIR=/app/media-store-prod' y POC_LOG_SERVICE=app-prod.
+const RESET_ENV = (process.env.POC_RESET_ENV ?? '').split(/\s+/).filter(Boolean);
 const BASE = (process.env.POC_BASE_URL ?? 'http://127.0.0.1:3101').replace(/\/$/, '');
 const ID_INEXISTENTE = '2147483646';
 const COLECCION = { proyecto: 'proyectos', servicio: 'servicios', solicitud: 'solicitudes', evento: 'eventos-solicitud' };
@@ -258,7 +260,7 @@ export default async function crearDriver() {
     __estado: () => estado,
     async reset(semilla) {
       const b64 = Buffer.from(JSON.stringify(semilla)).toString('base64');
-      const r = spawnSync('./poc.sh', ['exec', 'env', 'POC_NO_PUSH=1', 'npx', 'tsx', 'scripts/reset-semilla.ts', b64], {
+      const r = spawnSync('./poc.sh', ['exec', 'env', 'POC_NO_PUSH=1', ...RESET_ENV, 'npx', 'tsx', 'scripts/reset-semilla.ts', b64], {
         cwd: aqui,
         encoding: 'utf8',
         maxBuffer: 16 * 1024 * 1024,

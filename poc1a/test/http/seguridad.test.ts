@@ -50,7 +50,7 @@ async function crearUsuario(prefijo: string) {
 
 beforeAll(async () => {
   // La prueba actúa sobre la misma base que el servidor (schema public): se fija antes de cargar la configuración.
-  process.env.POC_DB_SCHEMA = 'public'
+  process.env.POC_DB_SCHEMA = process.env.POC_HTTP_SCHEMA ?? 'public'
   process.env.POC_NO_PUSH = '1'
   const { getPayload } = await import('payload')
   const config = (await import('@payload-config')).default

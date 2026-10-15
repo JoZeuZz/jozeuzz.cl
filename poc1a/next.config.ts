@@ -7,6 +7,8 @@ const dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  // El build de producción usa un directorio propio para no pisar el `.next` de `next dev`.
+  distDir: process.env.POC_DIST_DIR ?? '.next',
   poweredByHeader: false,
   // Sólo desarrollo: permite que el navegador de las E2E (origen 127.0.0.1) cargue los recursos de `next dev`.
   allowedDevOrigins: ['127.0.0.1'],
