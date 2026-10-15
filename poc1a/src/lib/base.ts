@@ -2,7 +2,8 @@ import { sql } from 'drizzle-orm'
 import type { Payload } from 'payload'
 
 /**
- * Vacía todas las tablas del schema de la POC (colecciones, versiones, sesiones, bloqueos).
+ * Vacía las tablas de datos del schema de la POC (colecciones, versiones, sesiones, bloqueos).
+ * Conserva `payload_migrations`: es el registro de migraciones aplicadas, no datos.
  * Sólo para scripts y pruebas: usa SQL directo y nunca se importa desde rutas públicas.
  */
 export async function vaciarBase(payload: Payload): Promise<void> {
@@ -12,7 +13,7 @@ export async function vaciarBase(payload: Payload): Promise<void> {
   }
   const schema = db.schemaName ?? 'public'
   const { rows } = await db.drizzle.execute(
-    sql`SELECT tablename FROM pg_tables WHERE schemaname = ${schema}`,
+    sql`SELECT tablename FROM pg_tables WHERE schemaname = ${schema} AND tablename <> 'payload_migrations'`,
   )
   if (rows.length === 0) return
   const lista = rows.map((r) => `"${schema}"."${r.tablename}"`).join(', ')
