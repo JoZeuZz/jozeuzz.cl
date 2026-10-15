@@ -1,7 +1,7 @@
 # Especificación técnica — `jz-ai` M0: inventario y diagnóstico de solo lectura
 
 > Estado: **REVISADA** (OpenCode/OpenAI y OpenCode/Copilot; correcciones en §16). Fecha: 2026-10-14. Issue: [#6](https://github.com/JoZeuZz/jozeuzz.cl/issues/6). Decisión de arquitectura: [ADR 0002](../../adr/0002-jz-ai-m0-cli-solo-lectura.md).
-> Rama: `feat/jz-ai-m0` (desde `main` 4946aa4). Worktree: `/home/proyectos/jozeuzz-jz-ai-m0`.
+> Rama: `feat/jz-ai-m0-recuperado` (desde `main` 4946aa4). Worktree: `/home/proyectos/jozeuzz-jz-ai-m0`. La rama de trabajo original, `feat/jz-ai-m0`, ya no existe; las Tasks 1–7 verificadas se restauraron en la rama actual con `3efb114`.
 
 ## 1. Contexto y dependencias documentales
 
@@ -306,7 +306,7 @@ Orden: `roots` según la tabla 6.1; `skills` por `name`, `rootId`, `entryPath`; 
     { "name": "opencode", "found": "yes", "path": "/root/.opencode/bin/opencode", "version": { "value": null, "confidence": "unknown", "source": null } },
     { "name": "node", "found": "yes", "path": null, "version": { "value": "20.19.2", "confidence": "verified", "source": "process.version" } }
   ],
-  "repo": { "inside": "yes", "root": "/home/proyectos/jozeuzz-jz-ai-m0", "branch": "feat/jz-ai-m0", "head": "…", "detached": "no", "workingTree": "not-inspected" },
+  "repo": { "inside": "yes", "root": "/home/proyectos/jozeuzz-jz-ai-m0", "branch": "feat/jz-ai-m0-recuperado", "head": "…", "detached": "no", "workingTree": "not-inspected" },
   "paths": [
     { "id": "claude-credentials", "path": "/root/.claude/.credentials.json", "category": "credentials", "sensitive": "yes", "exists": "yes", "type": "file", "mode": "0600", "ownerUid": 0, "contentRead": "no" }
   ],
@@ -506,7 +506,7 @@ tools/jz-ai/
 ├─ src/
 │  ├─ cli.js               # parseArgs, despacho, códigos de salida, documento de error
 │  ├─ context.js           # crea el contexto real: fsRead, exec, env, home validado, cwd, uid, gitPath
-│  ├─ fs-read.js           # fachada de solo lectura: lstat, readdir, readdirBounded, realpath, readBounded
+│  ├─ fs-read.js           # fachada de solo lectura: lstat, realpath, readdirBounded, readBounded (sin readdir ilimitado)
 │  ├─ exec.js              # único uso de child_process; ejecutor de git con lista cerrada
 │  ├─ paths.js             # raíces de skills, rutas sensibles, reglas por nombre
 │  ├─ frontmatter.js
