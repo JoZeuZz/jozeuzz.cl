@@ -52,7 +52,7 @@ export async function snapshotTree(base) {
 export function instrumentFs(fs, { fail = {} } = {}) {
   const reads = [];
   const wrapped = {};
-  for (const method of ['lstat', 'realpath', 'readdir', 'readdirBounded', 'readBounded']) {
+  for (const method of ['lstat', 'realpath', 'readdirBounded', 'readBounded']) {
     wrapped[method] = async (path, ...rest) => {
       if (method === 'readBounded') reads.push(path);
       const code = fail[method]?.[path];

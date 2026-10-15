@@ -36,10 +36,8 @@ test('readBounded respeta el límite exacto', async (t) => {
   assert.deepEqual(await readBounded(join(dir, 'grande'), 10), { ok: false, reason: 'too-large' });
 });
 
-test('readdir devuelve nombres ordenados por unidades de código', async (t) => {
-  const dir = await tempDir(t);
-  await makeTree(dir, { b: '', B: '', a: '' });
-  assert.deepEqual(await createFsRead().readdir(dir), ['B', 'a', 'b']);
+test('la fachada no expone enumeración sin límite', () => {
+  assert.deepEqual(Object.keys(createFsRead()).sort(), ['lstat', 'readBounded', 'readdirBounded', 'realpath']);
 });
 
 test('createContext toma HOME del entorno, no lo inventa y exige ruta absoluta', () => {

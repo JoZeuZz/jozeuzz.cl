@@ -7,7 +7,6 @@ export function createFsRead({ opendir = fsp.opendir } = {}) {
   return {
     lstat: (path) => fsp.lstat(path),
     realpath: (path) => fsp.realpath(path),
-    readdir: async (path) => (await fsp.readdir(path)).sort(compareText),
     readdirBounded: (path, max, skip) => readdirBounded(path, max, skip, opendir),
     readBounded,
   };
