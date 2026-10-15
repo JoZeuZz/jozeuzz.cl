@@ -1,8 +1,10 @@
 import { chmod, lstat, mkdir, mkdtemp, opendir, readFile, readdir, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { run } from '../src/cli.js';
 
 export async function tempDir(t) {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'jz-ai-test-')));
@@ -80,4 +82,39 @@ export function countingOpendir(base = opendir) {
     };
   };
   return { opendir: wrapped, stats };
+}
+
+export const BIN = fileURLToPath(new URL('../bin/jz-ai.js', import.meta.url));
+
+export function runBin(args, { cwd, env, importModule } = {}) {
+  const nodeArgs = importModule ? ['--import', importModule, BIN, ...args] : [BIN, ...args];
+  const result = spawnSync(process.execPath, nodeArgs, { cwd, env, encoding: 'utf8', timeout: 30000 });
+  return { code: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
+export async function runInProcess(args, ctx) {
+  let stdout = '';
+  let stderr = '';
+  const code = await run(args, { ctx, stdout: { write: (s) => { stdout += s; } }, stderr: { write: (s) => { stderr += s; } } });
+  return { code, stdout, stderr };
+}
+
+// Reproduce la forma observada en la auditoría §3.1: 3 variantes de caveman y 2 de cavecrew.
+export async function auditFixture(home) {
+  const plugin = '.claude/plugins/cache/caveman/caveman/7066cc815414';
+  await makeTree(home, {
+    [`${plugin}/skills/caveman/SKILL.md`]: skillMd('caveman', 'versión plugin'),
+    [`${plugin}/skills/cavecrew/SKILL.md`]: skillMd('cavecrew', 'versión plugin'),
+    '.agents/skills/caveman/SKILL.md': skillMd('caveman', 'versión agents'),
+    '.agents/skills/cavecrew/SKILL.md': skillMd('cavecrew', 'versión agents'),
+    '.claude/skills/caveman': { link: '../../.agents/skills/caveman' },
+    '.claude/skills/cavecrew': { link: '../../.agents/skills/cavecrew' },
+    '.config/opencode/skills/caveman/SKILL.md': skillMd('caveman', 'versión opencode'),
+    '.config/opencode/skills/cavecrew/SKILL.md': skillMd('cavecrew', 'versión plugin'),
+    '.claude/plugins/installed_plugins.json': JSON.stringify({
+      version: 2,
+      plugins: { 'caveman@caveman': [{ scope: 'user', installPath: join(home, plugin), version: '7066cc815414', gitCommitSha: 'd262ab3', installedAt: 'i', lastUpdated: 'l' }] },
+    }),
+    '.agents/.skill-lock.json': JSON.stringify({ version: 3, skills: { caveman: { source: 'JuliusBrussee/caveman', sourceType: 'github' } } }),
+  });
 }
