@@ -37,7 +37,10 @@ case "$cmd" in
   migrate) $C --profile prod run --rm app-prod npm run payload -- migrate ;;
   up-prod) $C --profile prod up -d db app-prod ;;
   down-prod) $C --profile prod stop app-prod && $C --profile prod rm -f app-prod ;;
-  stats) docker stats --no-stream $($C ps -q) ;;
+  stats)
+    ids="$($C ps -q)"
+    if [ -z "$ids" ]; then echo "sin contenedores del proyecto jozeuzz-poc-a; nada que medir" >&2; exit 1; fi
+    docker stats --no-stream $ids ;;
   destroy) $C down -v --remove-orphans ;;
   *) echo "uso: ./poc.sh init|deps [cmd]|up|down|build|migrate-create|migrate|up-prod|down-prod|ps|logs [n]|logs-since <t>|restart|psql [args]|resetdb|exec <cmd>|e2e [args]|medir-web|stats|destroy" >&2; exit 2 ;;
 esac
