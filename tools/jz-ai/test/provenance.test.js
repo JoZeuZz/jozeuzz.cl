@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { createContext } from '../src/context.js';
+import { discoverSkills } from '../src/discover.js';
 import { MAX_PROVENANCE_BYTES, loadProvenance, lockEntryFor, pluginRecord } from '../src/provenance.js';
-import { provenanceFiles } from '../src/paths.js';
-import { makeTree, tempDir } from '../test-support/fixture.js';
+import { provenanceFiles, skillRoots } from '../src/paths.js';
+import { instrumentFs, makeTree, skillMd, tempDir } from '../test-support/fixture.js';
 
 const lock = {
   version: 3,
@@ -69,7 +70,7 @@ test('estructura hostil no contamina prototipos ni aborta', async (t) => {
   assert.equal(result.skillLock.has('a'), false);
   assert.deepEqual(result.skillLock.get('c'), { source: null, sourceType: null, sourceUrl: null, skillPath: null, skillFolderHash: null, installedAt: null, updatedAt: null });
   assert.equal(result.plugins.has('p@m'), false);
-  assert.deepEqual(result.plugins.get('q@m'), [{ scope: null, installPath: null, version: null, gitCommitSha: null, installedAt: null, lastUpdated: null, installRealPath: null }]);
+  assert.deepEqual(result.plugins.get('q@m'), [{ scope: null, installPath: null, version: null, gitCommitSha: null, installedAt: null, lastUpdated: null, installRealPath: null, installUnverifiable: false }]);
   const wrongShape = await load(t, { '.agents/.skill-lock.json': '[1,2]' });
   assert.equal(wrongShape.result.findings[0].code, 'PROVENANCE_INVALID');
   assert.equal(wrongShape.result.skillLock, null);
@@ -113,4 +114,64 @@ test('pluginRecord separa instalado, habilitado y cargado', () => {
   assert.equal(pluginRecord({ ...plugin, name: 'otro' }, registry).installed, 'no');
   assert.equal(pluginRecord(plugin, null).installed, 'unknown');
   assert.equal(pluginRecord(null, registry), null);
+});
+
+test('integración con HOME y raíz alias: rutas canónicas en discoverSkills y loadProvenance', async (t) => {
+  const base = await tempDir(t);
+  const real = join(base, 'real');
+  const home = join(base, 'alias');
+  const versionDir = join(real, '.claude/plugins/cache/mk/plug/1.0.0');
+  await makeTree(base, {
+    'real/.agents/skills/caveman/SKILL.md': skillMd('caveman'),
+    'real/.claude/skills': { link: '../.agents/skills' },
+    'real/.claude/plugins/cache/mk/plug/1.0.0/skills/uno/SKILL.md': skillMd('uno'),
+    'real/.agents/.skill-lock.json': JSON.stringify({ skills: { caveman: { source: 'x/caveman' } } }),
+    'real/.claude/plugins/installed_plugins.json': JSON.stringify({ plugins: {
+      'plug@mk': [{ installPath: join(home, '.claude/plugins/cache/mk/plug/1.0.0') }],
+    } }),
+    alias: { link: 'real' },
+  });
+  const ctx = createContext({ env: { HOME: home } });
+  const roots = skillRoots(home, null);
+  const discovered = await discoverSkills(ctx, roots);
+  const provenance = await loadProvenance(ctx, provenanceFiles(home));
+  assert.deepEqual(provenance.findings, []);
+  const byRoot = Object.fromEntries(discovered.roots.map((r) => [r.id, r.realPath]));
+  assert.equal(byRoot['claude-user'], join(real, '.agents/skills'), 'raíz alias de agents');
+  assert.equal(byRoot.agents, join(real, '.agents/skills'));
+  const cavemans = discovered.manifests.filter((m) => m.dirName === 'caveman');
+  assert.deepEqual(cavemans.map((m) => m.entryPath).sort(), [join(home, '.agents/skills/caveman/SKILL.md'), join(home, '.claude/skills/caveman/SKILL.md')]);
+  assert.ok(cavemans.every((m) => m.realPath === join(real, '.agents/skills/caveman/SKILL.md')));
+  assert.ok(cavemans.every((m) => lockEntryFor(m, byRoot.agents, provenance.skillLock)?.source === 'x/caveman'));
+  const uno = discovered.manifests.find((m) => m.dirName === 'uno');
+  assert.equal(uno.entryPath, join(home, '.claude/plugins/cache/mk/plug/1.0.0/skills/uno/SKILL.md'));
+  assert.equal(uno.plugin.versionDir, versionDir);
+  assert.equal(pluginRecord(uno.plugin, provenance.plugins).installed, 'yes');
+  assert.equal(discovered.partial, false);
+});
+
+test('installPath no verificable deja installed en unknown, no en no', async (t) => {
+  const cache = '.claude/plugins/cache/mk';
+  const home = await tempDir(t);
+  const denied = join(home, 'JZAI-CANARY-denied/1.0.0');
+  await makeTree(home, {
+    [`${cache}/plug/1.0.0/skills/uno/SKILL.md`]: 'x',
+    [`${cache}/otro/1.0.0/skills/uno/SKILL.md`]: 'x',
+    'bucle': { link: 'bucle' },
+    '.claude/plugins/installed_plugins.json': JSON.stringify({ plugins: {
+      'plug@mk': [{ installPath: denied }],
+      'otro@mk': [{ installPath: denied }, { installPath: join(home, cache, 'otro/1.0.0') }],
+      'ciclo@mk': [{ installPath: join(home, 'bucle') }],
+    } }),
+  });
+  const ctx = createContext({ env: { HOME: home } });
+  const spy = instrumentFs(ctx.fs, { fail: { realpath: { [denied]: 'EACCES' } } });
+  const { plugins, findings } = await loadProvenance({ ...ctx, fs: spy.fs }, provenanceFiles(home));
+  const record = (name) => pluginRecord({ marketplace: 'mk', name, cacheVersion: '1.0.0', versionDir: join(home, cache, name, '1.0.0') }, plugins);
+  assert.equal(record('plug').installed, 'unknown', 'EACCES no prueba ausencia');
+  assert.equal(record('otro').installed, 'yes', 'otra entrada verificada coincide');
+  assert.equal(record('ciclo').installed, 'no', 'ELOOP es definitivo');
+  assert.deepEqual(findings.map((f) => `${f.code}:${f.subject}`), ['PROVENANCE_INVALID:installed-plugins', 'PROVENANCE_INVALID:installed-plugins']);
+  assert.ok(findings.every((f) => f.message.includes('(EACCES)')));
+  assert.ok(!JSON.stringify(findings).includes('JZAI-CANARY-denied'), 'installPath no se publica');
 });

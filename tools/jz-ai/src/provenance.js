@@ -64,22 +64,32 @@ async function parseInstalledPlugins(ctx, json, path, findings) {
   for (const [id, value] of Object.entries(json.plugins)) {
     if (!Array.isArray(value)) continue;
     const entries = [];
+    let reported = false;
     for (const raw of value.filter(isPlainObject)) {
       const entry = pick(raw, PLUGIN_FIELDS);
-      entries.push({ ...entry, installRealPath: await canonicalPath(ctx, entry.installPath) });
+      const { realPath, error } = await canonicalPath(ctx, entry.installPath);
+      if (error && !reported) {
+        reported = true;
+        // installPath no se publica: el hallazgo cita el registro y el plugin, no la ruta.
+        findings.push(invalid('installed-plugins', path, `No se pudo verificar installPath de ${id} (${safeErrorCode(error) ?? 'error'}).`));
+      }
+      entries.push({ ...entry, installRealPath: realPath, installUnverifiable: error !== null });
     }
     map.set(id, entries);
   }
   return map;
 }
 
+// Errores que prueban que la ruta no resuelve; cualquier otro impide verificarla.
+const UNRESOLVED_CODES = new Set(['ENOENT', 'ENOTDIR', 'ELOOP']);
+
 // realpath es metadata: resuelve componentes sin abrir el destino.
 async function canonicalPath(ctx, path) {
-  if (!path || !isAbsolute(path)) return null;
+  if (!path || !isAbsolute(path)) return { realPath: null, error: null };
   try {
-    return await ctx.fs.realpath(path);
-  } catch {
-    return null;
+    return { realPath: await ctx.fs.realpath(path), error: null };
+  } catch (error) {
+    return { realPath: null, error: UNRESOLVED_CODES.has(error.code) ? null : error };
   }
 }
 
@@ -113,7 +123,7 @@ export function pluginRecord(plugin, plugins) {
     marketplace: plugin.marketplace,
     name: plugin.name,
     cacheVersion: plugin.cacheVersion,
-    installed: entries === null ? 'unknown' : match ? 'yes' : 'no',
+    installed: entries === null ? 'unknown' : match ? 'yes' : entries.some((entry) => entry.installUnverifiable) ? 'unknown' : 'no',
     enabled: 'unknown',
     loaded: 'unverified',
     registry: match ? { version: match.version, gitCommitSha: match.gitCommitSha, installedAt: match.installedAt, lastUpdated: match.lastUpdated } : null,

@@ -141,3 +141,63 @@ test('el manifiesto conserva sólo la cabecera; el hash cubre el archivo complet
   assert.ok(!direct.head.includes('JZAI-CANARY-body'));
   assert.equal(Object.hasOwn(direct, 'text'), false);
 });
+
+test('recuento de hermanos exacto en el tope y al superarlo', async (t) => {
+  const { home } = await entriesFixture(t);
+  const skill = join(home, '.agents/skills/caveman/SKILL.md');
+  // Hermanos de caveman: scripts/ y scripts/x.js = 2 entradas.
+  const run = async (siblingEntries) => discoverSkills(createContext({ env: { HOME: home } }), skillRoots(home, null), { ...LIMITS, siblingEntries });
+  const exact = await run(2);
+  assert.equal(exact.manifests.find((m) => m.entryPath === skill).siblingFiles, 1);
+  assert.ok(!exact.findings.some((f) => f.code === 'SIBLINGS_TRUNCATED' && f.subject === 'caveman'));
+  await makeTree(home, { '.agents/skills/caveman/a.txt': 'x', '.agents/skills/caveman/b.txt': 'x' });
+  // Orden: a.txt, b.txt, scripts, scripts/x.js; con tope 3 se cuentan a.txt, b.txt y scripts/.
+  const over = await run(3);
+  assert.equal(over.manifests.find((m) => m.entryPath === skill).siblingFiles, 2);
+  assert.equal(over.findings.filter((f) => f.code === 'SIBLINGS_TRUNCATED' && f.subject === 'caveman').length, 2, 'uno por entrada (directa y vía enlace)');
+  assert.equal(over.partial, false);
+});
+
+test('scriptLike puede ser falso negativo tras truncar el recuento', async (t) => {
+  const { home } = await entriesFixture(t);
+  await makeTree(home, { '.agents/skills/caveman/a.txt': 'x' });
+  const result = await discoverSkills(createContext({ env: { HOME: home } }), skillRoots(home, null), { ...LIMITS, siblingEntries: 1 });
+  const direct = result.manifests.find((m) => m.entryPath === join(home, '.agents/skills/caveman/SKILL.md'));
+  assert.equal(direct.siblingFiles, 1);
+  assert.equal(direct.scriptLike, false);
+  assert.ok(result.findings.some((f) => f.code === 'SIBLINGS_TRUNCATED' && f.subject === 'caveman'));
+});
+
+test('symlink de entrada cuyo destino es exactamente otra raíz autorizada', async (t) => {
+  const { home } = await entriesFixture(t);
+  await makeTree(home, { '.claude/skills/raiz': { link: '../../.agents/skills' } });
+  const result = await discoverSkills(createContext({ env: { HOME: home } }), skillRoots(home, null));
+  assert.deepEqual(codesFor(result, 'raiz'), ['LINK_CYCLE']);
+  assert.ok(!result.manifests.some((m) => m.dirName === 'raiz'));
+});
+
+test('errores inyectados al resolver enlaces de entrada y de manifiesto', async (t) => {
+  const { home } = await entriesFixture(t);
+  await makeTree(home, { '.agents/skills/enlazada/SKILL.md': { link: '../caveman/SKILL.md' } });
+  const ctx = createContext({ env: { HOME: home } });
+  const entryLink = join(home, '.claude/skills/caveman');
+  const manifestLink = join(home, '.agents/skills/enlazada/SKILL.md');
+  const spy = instrumentFs(ctx.fs, { fail: { realpath: { [entryLink]: 'EACCES', [manifestLink]: 'EACCES' } } });
+  const result = await discoverSkills({ ...ctx, fs: spy.fs }, skillRoots(home, null));
+  assert.deepEqual(codesFor(result, 'caveman'), ['UNREADABLE']);
+  assert.deepEqual(codesFor(result, 'enlazada'), ['UNREADABLE']);
+  assert.equal(result.manifests.find((m) => m.dirName === 'enlazada').readProblem, 'unreadable');
+  assert.equal(result.partial, true);
+});
+
+test('lstat inyectado con EACCES en la caché de plugins marca resultado parcial', async (t) => {
+  const { home } = await entriesFixture(t);
+  const manifest = join(home, '.claude/plugins/cache/mk/plug/1.0.0/SKILL.md');
+  await makeTree(home, { '.claude/plugins/cache/mk/plug/1.0.0/SKILL.md': skillMd('plug') });
+  const ctx = createContext({ env: { HOME: home } });
+  const spy = instrumentFs(ctx.fs, { fail: { lstat: { [manifest]: 'EACCES' } } });
+  const result = await discoverSkills({ ...ctx, fs: spy.fs }, skillRoots(home, null));
+  assert.ok(result.findings.some((f) => f.code === 'UNREADABLE' && f.subject === 'claude-plugins' && f.paths.includes(manifest)));
+  assert.ok(!spy.reads.includes(manifest));
+  assert.equal(result.partial, true);
+});

@@ -140,7 +140,7 @@ async function readSkillDir(ctx, entry, authorized, state, limits) {
   const { root, entryDir, dir } = entry;
   const subject = basename(entryDir);
   const skillPath = join(dir, SKILL_FILE);
-  const info = await lstatEntry(ctx, skillPath, subject, state);
+  const info = entry.info ?? await lstatEntry(ctx, skillPath, subject, state);
   if (!info) return;
   const manifest = {
     rootId: root.id,
@@ -183,9 +183,15 @@ async function resolveManifestLink(ctx, manifest, skillPath, authorized, state) 
   try {
     target = await ctx.fs.realpath(skillPath);
   } catch (error) {
-    manifest.readProblem = 'broken-link';
-    const code = error.code === 'ELOOP' ? 'LINK_CYCLE' : 'BROKEN_LINK';
-    state.findings.push(finding(code, subject, [manifest.entryPath], 'El enlace del manifiesto no se puede resolver.'));
+    if (error.code === 'ENOENT' || error.code === 'ELOOP') {
+      manifest.readProblem = 'broken-link';
+      const code = error.code === 'ELOOP' ? 'LINK_CYCLE' : 'BROKEN_LINK';
+      state.findings.push(finding(code, subject, [manifest.entryPath], 'El enlace del manifiesto no se puede resolver.'));
+    } else {
+      manifest.readProblem = 'unreadable';
+      state.partial = true;
+      state.findings.push(finding('UNREADABLE', subject, [manifest.entryPath], `No se pudo resolver el enlace del manifiesto (${safeErrorCode(error) ?? 'error'}).`));
+    }
     return null;
   }
   if (isSensitiveName(basename(target))) {
@@ -252,19 +258,23 @@ async function countSiblings(ctx, dir, depth, manifest, budget, state, limits) {
 }
 
 async function walkPluginDir(ctx, root, dir, depth, authorized, state, limits) {
-  const names = await listDir(ctx, dir, root.id, state);
-  if (names.includes(SKILL_FILE)) {
-    const entryDir = join(root.path, relative(root.realPath, dir));
-    await readSkillDir(ctx, { root, entryDir, dir, linkTarget: null, plugin: pluginFromPath(root, dir) }, authorized, state, limits);
-  }
-  for (const name of names) {
-    if (name === SKILL_FILE || EXCLUDED_DIR_NAMES.has(name)) continue;
+  const plugin = pluginFromPath(root, dir);
+  for (const name of await listDir(ctx, dir, root.id, state)) {
+    if (EXCLUDED_DIR_NAMES.has(name)) continue;
     const path = join(dir, name);
     if (!tick(state, limits, root.id, path)) return;
     const info = await lstatEntry(ctx, path, root.id, state);
     if (!info) continue;
     if (info.isSymbolicLink()) {
       state.findings.push(finding('SYMLINK_NOT_FOLLOWED', root.id, [path], 'Symlink dentro de la caché de plugins; no se sigue.'));
+      continue;
+    }
+    if (name === SKILL_FILE) {
+      // Fuera de <marketplace>/<plugin>/<versión> no hay plugin al que atribuir el manifiesto.
+      if (plugin) {
+        const entryDir = join(root.path, relative(root.realPath, dir));
+        await readSkillDir(ctx, { root, entryDir, dir, linkTarget: null, plugin, info }, authorized, state, limits);
+      }
       continue;
     }
     if (!info.isDirectory()) continue;

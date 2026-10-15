@@ -177,7 +177,7 @@ Estados de un plugin, separados explícitamente:
 
 | Campo | Valores | Fuente en M0 |
 |---|---|---|
-| `installed` | `yes`, `no`, `unknown` | `yes` si el `realpath` de algún `installPath` absoluto del registro es igual al directorio de versión en caché, también canónico (`<raíz canónica>/<marketplace>/<plugin>/<versión>`). `realpath` es metadata: no abre el destino. Un `installPath` relativo, inexistente o no resoluble no coincide. `no` si el registro existe y nada coincide (versión obsoleta en caché, `PLUGIN_CACHE_NOT_INSTALLED`, info); `unknown` si el registro falta o es inválido. `installPath` no se publica. |
+| `installed` | `yes`, `no`, `unknown` | `yes` si el `realpath` de algún `installPath` absoluto del registro es igual al directorio de versión en caché, también canónico (`<raíz canónica>/<marketplace>/<plugin>/<versión>`). `realpath` es metadata: no abre el destino. Un `installPath` relativo, inexistente o no resoluble (`realpath` falla con `ENOENT`, `ENOTDIR` o `ELOOP`) no coincide. Si `realpath` falla con otro error (por ejemplo `EACCES`), la entrada no es verificable y se emite `PROVENANCE_INVALID` (warn) una vez por plugin, citando sólo el plugin y el código de error. `no` si el registro existe, nada coincide y todas sus entradas son verificables (versión obsoleta en caché, `PLUGIN_CACHE_NOT_INSTALLED`, info); `unknown` si el registro falta o es inválido, o si nada coincide y alguna entrada no es verificable. `installPath` no se publica. |
 | `enabled` | siempre `unknown` | La habilitación se declara en `~/.claude/settings.json`, que puede contener variables de entorno con credenciales; no se lee (sección 8). |
 | `loaded` | siempre `unverified` | Sólo el host en ejecución sabe qué carga. |
 
