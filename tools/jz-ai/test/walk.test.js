@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { createContext } from '../src/context.js';
+import { createFsRead } from '../src/fs-read.js';
 import { discoverSkills, LIMITS } from '../src/discover.js';
 import { FRONTMATTER_HEAD_BYTES } from '../src/frontmatter.js';
 import { isInside, skillRoots } from '../src/paths.js';
-import { instrumentFs, makeTree, skillMd, tempDir } from '../test-support/fixture.js';
+import { countingOpendir, instrumentFs, makeTree, skillMd, tempDir } from '../test-support/fixture.js';
 
 async function entriesFixture(t) {
   const base = await tempDir(t);
@@ -94,7 +95,7 @@ test('SKILL.md ilegible y raíz ilegible marcan resultado parcial', async (t) =>
   const { home } = await entriesFixture(t);
   const ctx = createContext({ env: { HOME: home } });
   const target = join(home, '.agents/skills/caveman/SKILL.md');
-  const spy = instrumentFs(ctx.fs, { fail: { readBounded: { [target]: 'EACCES' }, readdir: { [join(home, '.claude/skills')]: 'EACCES' } } });
+  const spy = instrumentFs(ctx.fs, { fail: { readBounded: { [target]: 'EACCES' }, readdirBounded: { [join(home, '.claude/skills')]: 'EACCES' } } });
   const result = await discoverSkills({ ...ctx, fs: spy.fs }, skillRoots(home, null));
   assert.equal(result.partial, true);
   assert.ok(result.findings.some((f) => f.code === 'UNREADABLE' && f.subject === 'caveman'));
@@ -163,7 +164,8 @@ test('scriptLike puede ser falso negativo tras truncar el recuento', async (t) =
   await makeTree(home, { '.agents/skills/caveman/a.txt': 'x' });
   const result = await discoverSkills(createContext({ env: { HOME: home } }), skillRoots(home, null), { ...LIMITS, siblingEntries: 1 });
   const direct = result.manifests.find((m) => m.entryPath === join(home, '.agents/skills/caveman/SKILL.md'));
-  assert.equal(direct.siblingFiles, 1);
+  // a.txt y scripts/ no caben en el tope de 1: el directorio no se cuenta y scripts/x.js queda sin ver.
+  assert.equal(direct.siblingFiles, 0);
   assert.equal(direct.scriptLike, false);
   assert.ok(result.findings.some((f) => f.code === 'SIBLINGS_TRUNCATED' && f.subject === 'caveman'));
 });
@@ -200,4 +202,93 @@ test('lstat inyectado con EACCES en la caché de plugins marca resultado parcial
   assert.ok(result.findings.some((f) => f.code === 'UNREADABLE' && f.subject === 'claude-plugins' && f.paths.includes(manifest)));
   assert.ok(!spy.reads.includes(manifest));
   assert.equal(result.partial, true);
+});
+
+async function countedRun(home, roots, limits) {
+  const counter = countingOpendir();
+  const ctx = { ...createContext({ env: { HOME: home } }), fs: createFsRead({ opendir: counter.opendir }) };
+  const result = await discoverSkills(ctx, roots, { ...LIMITS, ...limits });
+  return { result, stats: counter.stats };
+}
+
+const manySkills = (prefix, count) =>
+  Object.fromEntries(Array.from({ length: count }, (_, i) => [`${prefix}/s${String(i).padStart(3, '0')}/SKILL.md`, skillMd(`s${i}`)]));
+const agentsOnly = (home) => skillRoots(home, null).filter((r) => r.id === 'agents');
+const limitCount = (result) => result.findings.filter((f) => f.code === 'LIMIT_REACHED').length;
+
+test('directorio mayor que el presupuesto: LIMIT_REACHED sin subconjunto ni enumeración completa', async (t) => {
+  const home = await tempDir(t);
+  await makeTree(home, manySkills('.agents/skills', 40));
+  const root = join(home, '.agents/skills');
+  const { result, stats } = await countedRun(home, agentsOnly(home), { maxEntries: 10 });
+  assert.deepEqual(result.manifests, [], 'no se inventaría un subconjunto dependiente del orden del sistema de archivos');
+  assert.equal(result.partial, true);
+  assert.equal(limitCount(result), 1);
+  assert.deepEqual(result.findings.find((f) => f.code === 'LIMIT_REACHED').paths, [root]);
+  assert.deepEqual(stats.opened, [root], 'no se abre ningún directorio de skill');
+  assert.equal(stats.materialized.get(root), 11, 'materializa presupuesto + 1');
+  assert.equal(stats.closed, stats.opened.length);
+});
+
+test('presupuesto de descubrimiento: frontera exacta en una raíz de entradas', async (t) => {
+  const home = await tempDir(t);
+  await makeTree(home, manySkills('.agents/skills', 10));
+  const exact = await countedRun(home, agentsOnly(home), { maxEntries: 10 });
+  assert.equal(exact.result.manifests.length, 10);
+  assert.equal(exact.result.partial, false);
+  assert.equal(limitCount(exact.result), 0);
+  const over = await countedRun(home, agentsOnly(home), { maxEntries: 9 });
+  assert.deepEqual(over.result.manifests, []);
+  assert.equal(over.result.partial, true);
+  assert.equal(limitCount(over.result), 1);
+});
+
+test('presupuesto agotado: las raíces posteriores no se enumeran', async (t) => {
+  const home = await tempDir(t);
+  await makeTree(home, {
+    ...manySkills('.claude/skills', 30),
+    ...manySkills('.agents/skills', 5),
+    '.claude/plugins/cache/mk/plug/1.0.0/skills/uno/SKILL.md': skillMd('uno'),
+  });
+  const { result, stats } = await countedRun(home, skillRoots(home, null), { maxEntries: 10 });
+  assert.deepEqual(stats.opened, [join(home, '.claude/skills')], 'sólo se abre la primera raíz');
+  assert.equal(stats.total(), 11);
+  assert.deepEqual(result.manifests, []);
+  assert.equal(limitCount(result), 1);
+  assert.equal(result.partial, true);
+});
+
+test('presupuesto consumido exactamente: la raíz siguiente materializa a lo sumo una entrada', async (t) => {
+  const home = await tempDir(t);
+  await makeTree(home, { ...manySkills('.claude/skills', 10), ...manySkills('.agents/skills', 5) });
+  const roots = skillRoots(home, null).filter((r) => r.id === 'claude-user' || r.id === 'agents');
+  const { result, stats } = await countedRun(home, roots, { maxEntries: 10 });
+  assert.equal(stats.materialized.get(join(home, '.agents/skills')), 1);
+  assert.deepEqual(result.manifests.map((m) => m.rootId), Array(10).fill('claude-user'));
+  assert.equal(limitCount(result), 1);
+  assert.equal(result.partial, true);
+});
+
+test('tope de hermanos: no enumera el directorio completo ni cuenta un subconjunto arbitrario', async (t) => {
+  const home = await tempDir(t);
+  const many = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`.agents/skills/grande/f${i}.sh`, 'x']));
+  await makeTree(home, { '.agents/skills/grande/SKILL.md': skillMd('grande'), ...many });
+  const skillDir = join(home, '.agents/skills/grande');
+  const { result, stats } = await countedRun(home, agentsOnly(home), { siblingEntries: 10 });
+  const manifest = result.manifests.find((m) => m.dirName === 'grande');
+  assert.ok(stats.materialized.get(skillDir) <= 12, 'tope + 1 + SKILL.md');
+  assert.equal(manifest.siblingFiles, 0, 'cota inferior determinista');
+  assert.equal(manifest.scriptLike, false);
+  assert.ok(result.findings.some((f) => f.code === 'SIBLINGS_TRUNCATED' && f.subject === 'grande'));
+  assert.equal(result.partial, false);
+  assert.equal(stats.closed, stats.opened.length);
+});
+
+test('tope de hermanos: frontera exacta sin truncar', async (t) => {
+  const home = await tempDir(t);
+  const many = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`.agents/skills/justa/f${i}.txt`, 'x']));
+  await makeTree(home, { '.agents/skills/justa/SKILL.md': skillMd('justa'), ...many });
+  const { result } = await countedRun(home, agentsOnly(home), { siblingEntries: 10 });
+  assert.equal(result.manifests.find((m) => m.dirName === 'justa').siblingFiles, 10);
+  assert.ok(!result.findings.some((f) => f.code === 'SIBLINGS_TRUNCATED'));
 });

@@ -62,23 +62,29 @@ async function parseInstalledPlugins(ctx, json, path, findings) {
   }
   const map = new Map();
   for (const [id, value] of Object.entries(json.plugins)) {
-    if (!Array.isArray(value)) continue;
     const entries = [];
-    let reported = false;
-    for (const raw of value.filter(isPlainObject)) {
-      const entry = pick(raw, PLUGIN_FIELDS);
-      const { realPath, error } = await canonicalPath(ctx, entry.installPath);
-      if (error && !reported) {
-        reported = true;
-        // installPath no se publica: el hallazgo cita el registro y el plugin, no la ruta.
-        findings.push(invalid('installed-plugins', path, `No se pudo verificar installPath de ${id} (${safeErrorCode(error) ?? 'error'}).`));
+    let problem = null;
+    // Un valor que no es array, o un array vacío, no prueba ausencia: se representa como entrada no verificable.
+    const raws = Array.isArray(value) && value.length > 0 ? value : [null];
+    for (const raw of raws) {
+      const entry = pick(isPlainObject(raw) ? raw : {}, PLUGIN_FIELDS);
+      if (!isPlainObject(raw) || !entry.installPath) {
+        problem ??= 'estructura inválida';
+        entries.push({ ...entry, installRealPath: null, installUnverifiable: true });
+        continue;
       }
+      const { realPath, error } = await canonicalPath(ctx, entry.installPath);
+      if (error) problem ??= `installPath no verificable (${safeErrorCode(error) ?? 'error'})`;
       entries.push({ ...entry, installRealPath: realPath, installUnverifiable: error !== null });
     }
+    // installPath no se publica, y el identificador sólo si tiene forma válida: el registro es dato no confiable.
+    if (problem) findings.push(invalid('installed-plugins', path, `Entrada de ${PLUGIN_ID.test(id) ? id : 'un plugin con identificador no válido'}: ${problem}.`));
     map.set(id, entries);
   }
   return map;
 }
+
+const PLUGIN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}@[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 // Errores que prueban que la ruta no resuelve; cualquier otro impide verificarla.
 const UNRESOLVED_CODES = new Set(['ENOENT', 'ENOTDIR', 'ELOOP']);

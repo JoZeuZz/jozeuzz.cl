@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, opendir, readFile, readdir, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -50,7 +50,7 @@ export async function snapshotTree(base) {
 export function instrumentFs(fs, { fail = {} } = {}) {
   const reads = [];
   const wrapped = {};
-  for (const method of ['lstat', 'realpath', 'readdir', 'readBounded']) {
+  for (const method of ['lstat', 'realpath', 'readdir', 'readdirBounded', 'readBounded']) {
     wrapped[method] = async (path, ...rest) => {
       if (method === 'readBounded') reads.push(path);
       const code = fail[method]?.[path];
@@ -59,4 +59,25 @@ export function instrumentFs(fs, { fail = {} } = {}) {
     };
   }
   return { fs: wrapped, reads };
+}
+
+// Envuelve opendir para contar directorios abiertos, entradas materializadas y cierres.
+export function countingOpendir(base = opendir) {
+  const stats = { opened: [], closed: 0, materialized: new Map(), total: () => [...stats.materialized.values()].reduce((a, b) => a + b, 0) };
+  const wrapped = async (path, ...rest) => {
+    const dir = await base(path, ...rest);
+    stats.opened.push(path);
+    return {
+      async read() {
+        const entry = await dir.read();
+        if (entry) stats.materialized.set(path, (stats.materialized.get(path) ?? 0) + 1);
+        return entry;
+      },
+      async close() {
+        stats.closed += 1;
+        return dir.close();
+      },
+    };
+  };
+  return { opendir: wrapped, stats };
 }

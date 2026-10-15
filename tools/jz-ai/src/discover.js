@@ -56,23 +56,40 @@ function unreadableRoot(root, error, state) {
 }
 
 function tick(state, limits, subject, path) {
-  state.entries += 1;
-  if (state.entries <= limits.maxEntries) return true;
-  if (!state.limitHit) {
-    state.limitHit = true;
-    state.partial = true;
-    state.findings.push(finding('LIMIT_REACHED', subject, [path], `Se alcanzó el límite de ${limits.maxEntries} entradas.`));
+  if (!state.limitHit && state.entries < limits.maxEntries) {
+    state.entries += 1;
+    return true;
   }
+  limitReached(state, limits, subject, path);
   return false;
 }
 
-async function listDir(ctx, dir, subject, state) {
+// Agotar el presupuesto es terminal: no se inspeccionan ni enumeran más entradas.
+function limitReached(state, limits, subject, path) {
+  if (state.limitHit) return;
+  state.limitHit = true;
+  state.partial = true;
+  state.findings.push(finding('LIMIT_REACHED', subject, [path], `Se alcanzó el límite de ${limits.maxEntries} entradas.`));
+}
+
+const isExcluded = (name) => EXCLUDED_DIR_NAMES.has(name);
+
+// Lectura acotada al presupuesto restante. Un directorio que no cabe agota el presupuesto
+// sin inventariar un subconjunto, que dependería del orden del sistema de archivos.
+async function listBudgeted(ctx, dir, subject, state, limits) {
+  if (state.limitHit) return [];
+  const listing = await listDir(ctx, dir, subject, state, limits.maxEntries - state.entries, isExcluded);
+  if (listing.truncated) limitReached(state, limits, subject, dir);
+  return listing.names;
+}
+
+async function listDir(ctx, dir, subject, state, max, skip) {
   try {
-    return await ctx.fs.readdir(dir);
+    return await ctx.fs.readdirBounded(dir, max, skip);
   } catch (error) {
     state.partial = true;
     state.findings.push(finding('UNREADABLE', subject, [dir], `No se pudo listar el directorio (${safeErrorCode(error) ?? 'error'}).`));
-    return [];
+    return { names: [], truncated: false };
   }
 }
 
@@ -88,8 +105,7 @@ async function lstatEntry(ctx, path, subject, state) {
 }
 
 async function scanEntries(ctx, root, authorized, state, limits) {
-  for (const name of await listDir(ctx, root.realPath, root.id, state)) {
-    if (EXCLUDED_DIR_NAMES.has(name)) continue;
+  for (const name of await listBudgeted(ctx, root.realPath, root.id, state, limits)) {
     const physical = join(root.realPath, name);
     if (!tick(state, limits, root.id, physical)) return;
     const info = await lstatEntry(ctx, physical, name, state);
@@ -233,17 +249,14 @@ async function readManifestFile(ctx, manifest, filePath, state, limits) {
 }
 
 // Presupuesto propio por skill: no consume `maxEntries` ni marca el resultado como parcial.
+// Un directorio que no cabe en lo que queda del tope no se cuenta: el recuento se detiene.
 async function countSiblings(ctx, dir, depth, manifest, budget, state, limits) {
-  for (const name of await listDir(ctx, dir, manifest.dirName, state)) {
-    if ((depth === 0 && name === SKILL_FILE) || EXCLUDED_DIR_NAMES.has(name)) continue;
-    if (budget.used >= limits.siblingEntries) {
-      if (!budget.truncated) {
-        budget.truncated = true;
-        state.findings.push(finding('SIBLINGS_TRUNCATED', manifest.dirName, [manifest.entryPath],
-          `Recuento detenido en ${limits.siblingEntries} entradas: siblingFiles es una cota inferior y scriptLike puede ser un falso negativo.`));
-      }
-      return;
-    }
+  const skip = (name) => (depth === 0 && name === SKILL_FILE) || isExcluded(name);
+  const listing = await listDir(ctx, dir, manifest.dirName, state, limits.siblingEntries - budget.used, skip);
+  if (listing.truncated) return truncateSiblings(manifest, budget, state, limits);
+  for (const name of listing.names) {
+    if (budget.truncated) return;
+    if (budget.used >= limits.siblingEntries) return truncateSiblings(manifest, budget, state, limits);
     budget.used += 1;
     const path = join(dir, name);
     const info = await lstatEntry(ctx, path, manifest.dirName, state);
@@ -257,10 +270,16 @@ async function countSiblings(ctx, dir, depth, manifest, budget, state, limits) {
   }
 }
 
+function truncateSiblings(manifest, budget, state, limits) {
+  if (budget.truncated) return;
+  budget.truncated = true;
+  state.findings.push(finding('SIBLINGS_TRUNCATED', manifest.dirName, [manifest.entryPath],
+    `Recuento detenido en ${limits.siblingEntries} entradas: siblingFiles es una cota inferior y scriptLike puede ser un falso negativo.`));
+}
+
 async function walkPluginDir(ctx, root, dir, depth, authorized, state, limits) {
   const plugin = pluginFromPath(root, dir);
-  for (const name of await listDir(ctx, dir, root.id, state)) {
-    if (EXCLUDED_DIR_NAMES.has(name)) continue;
+  for (const name of await listBudgeted(ctx, dir, root.id, state, limits)) {
     const path = join(dir, name);
     if (!tick(state, limits, root.id, path)) return;
     const info = await lstatEntry(ctx, path, root.id, state);

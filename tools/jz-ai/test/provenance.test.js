@@ -69,8 +69,9 @@ test('estructura hostil no contamina prototipos ni aborta', async (t) => {
   assert.equal({}.polluted, undefined);
   assert.equal(result.skillLock.has('a'), false);
   assert.deepEqual(result.skillLock.get('c'), { source: null, sourceType: null, sourceUrl: null, skillPath: null, skillFolderHash: null, installedAt: null, updatedAt: null });
-  assert.equal(result.plugins.has('p@m'), false);
-  assert.deepEqual(result.plugins.get('q@m'), [{ scope: null, installPath: null, version: null, gitCommitSha: null, installedAt: null, lastUpdated: null, installRealPath: null, installUnverifiable: false }]);
+  const unverifiable = { scope: null, installPath: null, version: null, gitCommitSha: null, installedAt: null, lastUpdated: null, installRealPath: null, installUnverifiable: true };
+  assert.deepEqual(result.plugins.get('p@m'), [unverifiable]);
+  assert.deepEqual(result.plugins.get('q@m'), [unverifiable, unverifiable]);
   const wrongShape = await load(t, { '.agents/.skill-lock.json': '[1,2]' });
   assert.equal(wrongShape.result.findings[0].code, 'PROVENANCE_INVALID');
   assert.equal(wrongShape.result.skillLock, null);
@@ -174,4 +175,61 @@ test('installPath no verificable deja installed en unknown, no en no', async (t)
   assert.deepEqual(findings.map((f) => `${f.code}:${f.subject}`), ['PROVENANCE_INVALID:installed-plugins', 'PROVENANCE_INVALID:installed-plugins']);
   assert.ok(findings.every((f) => f.message.includes('(EACCES)')));
   assert.ok(!JSON.stringify(findings).includes('JZAI-CANARY-denied'), 'installPath no se publica');
+});
+
+test('registro de plugin con estructura inválida no se interpreta como ausencia', async (t) => {
+  const cache = '.claude/plugins/cache/mk';
+  const home = await tempDir(t);
+  const versionDir = (name, v = '1.0.0') => join(home, cache, name, v);
+  await makeTree(home, {
+    [`${cache}/mezcla/0.9.0/SKILL.md`]: 'x',
+    [`${cache}/gana/1.0.0/SKILL.md`]: 'x',
+    [`${cache}/ok/0.9.0/SKILL.md`]: 'x',
+    '.claude/plugins/installed_plugins.json': JSON.stringify({ plugins: {
+      'noarray@mk': { installPath: versionDir('noarray') },
+      'vacio@mk': [],
+      'noobj@mk': [null, 3, 'x', []],
+      'sinpath@mk': [{ version: '1' }],
+      'tipo@mk': [{ installPath: 7 }],
+      'mezcla@mk': [null, { installPath: versionDir('mezcla', '0.9.0') }],
+      'gana@mk': [{ installPath: 7 }, { installPath: versionDir('gana'), version: 'v-gana' }],
+      'ok@mk': [{ installPath: versionDir('ok', '0.9.0') }],
+    } }),
+  });
+  const { plugins, findings } = await loadProvenance(createContext({ env: { HOME: home } }), provenanceFiles(home));
+  const record = (name) => pluginRecord({ marketplace: 'mk', name, cacheVersion: '1.0.0', versionDir: versionDir(name) }, plugins);
+  for (const name of ['noarray', 'vacio', 'noobj', 'sinpath', 'tipo', 'mezcla']) {
+    assert.equal(record(name).installed, 'unknown', `${name}: estructura inválida no prueba ausencia`);
+  }
+  assert.equal(record('gana').installed, 'yes', 'una coincidencia válida tiene prioridad');
+  assert.equal(record('gana').registry.version, 'v-gana');
+  assert.equal(record('ok').installed, 'no', 'registro válido sin coincidencia sí prueba ausencia');
+  assert.equal(record('ausente').installed, 'no', 'plugin que no figura en un registro válido');
+  const invalidIds = ['gana@mk', 'mezcla@mk', 'noarray@mk', 'noobj@mk', 'sinpath@mk', 'tipo@mk', 'vacio@mk'];
+  assert.equal(findings.length, invalidIds.length, 'un PROVENANCE_INVALID por plugin con entradas no verificables');
+  assert.ok(findings.every((f) => f.code === 'PROVENANCE_INVALID' && f.subject === 'installed-plugins'));
+  assert.deepEqual(invalidIds.filter((id) => findings.some((f) => f.message.includes(id))), invalidIds);
+});
+
+test('un identificador de plugin no válido no llega a los mensajes', async (t) => {
+  const home = await tempDir(t);
+  const denied = join(home, 'denegado/1.0.0');
+  const hostileId = '/root/.claude/.credentials.json JZAI-CANARY-id@mk';
+  await makeTree(home, {
+    '.claude/plugins/installed_plugins.json': JSON.stringify({ plugins: {
+      [hostileId]: [{ installPath: denied }],
+      [`${'a'.repeat(300)}@mk`]: [{ installPath: denied }],
+      'plug@mk': [{ installPath: denied }],
+    } }),
+  });
+  const ctx = createContext({ env: { HOME: home } });
+  const spy = instrumentFs(ctx.fs, { fail: { realpath: { [denied]: 'EACCES' } } });
+  const { findings } = await loadProvenance({ ...ctx, fs: spy.fs }, provenanceFiles(home));
+  assert.equal(findings.length, 3);
+  const text = JSON.stringify(findings);
+  assert.ok(!text.includes('JZAI-CANARY-id'), 'el identificador hostil no se publica');
+  assert.ok(!text.includes('/root/'), 'ninguna ruta del identificador');
+  assert.ok(!text.includes('a'.repeat(300)), 'identificador demasiado largo no se publica');
+  assert.ok(findings.some((f) => f.message.includes('plug@mk')), 'un identificador válido sí se cita');
+  assert.ok(findings.every((f) => f.message.includes('(EACCES)')));
 });
