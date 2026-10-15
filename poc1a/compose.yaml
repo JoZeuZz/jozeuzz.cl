@@ -53,13 +53,17 @@ services:
   e2e:
     image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf
     profiles: [e2e]
-    user: pwuser
+    user: "1000:1000"
     working_dir: /app
     volumes:
       - ./:/app
+    # Comparte la red de `app`: sin red propia ni puertos. El navegador pide el origen configurado
+    # (127.0.0.1:3101) y Chromium lo redirige a localhost:3000 (ver playwright.config.ts).
+    network_mode: "service:app"
     environment:
-      POC_BASE_URL: http://app:3000
-    networks: [externa]
+      HOME: /tmp
+      POC_BASE_URL: http://127.0.0.1:3101
+      E2E_RESET: ${E2E_RESET:-}
 
 volumes:
   db:

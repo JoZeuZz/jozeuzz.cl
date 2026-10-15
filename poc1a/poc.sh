@@ -23,7 +23,11 @@ case "$cmd" in
   # interactivamente si quedan tablas antiguas y el servidor de desarrollo se cuelga sin TTY).
   resetdb) $C exec -T db psql -U poc -d poc -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;' && $C restart app ;;
   exec) $C exec -T app "$@" ;;
-  e2e) $C --profile e2e run --rm e2e npx playwright test "$@" ;;
+  # Reset + semilla en el host (poc.sh exec) y E2E en el contenedor con la red de `app`. El resultado del reset
+  # (incluida la contraseña aleatoria del admin sintético) viaja sólo por entorno, no se escribe en disco.
+  e2e)
+    E2E_RESET="$(node scripts/reset-e2e.mjs)"; export E2E_RESET
+    $C --profile e2e run --rm -e E2E_RESET e2e npx playwright test "$@" ;;
   stats) docker stats --no-stream $($C ps -q) ;;
   destroy) $C down -v --remove-orphans ;;
   *) echo "uso: ./poc.sh init|deps [cmd]|up|down|ps|logs [n]|logs-since <t>|restart|psql [args]|resetdb|exec <cmd>|e2e [args]|stats|destroy" >&2; exit 2 ;;

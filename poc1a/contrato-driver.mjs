@@ -254,6 +254,8 @@ export default async function crearDriver() {
   return {
     nombre: 'poc1a-payload-next',
     baseUrl: BASE,
+    /** Sólo para scripts/reset-e2e.mjs: entrega al runner E2E lo que devolvió el último reset. */
+    __estado: () => estado,
     async reset(semilla) {
       const b64 = Buffer.from(JSON.stringify(semilla)).toString('base64');
       const r = spawnSync('./poc.sh', ['exec', 'env', 'POC_NO_PUSH=1', 'npx', 'tsx', 'scripts/reset-semilla.ts', b64], {
