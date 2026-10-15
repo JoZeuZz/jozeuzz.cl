@@ -233,3 +233,75 @@ test('un identificador de plugin no válido no llega a los mensajes', async (t) 
   assert.ok(findings.some((f) => f.message.includes('plug@mk')), 'un identificador válido sí se cita');
   assert.ok(findings.every((f) => f.message.includes('(EACCES)')));
 });
+
+test('installPath se resuelve sin sanear: NUL lo hace no verificable, nunca coincidente', async (t) => {
+  const cache = '.claude/plugins/cache/mk';
+  const home = await tempDir(t);
+  const versionDir = (name, v = '1.0.0') => join(home, cache, name, v);
+  await makeTree(home, {
+    [`${cache}/nul/1.0.0/SKILL.md`]: 'x',
+    [`${cache}/canario/1.0.0/SKILL.md`]: 'x',
+    [`${cache}/nulrel/1.0.0/SKILL.md`]: 'x',
+    [`${cache}/solo/1.0.0/SKILL.md`]: 'x',
+    '.claude/plugins/installed_plugins.json': JSON.stringify({ plugins: {
+      'nul@mk': [{ installPath: `${versionDir('nul')}\u0000` }],
+      'canario@mk': [{ installPath: `${versionDir('canario')}\u0000JZAI-CANARY-nul` }],
+      'nulrel@mk': [{ installPath: 'relativa\u0000' }],
+      'solo@mk': [{ installPath: '\u0000' }],
+    } }),
+  });
+  const { plugins, findings } = await loadProvenance(createContext({ env: { HOME: home } }), provenanceFiles(home));
+  const record = (name) => pluginRecord({ marketplace: 'mk', name, cacheVersion: '1.0.0', versionDir: versionDir(name) }, plugins);
+  for (const name of ['nul', 'canario', 'nulrel', 'solo']) {
+    assert.equal(record(name).installed, 'unknown', `${name}: una ruta con NUL no prueba presencia ni ausencia`);
+    assert.equal(record(name).registry, null);
+    assert.equal(plugins.get(`${name}@mk`)[0].installRealPath, null);
+  }
+  assert.deepEqual(findings.map((f) => `${f.code}:${f.subject}`), Array(4).fill('PROVENANCE_INVALID:installed-plugins'));
+  const ids = ['canario@mk', 'nul@mk', 'nulrel@mk', 'solo@mk'];
+  assert.deepEqual(ids.filter((id) => findings.some((f) => f.message.includes(id))), ids);
+  assert.ok(!JSON.stringify(findings).includes('JZAI-CANARY-nul'), 'installPath no se publica');
+  assert.ok(findings.every((f) => !f.message.includes(home) && f.message.includes('installPath malformado')), 'mensaje fijo, sin la ruta');
+});
+
+test('installPath con otros controles se resuelve tal cual: no coincide con la ruta saneada', async (t) => {
+  const cache = '.claude/plugins/cache/mk';
+  const home = await tempDir(t);
+  const versionDir = (name) => join(home, cache, name, '1.0.0');
+  const controls = { esc: '\u001b', ansi: '\u001b[31m', c1: '\u0085', del: '\u007f', bidi: '‮', tab: '\t' };
+  await makeTree(home, Object.fromEntries(Object.keys(controls).map((name) => [`${cache}/${name}/1.0.0/SKILL.md`, 'x'])));
+  await makeTree(home, {
+    '.claude/plugins/installed_plugins.json': JSON.stringify({ plugins: Object.fromEntries(Object.entries(controls).map(([name, control]) =>
+      [`${name}@mk`, [{ installPath: `${versionDir(name)}${control}` }]])) }),
+  });
+  const { plugins, findings } = await loadProvenance(createContext({ env: { HOME: home } }), provenanceFiles(home));
+  for (const name of Object.keys(controls)) {
+    const record = pluginRecord({ marketplace: 'mk', name, cacheVersion: '1.0.0', versionDir: versionDir(name) }, plugins);
+    assert.equal(record.installed, 'no', `${name}: la ruta original no existe; sanearla no puede crear una coincidencia`);
+    assert.equal(plugins.get(`${name}@mk`)[0].installRealPath, null);
+  }
+  assert.deepEqual(findings, [], 'ENOENT es definitivo: la entrada es verificable');
+});
+
+test('registro mixto: la ruta con NUL no gana a una entrada válida ni la sustituye', async (t) => {
+  const cache = '.claude/plugins/cache/mk';
+  const home = await tempDir(t);
+  const versionDir = (name, v = '1.0.0') => join(home, cache, name, v);
+  await makeTree(home, {
+    [`${cache}/valida/1.0.0/SKILL.md`]: 'x',
+    [`${cache}/otra/1.0.0/SKILL.md`]: 'x',
+    [`${cache}/otra/0.9.0/SKILL.md`]: 'x',
+    '.claude/plugins/installed_plugins.json': JSON.stringify({ plugins: {
+      'valida@mk': [{ installPath: `${versionDir('valida')}\u0000`, version: 'v-nul' }, { installPath: versionDir('valida'), version: 'v-ok' }],
+      'otra@mk': [{ installPath: versionDir('otra', '0.9.0'), version: 'v-vieja' }, { installPath: `${versionDir('otra')}\u0000`, version: 'v-nul' }],
+    } }),
+  });
+  const { plugins, findings } = await loadProvenance(createContext({ env: { HOME: home } }), provenanceFiles(home));
+  const record = (name) => pluginRecord({ marketplace: 'mk', name, cacheVersion: '1.0.0', versionDir: versionDir(name) }, plugins);
+  assert.equal(record('valida').installed, 'yes', 'la entrada válida coincide');
+  assert.equal(record('valida').registry.version, 'v-ok', 'los metadatos provienen de la entrada válida');
+  assert.equal(record('otra').installed, 'unknown', 'sin coincidencia válida, la entrada malformada impide afirmar ausencia');
+  assert.equal(record('otra').registry, null);
+  assert.equal(findings.length, 2, 'un PROVENANCE_INVALID por plugin');
+  assert.ok(findings.every((f) => f.code === 'PROVENANCE_INVALID' && f.subject === 'installed-plugins'));
+});

@@ -258,15 +258,58 @@ test('presupuesto agotado: las raíces posteriores no se enumeran', async (t) =>
   assert.equal(result.partial, true);
 });
 
-test('presupuesto consumido exactamente: la raíz siguiente materializa a lo sumo una entrada', async (t) => {
+test('presupuesto consumido exactamente: la raíz posterior pendiente no se abre', async (t) => {
   const home = await tempDir(t);
   await makeTree(home, { ...manySkills('.claude/skills', 10), ...manySkills('.agents/skills', 5) });
+  const later = join(home, '.agents/skills');
   const roots = skillRoots(home, null).filter((r) => r.id === 'claude-user' || r.id === 'agents');
   const { result, stats } = await countedRun(home, roots, { maxEntries: 10 });
-  assert.equal(stats.materialized.get(join(home, '.agents/skills')), 1);
+  assert.ok(!stats.opened.includes(later), 'agotar el presupuesto es terminal');
+  assert.equal(stats.materialized.has(later), false);
   assert.deepEqual(result.manifests.map((m) => m.rootId), Array(10).fill('claude-user'));
   assert.equal(limitCount(result), 1);
+  assert.deepEqual(result.findings.find((f) => f.code === 'LIMIT_REACHED').paths, [later], 'señala la raíz sin verificar');
   assert.equal(result.partial, true);
+  assert.equal(stats.closed, stats.opened.length);
+});
+
+test('presupuesto consumido exactamente: una raíz posterior vacía tampoco se abre ni se da por completa', async (t) => {
+  const home = await tempDir(t);
+  await makeTree(home, { ...manySkills('.claude/skills', 10), '.agents/skills': { dir: true } });
+  const later = join(home, '.agents/skills');
+  const roots = skillRoots(home, null).filter((r) => r.id === 'claude-user' || r.id === 'agents');
+  const { result, stats } = await countedRun(home, roots, { maxEntries: 10 });
+  assert.ok(!stats.opened.includes(later));
+  assert.equal(limitCount(result), 1);
+  assert.equal(result.partial, true);
+});
+
+test('presupuesto consumido exactamente sin trabajo posterior: resultado completo', async (t) => {
+  const home = await tempDir(t);
+  await makeTree(home, manySkills('.claude/skills', 10));
+  // Las demás raíces no existen: no queda nada por enumerar.
+  const { result, stats } = await countedRun(home, skillRoots(home, null), { maxEntries: 10 });
+  assert.equal(result.manifests.length, 10);
+  assert.equal(limitCount(result), 0);
+  assert.equal(result.partial, false);
+  assert.equal(stats.materialized.get(join(home, '.claude/skills')), 10);
+  assert.equal(stats.closed, stats.opened.length);
+});
+
+test('presupuesto consumido exactamente en la caché: el subdirectorio pendiente no se abre', async (t) => {
+  const home = await tempDir(t);
+  const versionDir = join(home, '.claude/plugins/cache/mk/plug/1.0.0');
+  await makeTree(home, { '.claude/plugins/cache/mk/plug/1.0.0/a/SKILL.md': skillMd('a'), '.claude/plugins/cache/mk/plug/1.0.0/zz': { dir: true } });
+  // Entradas: mk, plug, 1.0.0, a, a/SKILL.md, zz = 6; zz queda sin enumerar. zz está fuera del
+  // directorio de la skill, así que tampoco lo abre el recuento de hermanos.
+  const roots = skillRoots(home, null).filter((r) => r.id === 'claude-plugins');
+  const { result, stats } = await countedRun(home, roots, { maxEntries: 6 });
+  assert.ok(!stats.opened.includes(join(versionDir, 'zz')), 'no se abre con presupuesto cero');
+  assert.deepEqual(result.manifests.map((m) => m.realPath), [join(versionDir, 'a/SKILL.md')]);
+  assert.equal(limitCount(result), 1);
+  assert.deepEqual(result.findings.find((f) => f.code === 'LIMIT_REACHED').paths, [join(versionDir, 'zz')]);
+  assert.equal(result.partial, true);
+  assert.equal(stats.closed, stats.opened.length);
 });
 
 test('tope de hermanos: no enumera el directorio completo ni cuenta un subconjunto arbitrario', async (t) => {
@@ -291,4 +334,30 @@ test('tope de hermanos: frontera exacta sin truncar', async (t) => {
   const { result } = await countedRun(home, agentsOnly(home), { siblingEntries: 10 });
   assert.equal(result.manifests.find((m) => m.dirName === 'justa').siblingFiles, 10);
   assert.ok(!result.findings.some((f) => f.code === 'SIBLINGS_TRUNCATED'));
+});
+
+test('tope de hermanos consumido exactamente: el directorio anidado pendiente no se abre', async (t) => {
+  const home = await tempDir(t);
+  await makeTree(home, {
+    '.agents/skills/llena/SKILL.md': skillMd('llena'),
+    '.agents/skills/llena/a.txt': 'x',
+    '.agents/skills/llena/sub/run.sh': 'x',
+    '.agents/skills/vacia/SKILL.md': skillMd('vacia'),
+    '.agents/skills/vacia/a.txt': 'x',
+    '.agents/skills/vacia/sub': { dir: true },
+  });
+  // Hermanos de primer nivel: a.txt y sub/ = 2 = tope; el contenido de sub/ queda sin ver.
+  const { result, stats } = await countedRun(home, agentsOnly(home), { siblingEntries: 2 });
+  for (const name of ['llena', 'vacia']) {
+    const sub = join(home, '.agents/skills', name, 'sub');
+    const manifest = result.manifests.find((m) => m.dirName === name);
+    assert.ok(!stats.opened.includes(sub), `${name}: sub/ no se abre con el tope agotado`);
+    assert.equal(stats.materialized.has(sub), false);
+    assert.equal(manifest.siblingFiles, 1, `${name}: sólo a.txt; cota inferior`);
+    assert.equal(manifest.scriptLike, false);
+    assert.equal(result.findings.filter((f) => f.code === 'SIBLINGS_TRUNCATED' && f.subject === name).length, 1, `${name}: el contenido sin ver no se presenta como completo`);
+  }
+  assert.equal(limitCount(result), 0);
+  assert.equal(result.partial, false, 'SIBLINGS_TRUNCATED no afecta completeness');
+  assert.equal(stats.closed, stats.opened.length);
 });

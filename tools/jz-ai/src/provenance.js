@@ -68,12 +68,19 @@ async function parseInstalledPlugins(ctx, json, path, findings) {
     const raws = Array.isArray(value) && value.length > 0 ? value : [null];
     for (const raw of raws) {
       const entry = pick(isPlainObject(raw) ? raw : {}, PLUGIN_FIELDS);
-      if (!isPlainObject(raw) || !entry.installPath) {
+      // Se resuelve la ruta original: sanearla antes podría convertir una ruta inválida en otra válida.
+      const installPath = isPlainObject(raw) && Object.hasOwn(raw, 'installPath') && typeof raw.installPath === 'string' ? raw.installPath : '';
+      if (!installPath) {
         problem ??= 'estructura inválida';
         entries.push({ ...entry, installRealPath: null, installUnverifiable: true });
         continue;
       }
-      const { realPath, error } = await canonicalPath(ctx, entry.installPath);
+      if (installPath.includes('\0')) {
+        problem ??= 'installPath malformado';
+        entries.push({ ...entry, installRealPath: null, installUnverifiable: true });
+        continue;
+      }
+      const { realPath, error } = await canonicalPath(ctx, installPath);
       if (error) problem ??= `installPath no verificable (${safeErrorCode(error) ?? 'error'})`;
       entries.push({ ...entry, installRealPath: realPath, installUnverifiable: error !== null });
     }

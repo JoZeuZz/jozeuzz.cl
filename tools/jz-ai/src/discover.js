@@ -78,6 +78,11 @@ const isExcluded = (name) => EXCLUDED_DIR_NAMES.has(name);
 // sin inventariar un subconjunto, que dependería del orden del sistema de archivos.
 async function listBudgeted(ctx, dir, subject, state, limits) {
   if (state.limitHit) return [];
+  // Sin presupuesto el directorio no se abre: su contenido queda sin verificar.
+  if (state.entries >= limits.maxEntries) {
+    limitReached(state, limits, subject, dir);
+    return [];
+  }
   const listing = await listDir(ctx, dir, subject, state, limits.maxEntries - state.entries, isExcluded);
   if (listing.truncated) limitReached(state, limits, subject, dir);
   return listing.names;
@@ -251,6 +256,8 @@ async function readManifestFile(ctx, manifest, filePath, state, limits) {
 // Presupuesto propio por skill: no consume `maxEntries` ni marca el resultado como parcial.
 // Un directorio que no cabe en lo que queda del tope no se cuenta: el recuento se detiene.
 async function countSiblings(ctx, dir, depth, manifest, budget, state, limits) {
+  // Tope agotado: el directorio no se abre y su contenido no se presenta como contado.
+  if (budget.used >= limits.siblingEntries) return truncateSiblings(manifest, budget, state, limits);
   const skip = (name) => (depth === 0 && name === SKILL_FILE) || isExcluded(name);
   const listing = await listDir(ctx, dir, manifest.dirName, state, limits.siblingEntries - budget.used, skip);
   if (listing.truncated) return truncateSiblings(manifest, budget, state, limits);
