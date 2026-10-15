@@ -68,7 +68,11 @@ export interface Config {
   blocks: {};
   collections: {
     users: User;
-    media: Media;
+    proyectos: Proyecto;
+    servicios: Servicio;
+    solicitudes: Solicitude;
+    'medios-publicos': MediosPublico;
+    'medios-privados': MediosPrivado;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -77,7 +81,11 @@ export interface Config {
   collectionsJoins: {};
   collectionsSelect: {
     users: UsersSelect<false> | UsersSelect<true>;
-    media: MediaSelect<false> | MediaSelect<true>;
+    proyectos: ProyectosSelect<false> | ProyectosSelect<true>;
+    servicios: ServiciosSelect<false> | ServiciosSelect<true>;
+    solicitudes: SolicitudesSelect<false> | SolicitudesSelect<true>;
+    'medios-publicos': MediosPublicosSelect<false> | MediosPublicosSelect<true>;
+    'medios-privados': MediosPrivadosSelect<false> | MediosPrivadosSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -145,11 +153,38 @@ export interface User {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "media".
+ * via the `definition` "proyectos".
  */
-export interface Media {
+export interface Proyecto {
   id: number;
-  alt: string;
+  slug: string;
+  titulo: string;
+  resumen?: string | null;
+  medios?:
+    | (
+        | {
+            relationTo: 'medios-publicos';
+            value: number | MediosPublico;
+          }
+        | {
+            relationTo: 'medios-privados';
+            value: number | MediosPrivado;
+          }
+      )[]
+    | null;
+  notas_internas?: string | null;
+  retiradoEn?: string | null;
+  updatedAt: string;
+  createdAt: string;
+  _status?: ('draft' | 'published') | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "medios-publicos".
+ */
+export interface MediosPublico {
+  id: number;
+  alt?: string | null;
   updatedAt: string;
   createdAt: string;
   url?: string | null;
@@ -161,6 +196,55 @@ export interface Media {
   height?: number | null;
   focalX?: number | null;
   focalY?: number | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "medios-privados".
+ */
+export interface MediosPrivado {
+  id: number;
+  alt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+  url?: string | null;
+  thumbnailURL?: string | null;
+  filename?: string | null;
+  mimeType?: string | null;
+  filesize?: number | null;
+  width?: number | null;
+  height?: number | null;
+  focalX?: number | null;
+  focalY?: number | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "servicios".
+ */
+export interface Servicio {
+  id: number;
+  slug: string;
+  titulo: string;
+  descripcion?: string | null;
+  activo?: boolean | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "solicitudes".
+ */
+export interface Solicitude {
+  id: number;
+  nombre: string;
+  contacto: string;
+  tipo_equipo: string;
+  descripcion: string;
+  servicio?: (number | null) | Servicio;
+  estado: 'recibida' | 'en_gestion' | 'cerrada';
+  motivo_cierre?: ('atendida' | 'descartada' | 'duplicada' | 'spam') | null;
+  observaciones_internas?: string | null;
+  updatedAt: string;
+  createdAt: string;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -191,8 +275,24 @@ export interface PayloadLockedDocument {
         value: number | User;
       } | null)
     | ({
-        relationTo: 'media';
-        value: number | Media;
+        relationTo: 'proyectos';
+        value: number | Proyecto;
+      } | null)
+    | ({
+        relationTo: 'servicios';
+        value: number | Servicio;
+      } | null)
+    | ({
+        relationTo: 'solicitudes';
+        value: number | Solicitude;
+      } | null)
+    | ({
+        relationTo: 'medios-publicos';
+        value: number | MediosPublico;
+      } | null)
+    | ({
+        relationTo: 'medios-privados';
+        value: number | MediosPrivado;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -261,9 +361,70 @@ export interface UsersSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "media_select".
+ * via the `definition` "proyectos_select".
  */
-export interface MediaSelect<T extends boolean = true> {
+export interface ProyectosSelect<T extends boolean = true> {
+  slug?: T;
+  titulo?: T;
+  resumen?: T;
+  medios?: T;
+  notas_internas?: T;
+  retiradoEn?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  _status?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "servicios_select".
+ */
+export interface ServiciosSelect<T extends boolean = true> {
+  slug?: T;
+  titulo?: T;
+  descripcion?: T;
+  activo?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "solicitudes_select".
+ */
+export interface SolicitudesSelect<T extends boolean = true> {
+  nombre?: T;
+  contacto?: T;
+  tipo_equipo?: T;
+  descripcion?: T;
+  servicio?: T;
+  estado?: T;
+  motivo_cierre?: T;
+  observaciones_internas?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "medios-publicos_select".
+ */
+export interface MediosPublicosSelect<T extends boolean = true> {
+  alt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  url?: T;
+  thumbnailURL?: T;
+  filename?: T;
+  mimeType?: T;
+  filesize?: T;
+  width?: T;
+  height?: T;
+  focalX?: T;
+  focalY?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "medios-privados_select".
+ */
+export interface MediosPrivadosSelect<T extends boolean = true> {
   alt?: T;
   updatedAt?: T;
   createdAt?: T;

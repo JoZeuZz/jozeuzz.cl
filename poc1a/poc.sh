@@ -16,9 +16,15 @@ case "$cmd" in
   down) $C down ;;
   ps) $C ps ;;
   logs) $C logs --no-color --tail "${1:-200}" app ;;
+  logs-since) $C logs --no-color --since "${1:?uso: logs-since <instante>}" app ;;
+  restart) $C restart app ;;
+  psql) $C exec -T db psql -U poc -d poc "$@" ;;
+  # Borra y recrea sólo el schema `public` de la base del proyecto (drizzle push pregunta por renombres
+  # interactivamente si quedan tablas antiguas y el servidor de desarrollo se cuelga sin TTY).
+  resetdb) $C exec -T db psql -U poc -d poc -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;' && $C restart app ;;
   exec) $C exec -T app "$@" ;;
   e2e) $C --profile e2e run --rm e2e npx playwright test "$@" ;;
   stats) docker stats --no-stream $($C ps -q) ;;
   destroy) $C down -v --remove-orphans ;;
-  *) echo "uso: ./poc.sh init|deps [cmd]|up|down|ps|logs [n]|exec <cmd>|e2e [args]|stats|destroy" >&2; exit 2 ;;
+  *) echo "uso: ./poc.sh init|deps [cmd]|up|down|ps|logs [n]|logs-since <t>|restart|psql [args]|resetdb|exec <cmd>|e2e [args]|stats|destroy" >&2; exit 2 ;;
 esac
