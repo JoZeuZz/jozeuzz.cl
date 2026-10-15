@@ -45,7 +45,7 @@ beforeAll(async () => {
   })
   const sol = await payload.create({
     collection: 'solicitudes',
-    data: { nombre: 'SNT-NOMBRE', contacto: 'c@example.invalid', tipo_equipo: 'e', descripcion: 'd', observaciones_internas: 'SNT-OBS-INTERNA' },
+    data: { nombre: 'SNT-NOMBRE', contacto: 'c@example.invalid', tipo_equipo: 'e', descripcion: 'd', estado: 'recibida', observaciones_internas: 'SNT-OBS-INTERNA' },
     overrideAccess: true,
   })
   ids.sol = sol.id
