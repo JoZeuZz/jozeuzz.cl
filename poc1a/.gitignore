@@ -12,5 +12,3 @@ next-env.d.ts
 /.npm-cache/
 /.next-prod/
 /media-store-prod/
-/.next-prod/
-/media-store-prod/

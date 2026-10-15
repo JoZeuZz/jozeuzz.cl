@@ -1,7 +1,9 @@
 # Evidencia POC-1a (candidata A) — fase 2
 
 Fecha de las ejecuciones: 2026-10-15. Stack: Next.js 16.4.1, Payload 3.90.2, PostgreSQL 18.6, Node 24.22.0
-(imágenes por digest en `compose.yaml`), Playwright 1.64.1 (imagen por digest). Todo se ejecutó con `./poc.sh`.
+(imágenes por digest en `compose.yaml`), Playwright 1.64.1 (imagen por digest). Corren en Docker vía `./poc.sh`: la app, la base, vitest, `tsc`
+y Playwright. Corren **en el host con Node 20.19.2** (no Node 24): `node --test contrato/test/`, `contrato/run.mjs` (driver y batería),
+`scripts/reset-e2e.mjs`, `scripts/medir-js.mjs` y `scripts/licencias.mjs`.
 
 ## Hardware y entorno
 Host: Intel Xeon E5-2697 v4 @ 2,30 GHz (VM de 6 vCPU visibles, `nproc` = 6), 8 GiB de RAM (`free -m`: 8192 total),
@@ -12,11 +14,11 @@ indicativas, no de laboratorio.
 | Comando | Resultado | Salida |
 |---|---|---|
 | `node --test contrato/test/` | 43 pruebas, 43 ok | 0 |
-| `./poc.sh exec npx vitest run` (dev, schema `poc_test`) | 5 archivos, 49 pruebas ok (6 unit., 14 integración, 4 regla estática, 14 seguridad, 11 canales) | 0 |
+| `./poc.sh exec npx vitest run` (dev, schema `poc_test`) | 7 archivos, 64 pruebas ok (6 unit., 15 integración, 4 regla estática, 14 seguridad, 11 canales, 14 privacidad); ronda de correcciones. Fase 2 original: 5 archivos, 49 | 0 |
 | `./poc.sh exec npx tsc --noEmit` | sin errores | 0 |
 | `run.mjs --alcance poc-1a` contra `next dev` | `casos 56 · ok 13 · fail 0 · pendiente 43` | 0 |
 | `run.mjs --alcance poc-1a` contra producción, 3 ejecuciones seguidas (232 s, 232 s, 231 s) | `casos 56 · ok 13 · fail 0 · pendiente 43` ×3 | 0, 0, 0 |
-| `vitest run test/http` contra producción (`app-prod:3000`, schema `poc_prod`) | 25 pruebas ok | 0 |
+| `vitest run test/http` contra producción (`app-prod:3000`, schema `poc_prod`) | 25 pruebas ok en la fase 2; 39 ok tras añadir `privacidad.test.ts` | 0 |
 | `./poc.sh e2e` (3 specs, chromium) | 3 ok: F3, F1 sin JS, acciones de servidor | 0 |
 
 Las 43 pendientes son `NoImplementado` de POC-1b (31) y POC-3 (12, IN-*): no son verdes.
@@ -41,6 +43,38 @@ Las 43 pendientes son `NoImplementado` de POC-1b (31) y POC-3 (12, IN-*): no son
   `{"errors":[{"message":"Unauthorized, you must be logged in to make this request."}]}`; sin fuga.
 - Red: el servicio `e2e` usa `network_mode: "service:app"`; Chromium pide `127.0.0.1:3101` (origen de `serverURL`/`csrf`) y
   `--host-resolver-rules` lo redirige a `127.0.0.1:3000`, de modo que cookies `Secure` y `Origin` se ejercen tal como en uso real.
+
+## Ronda de correcciones tras la revisión de cierre
+### Pruebas nuevas (`test/http/privacidad.test.ts`, dev y producción, 14 pruebas ok en ambos)
+- **M1**: anónimo en `/admin/collections/{proyectos,solicitudes,medios-privados}[/<id>]` (HTML y RSC): sin centinelas privados en cuerpo ni `Location`,
+  sin el id de la solicitud en el cuerpo. Observado: HTML responde 200 (vista de login, sin datos) y RSC 307. Que haya o no ids en claro en la URL de
+  redirección no se considera fuga (es la URL pedida por el propio cliente).
+- **B1**: `where[notas_internas][equals|like|contains]` (con y sin `draft=true`), `sort=±notas_internas`, `select[notas_internas]` y `depth` 0/1/2/5: sin valor
+  ni coincidencias; el publicado es legible sin el campo.
+- **B2**: `/api/proyectos/versions`, `/api/proyectos/versions/:id` y `/api/solicitudes/count` sin datos para el anónimo.
+  **Registro** `/api/users/init` (anónimo): `200 {"initialized":true}`; revela si ya existe un admin (ventana de first-register). Sin cambios.
+- **B7**: proyecto **publicado** que referencia un medio **privado**, `depth` 0/1/2 anónimo: no sale `alt`, contenido, nombre de archivo ni URL del medio.
+  **Sí sale la referencia**: `medios: [{"relationTo":"medios-privados","value":<id>}]` en los tres depth (el id numérico y el nombre de colección).
+  Clasificación: **riesgo aceptado / defecto de configuración de la candidata** (revela existencia e id, no contenido). No se corrige: `access.read` de campo
+  en `medios` ocultaría también los medios públicos y `filterOptions` solo restringe la selección en el admin, así que no hay control nativo trivial.
+  Opciones de producto: separar `medios` en dos campos (uno solo público) o validar en `beforeChange` que un publicado no referencie privados.
+- Las pruebas nuevas pasaron a la primera: son cobertura, no corrección de código; su capacidad de discriminar se demuestra con las mutaciones siguientes.
+
+### Mutaciones manuales de `src/access/index.ts` (no commiteadas; revertidas; dev)
+| Mutación | vitest (63 pruebas) | Batería poc-1a (13 ok esperados) |
+|---|---|---|
+| `publicadoOAdmin` devuelve `true` | 9 fallan: 6 de integración (borrador/versiones), 1 unit., 2 de `seguridad` (borradores) | 6 FAIL, 7 ok: AU-05, PR-07, CO-02, CO-04, CO-05, CO-06 |
+| `soloAdmin` devuelve `true` | 14 fallan: CSRF (2), `/api/users`, `/api/solicitudes`, versiones, Forbidden en solicitudes, unit., y 5 de `privacidad` (B2/B7/depth) y `/api/access/../users` | 5 FAIL, 8 ok: AU-05, AU-06, PR-04, PR-07, CO-07 |
+| `soloAdminCampo` devuelve `true` | 6 fallan: 4 de `privacidad` (B1), 1 de integración (`notas_internas`), 1 unit. | **0 FAIL, 13 ok**: la batería poc-1a no discrimina el acceso por campo |
+Conclusión: las reglas de colección están vigiladas por batería y vitest; el acceso por campo (`notas_internas`, `observaciones_internas`) solo lo vigila
+vitest (la batería no lee ese campo en 1a porque la colección ya es solo admin). Tras la mutación 2, AU-06 dejó proyectos anónimos en la base; el reset de
+la siguiente ejecución los limpia.
+
+### Adaptador y script
+- `vaciarBase` (`src/lib/base.ts`) truncaba `payload_migrations`; tras la batería contra `poc_prod` el registro de migraciones quedaba vacío y un `./poc.sh migrate`
+  posterior intentaría repetir `inicial`. Prueba roja primero (`expected +0 to be 1`), luego verde: ahora la excluye. **La base `poc_prod` de la fase 2 ya había
+  perdido ese registro**; no se repara (la POC es desechable).
+- `./poc.sh stats` sin contenedores del proyecto sale con mensaje (antes listaba contenedores ajenos del host). Verificado con el proyecto detenido (exit 1).
 
 ## Mediciones (mediana de 3, producción)
 | Métrica | Valor | Comando / nota |
@@ -92,8 +126,30 @@ El driver mantiene `connection: close`.
 - Medios `text/plain` permitidos sólo para los centinelas de la POC (R-3).
 - ~172 KB gzip de JS público por página aunque no haya componentes de cliente (runtime de Next/React).
 - `allowedDevOrigins` y `POC_*` son de la POC; no son configuración de producto.
+- **M3**: `/api/users/forgot-password` está abierto al anónimo y no hay adaptador de correo: Payload usa el de consola. Con el correo del admin, un anónimo deja
+  `To: '<correo>'` en los logs (PII en registros) y se escribe `resetPasswordToken` en la base. Lo mitiga el intervalo mínimo por usuario de Payload. Producto:
+  adaptador de correo real o cerrar el endpoint. Resultado de lectura de código, no se probó por HTTP (es una mutación).
+- **B3**: `app`, `app-prod` y `e2e` (que comparte la red de `app`) tienen salida a Internet por la red `externa`, necesaria para publicar puertos.
+  No es solo `deps`; el comentario de `compose.yaml` se corrigió.
+- **B4**: sin `cap_drop`, `no-new-privileges` ni `read_only`; `./` se monta con escritura.
+- **B6**: la contraseña sintética del admin viaja por entorno (`E2E_RESET`, visible con `docker inspect` mientras corre `e2e`) y, si el reset falla tras imprimir
+  `RESULTADO:`, el error del driver incluye los últimos 400 caracteres de stdout. Es un dato sintético aleatorio.
+- **B7**: referencia (id y colección) a un medio privado visible en un proyecto publicado (ver la ronda de correcciones).
+- Cabeceras CSP, HSTS y X-Frame-Options: fuera de alcance de la POC (despliegue); `SameSite=Strict` mitiga en parte.
+- `GET /api/users/init` informa a un anónimo si ya existe un admin. En el producto, crear el admin por CLI antes de exponer el puerto.
 
-## Auditoría de dependencias (heredada de la fase 1; no se volvió a ejecutar `npm audit` en la fase 2)
+## Matices de las mediciones y de la cobertura
+- La «propagación» de CO-05 mide un PATCH más un GET con `force-dynamic` (sin capa de caché): no es extrapolable a ISR o caché.
+- E2E (F3, F1 sin JS, acciones de servidor) solo se ejecutaron contra `next dev`, no contra el build de producción.
+- n=3 sin dispersión (no se reporta rango); la VM es compartida.
+- El JS público cuenta solo gzip de scripts externos referenciados en el HTML (sin brotli, scripts inline de RSC, CSS ni imágenes).
+- RAM/CPU: tres instantáneas en reposo; sin pico bajo carga ni p95.
+- Muchos casos de POC-1b (PR-01, PR-05, PR-06, estados, motivos, eventos) dependen del intake (`crearSolicitud`/`solicitudEn`, POC-3): no se pueden activar
+  al implementar solo POC-1b; no esperar 31 verdes al cerrarlo.
+- Los mutantes del contrato se aplican al driver oráculo, no a la candidata, y `mutantes.test.mjs` acepta cualquier excepción como detección; `denegado()`
+  acepta 404, y `AU-06` apunta a `eventos-solicitud` (no existe aquí). Pendiente del contrato, no de la candidata.
+
+## Auditoría de dependencias (heredada de la fase 1; `npm audit` no se volvió a ejecutar en la fase 2 ni en la ronda de correcciones: requiere red y no aporta)
 - 10 hallazgos restantes, todos en herramientas de build/desarrollo (no en el runtime de producción).
 - `overrides` en `package.json`: `undici` 7.29.1 y `dompurify` 3.4.17.
 - Scripts de instalación desactivados (`ignore-scripts=true` en `.npmrc`); `save-exact` y `engine-strict` activos.

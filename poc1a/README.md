@@ -1,11 +1,12 @@
 # POC-1a — candidata A (Next.js + Payload + PostgreSQL)
 
-POC desechable en rama `poc/candidata-a`. No es el scaffold del producto. Todo corre en Docker a través de
+POC desechable en rama `poc/candidata-a`. No es el scaffold del producto. La aplicación, la base y las pruebas de vitest/Playwright corren en Docker a través de
 `./poc.sh` (proyecto Compose `jozeuzz-poc-a`, imágenes fijadas por digest, puertos sólo en 127.0.0.1).
 
 ## Requisitos
-Docker con Compose v2, Node 24 en el host (sólo para el driver y los scripts, sin dependencias) y acceso a
-Internet únicamente para `deps` y para descargar la imagen de Playwright (fijada por digest).
+Docker con Compose v2 y Node ≥ 20 en el host (el host de la POC tiene 20.19.2; **no** tiene Node 24). El driver de contrato,
+`node --test` y los scripts de `scripts/` corren con el Node del host, sin dependencias. Node 24.22.0 solo existe en la imagen
+Docker (lo exige `engines` de `package.json`, que aplica dentro del contenedor). Acceso a Internet únicamente para `deps` y para descargar la imagen de Playwright (fijada por digest).
 
 ## Reproducir
 ```sh
@@ -30,6 +31,7 @@ node ../contrato/run.mjs --driver contrato-driver.mjs --alcance poc-1a   # bater
 ./poc.sh migrate                  # aplica las migraciones al schema poc_prod (sin push)
 ./poc.sh build                    # next build en .next-prod; imprime build_ms
 ./poc.sh up-prod                  # next start en http://127.0.0.1:3102
+# El reset de la batería usa `./poc.sh exec` (servicio `app`, dev): `app` y `db` deben estar arriba (`./poc.sh up`).
 export POC_BASE_URL=http://127.0.0.1:3102 POC_LOG_SERVICE=app-prod \
   POC_RESET_ENV='POC_DB_SCHEMA=poc_prod POC_MEDIA_DIR=/app/media-store-prod'
 node ../contrato/run.mjs --driver contrato-driver.mjs --alcance poc-1a

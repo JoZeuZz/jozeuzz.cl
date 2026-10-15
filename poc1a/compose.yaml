@@ -28,7 +28,8 @@ services:
       timeout: 3s
       retries: 30
 
-  # Instalador puntual: única pieza con salida a Internet para descargar paquetes.
+  # Instalador puntual: el que descarga paquetes. No es la única pieza con salida a Internet: `app`, `app-prod`
+  # (y `e2e`, que comparte la red de `app`) están también en la red `externa` para poder publicar puertos.
   deps:
     <<: *node
     profiles: [deps]
