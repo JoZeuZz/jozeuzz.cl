@@ -28,6 +28,8 @@ case "$cmd" in
   e2e)
     E2E_RESET="$(node scripts/reset-e2e.mjs)"; export E2E_RESET
     $C --profile e2e run --rm -e E2E_RESET e2e npx playwright test "$@" ;;
+  # Medición aproximada de LCP/CLS/TBT contra app-prod (debe estar levantado con up-prod).
+  medir-web) $C --profile e2e run --rm e2e npx playwright test -c playwright.medicion.config.ts "$@" ;;
   # Producción: build (con su duración), migraciones Payload y servicio app-prod. Ver README.md.
   build)
     $C --profile prod run --rm app-prod sh -c 's=$(date +%s%N); npm run build; c=$?; e=$(date +%s%N); echo "build_ms=$(( (e-s)/1000000 )) codigo=$c"; exit $c' ;;
@@ -37,5 +39,5 @@ case "$cmd" in
   down-prod) $C --profile prod stop app-prod && $C --profile prod rm -f app-prod ;;
   stats) docker stats --no-stream $($C ps -q) ;;
   destroy) $C down -v --remove-orphans ;;
-  *) echo "uso: ./poc.sh init|deps [cmd]|up|down|build|migrate-create|migrate|up-prod|down-prod|ps|logs [n]|logs-since <t>|restart|psql [args]|resetdb|exec <cmd>|e2e [args]|stats|destroy" >&2; exit 2 ;;
+  *) echo "uso: ./poc.sh init|deps [cmd]|up|down|build|migrate-create|migrate|up-prod|down-prod|ps|logs [n]|logs-since <t>|restart|psql [args]|resetdb|exec <cmd>|e2e [args]|medir-web|stats|destroy" >&2; exit 2 ;;
 esac
