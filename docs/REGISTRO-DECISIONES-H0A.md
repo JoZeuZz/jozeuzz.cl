@@ -1,6 +1,6 @@
 # Registro de decisiones H0-a — jozeuzz.cl
 
-> **Estado: todas las entradas están PENDIENTES de aprobación del responsable.** Nada de este registro está vigente mientras su entrada no tenga aprobación, fecha y referencia Git.
+> **Estado (2026-10-15):** H0A-01 a H0A-15 **aprobadas** por el responsable; H0A-16 **pendiente** (ver su nota). Una entrada sólo está vigente si su columna «Aprobación» indica fecha y referencia Git.
 > **Base:** `docs/PROPUESTA-DECISIONES-H0.md` (`9cc0445`), `docs/ROADMAP-MVP.md` y `docs/ANALISIS-INCONSISTENCIAS-ROADMAP-MVP.md`. Este registro sustituye a la propuesta en lo que contradiga, en particular en PH0-08, PH0-11, PH0-13 y PH0-15.
 
 ## Cómo se aprueba
@@ -8,31 +8,31 @@
 Una entrada queda aprobada cuando el responsable la acepta de forma expresa, ya sea en la conversación, en un comentario de PR o en un commit propio. Al aprobarla se rellena «Aprobación» con tres datos:
 
 - la fecha;
-- la referencia Git del commit que registra la aprobación;
+- la referencia Git del commit que contiene el texto que el responsable revisó (nunca el SHA del propio commit que registra la aprobación, que no se puede conocer al escribirlo);
 - el medio por el que se dio.
 
-No se exigen firmas criptográficas. Si el responsable acepta una entrada con cambios, se edita el texto en el mismo commit que la aprueba.
+El commit que registra la aprobación se localiza con `git log -- docs/REGISTRO-DECISIONES-H0A.md`. No se exigen firmas criptográficas. Si el responsable aprueba una entrada con precisiones, el texto se ajusta a ellas en el mismo commit que registra la aprobación, y la entrada lo indica.
 
 ## Contrato H0-a
 
 | ID | Decisión propuesta | Verificación | Aprobación |
 |---|---|---|---|
-| H0A-01 | H0 se divide en dos partes. **H0-a** reúne las decisiones técnicas y de dominio de este registro y bloquea las POC y el ADR. **H0-b** reúne wireframes, dirección visual y lista de contenidos, y bloquea H3 pero no H1 ni H2. | Ningún criterio de salida de H1 menciona wireframes, tokens visuales ni contenido real | Pendiente |
-| H0A-02 | La Solicitud tiene los estados `recibida`, `en_gestion` y `cerrada`. El servidor asigna `recibida`. Las transiciones válidas son `recibida → en_gestion`, `recibida → cerrada` (cierre directo, por ejemplo para descartes) y `en_gestion → cerrada`. Cerrar exige `motivo_cierre` ∈ {`atendida`, `descartada`, `duplicada`, `spam`}; los valores son provisionales. `cerrada` es terminal: no hay reapertura en el MVP. | Pruebas de servidor con 3 transiciones válidas y, como mínimo, 3 inválidas: `cerrada → *`, `en_gestion → recibida` y cerrar sin motivo | Pendiente |
-| H0A-03 | Cada solicitud tiene un único campo `observaciones_internas`, que sólo el administrador lee y escribe. | Ningún canal público ni anónimo, log o sitemap lo expone | Pendiente |
-| H0A-04 | `EventoSolicitud` es de sólo inserción. Guarda solicitud, estado anterior, estado nuevo, actor, fecha y motivo, sin texto libre. Cada transición válida genera un evento en la misma transacción, y ningún canal permite editarlo ni borrarlo. Su ciclo de vida lo fija una política de retención explícita (H0A-11). | Pruebas de atomicidad y de rechazo de modificación y borrado | Pendiente |
-| H0A-05 | Hay un único administrador inicial. El alta y la recuperación del acceso siguen un procedimiento documentado, sin interfaz de gestión de cuentas. | Existe ese procedimiento antes de H2 | Pendiente |
-| H0A-06 | No hay notificaciones automáticas de solicitudes en el MVP. | No existe código del dominio `notifications` en el MVP | Pendiente |
-| H0A-07 | Publicar contenido no requiere un commit por publicación. Es un criterio que las POC deben verificar, con el tiempo de propagación medido; no se da por cumplido de antemano. | Medición en POC-1a y POC-2 | Pendiente |
-| H0A-08 | Las decisiones se registran con aprobación humana explícita, fecha y referencia Git, sin firmas criptográficas. | El formato de este registro | Pendiente |
-| H0A-09 | El producto (H0 a H7) no depende de jz-ai M1–M3 ni de las fases 0C–0E de `ORQUESTACION-IA-PROPUESTA.md` §9, de Caveman, de la actualización de Node ni de «tres ejecutores». Se mantiene el aislamiento de las tareas autónomas (ORQ:97). | Ningún criterio de salida del MVP menciona jz-ai ni esas fases | Pendiente |
-| H0A-10 | Hay un solo escritor por worktree, con permisos mínimos. Los revisores son de sólo lectura. Los agentes no tienen acceso a secretos reales, producción, DNS ni configuración global. | Contrato de tarea de cada POC | Pendiente |
-| H0A-11 | La política de retención se aprueba antes de cargar datos reales, y en todo caso antes de H7. Mientras no lo esté, sólo hay datos sintéticos y los eventos no se borran. La única excepción que se prevé al «sólo inserción» es el borrado por retención, con un procedimiento documentado y no por la API. | Política aprobada antes de usar datos reales | Pendiente |
-| H0A-12 | Se separan tres aprobaciones (sustituye a PH0-08): (1) **documental**, las fuentes de producto como base de trabajo; (2) **técnica**, las decisiones de este registro; (3) **de stack**, sólo mediante ADR-0001 y con evidencia de las POC. Cerrar la PR #1 no aprueba ninguna tecnología: `ARQUITECTURA.md` sigue como hipótesis y los documentos de IA como propuesta no vinculante para el producto. `docs/fase-0-definicion` no se modifica hasta que el responsable autorice expresamente el cierre de la PR #1. | La PR #1 no cambia el estado de ninguna candidata | Pendiente |
-| H0A-13 | Base Git del producto (sustituye a PH0-11). Se crea la rama local `producto/base` desde `docs/roadmap-mvp`, con las fuentes, el roadmap y este registro. Cuando se fusione la PR #1, se recrea desde `main`. Las POC parten de `producto/base`, no de `chore/jz-agents`. Los perfiles `jz-*` se incorporan, si el responsable lo autoriza, en un commit único y revisado que copia `.claude/agents/`, `.opencode/agents/` y `docs/AGENTES-JZ.md` desde `chore/jz-agents@188c570`, sin `eval/` ni `node_modules`. Sin esa autorización, las POC funcionan igual con contratos de tarea explícitos. | `git log producto/base` muestra la procedencia de los perfiles | Pendiente |
-| H0A-14 | Entorno y respaldo de POC-4 (sustituye a PH0-13). La decisión se aplaza hasta antes de POC-4. POC-1 a POC-3 son locales, con servicios en contenedores enlazados a `localhost`, datos sintéticos y secretos desechables. No se exponen a la red ni usan datos reales, y su código no pasa a ser scaffold. | Revisión del contrato de cada POC | Pendiente |
-| H0A-15 | Criterios mínimos de salida (sustituye a PH0-15; los de H2 se completan después). **H0-a** se cierra cuando H0A-01 a H0A-14 y H0A-16 están aprobadas. No exige fusionar la PR #1 ni cerrar H0-b. **H1** se cierra cuando ADR-0001 está aceptado por el responsable para D-01 a D-04 y D-10, con la evidencia medida de POC-1a, POC-1b, POC-2 y POC-3. Si POC-4 todavía no se ha hecho, D-11 y D-17 quedan pendientes en el ADR y POC-4 pasa a ser condición de entrada en H2. | — | Pendiente |
-| H0A-16 | Se autorizan las POC con el contrato de la sección siguiente. La autorización no cubre instalar dependencias hasta que el responsable revise la matriz de versiones (paso 2 de la secuencia). | — | Pendiente |
+| H0A-01 | H0 se divide en dos partes. **H0-a** reúne las decisiones técnicas y de dominio de este registro y bloquea las POC y el ADR. **H0-b** reúne wireframes, dirección visual y lista de contenidos, y bloquea H3 pero no H1 ni H2. | Ningún criterio de salida de H1 menciona wireframes, tokens visuales ni contenido real | Aprobada 2026-10-15 · texto revisado en `90a66f3` · conversación |
+| H0A-02 | La Solicitud tiene los estados `recibida`, `en_gestion` y `cerrada`. El servidor asigna `recibida`. Las transiciones válidas son `recibida → en_gestion`, `recibida → cerrada` (cierre directo, por ejemplo para descartes) y `en_gestion → cerrada`. Cerrar exige `motivo_cierre` ∈ {`atendida`, `descartada`, `duplicada`, `spam`}; los valores son provisionales. `cerrada` es terminal: no hay reapertura en el MVP. | Pruebas de servidor con 3 transiciones válidas y, como mínimo, 3 inválidas: `cerrada → *`, `en_gestion → recibida` y cerrar sin motivo | Aprobada 2026-10-15 · texto revisado en `90a66f3` · conversación |
+| H0A-03 | Cada solicitud tiene un único campo `observaciones_internas`, que sólo el administrador lee y escribe. | Ningún canal público ni anónimo, log o sitemap lo expone | Aprobada 2026-10-15 · texto revisado en `90a66f3` · conversación |
+| H0A-04 | `EventoSolicitud` es de sólo inserción. Guarda solicitud, estado anterior, estado nuevo, actor, fecha y motivo, sin texto libre. Cada transición válida genera un evento en la misma transacción, y ningún canal permite editarlo ni borrarlo. Su ciclo de vida lo fija una política de retención explícita (H0A-11). | Pruebas de atomicidad y de rechazo de modificación y borrado | Aprobada 2026-10-15 · texto revisado en `90a66f3` · conversación |
+| H0A-05 | Hay un único administrador inicial. El alta y la recuperación del acceso siguen un procedimiento documentado, sin interfaz de gestión de cuentas. | Existe ese procedimiento antes de H2 | Aprobada 2026-10-15 · texto revisado en `90a66f3` · conversación |
+| H0A-06 | No hay notificaciones automáticas de solicitudes en el MVP. | No existe código del dominio `notifications` en el MVP | Aprobada 2026-10-15 · texto revisado en `90a66f3` · conversación |
+| H0A-07 | Publicar contenido no requiere un commit por publicación. Es un criterio que las POC deben verificar, con el tiempo de propagación medido; no se da por cumplido de antemano. | Medición en POC-1a y POC-2 | Aprobada 2026-10-15 · texto revisado en `90a66f3` · conversación |
+| H0A-08 | Las decisiones se registran con aprobación humana explícita, fecha y referencia Git, sin firmas criptográficas. | El formato de este registro | Aprobada 2026-10-15 · texto revisado en `90a66f3` · conversación |
+| H0A-09 | El producto (H0 a H7) no depende de jz-ai M1–M3 ni de las fases 0C–0E de `ORQUESTACION-IA-PROPUESTA.md` §9, de Caveman, de la actualización de Node ni de «tres ejecutores». Se mantiene el aislamiento de las tareas autónomas (ORQ:97). | Ningún criterio de salida del MVP menciona jz-ai ni esas fases | Aprobada 2026-10-15 · texto revisado en `90a66f3` · conversación |
+| H0A-10 | Hay un solo escritor por worktree, con permisos mínimos. Los revisores son de sólo lectura. Los agentes no tienen acceso a secretos reales, producción, DNS ni configuración global. | Contrato de tarea de cada POC | Aprobada 2026-10-15 · texto revisado en `90a66f3` · conversación |
+| H0A-11 | La política de retención se aprueba antes de cargar datos reales, y en todo caso antes de H7. Mientras no lo esté, sólo hay datos sintéticos y los eventos no se borran. La única excepción que se prevé al «sólo inserción» es el borrado por retención, con un procedimiento documentado y no por la API. | Política aprobada antes de usar datos reales | Aprobada 2026-10-15 · texto revisado en `90a66f3` · conversación |
+| H0A-12 | Se separan tres aprobaciones (sustituye a PH0-08): (1) **documental**, las fuentes de producto como base de trabajo; (2) **técnica**, las decisiones de este registro; (3) **de stack**, sólo mediante ADR-0001 y con evidencia de las POC. Cerrar la PR #1 no aprueba ninguna tecnología: `ARQUITECTURA.md` sigue como hipótesis y los documentos de IA como propuesta no vinculante para el producto. `docs/fase-0-definicion` no se modifica hasta que el responsable autorice expresamente el cierre de la PR #1. | La PR #1 no cambia el estado de ninguna candidata | Aprobada 2026-10-15 · texto revisado en `90a66f3` · conversación |
+| H0A-13 | Base Git del producto (sustituye a PH0-11). Rama `producto/base` y worktree propio desde `docs/roadmap-mvp`, con las fuentes, el roadmap y este registro. No se eliminan ni se recrean ramas existentes: cuando la PR #1 llegue a `main`, la integración de históricos se planifica sin perder commits. Las POC parten de `producto/base`, no de `chore/jz-agents`. Los perfiles se incorporan en un commit único y revisado que copia sólo `.claude/agents/*.md` y `.opencode/agents/*.md` desde `chore/jz-agents`, sin evaluadores experimentales ni dependencias autogeneradas. | `git log producto/base` muestra la procedencia de los perfiles | Aprobada con precisiones 2026-10-15 (sin recrear ramas; sólo los perfiles `*.md`) · texto revisado en `90a66f3` · conversación |
+| H0A-14 | Entorno y respaldo de POC-4 (sustituye a PH0-13). La decisión se aplaza hasta antes de POC-4. POC-1 a POC-3 son locales, con servicios en contenedores enlazados a `localhost`, datos sintéticos y secretos desechables. No se exponen a la red ni usan datos reales, y su código no pasa a ser scaffold. | Revisión del contrato de cada POC | Aprobada 2026-10-15 · texto revisado en `90a66f3` · conversación |
+| H0A-15 | Criterios mínimos de salida (sustituye a PH0-15; los de H2 se completan después). **H0-a** se cierra cuando H0A-01 a H0A-14 y H0A-16 están aprobadas. No exige fusionar la PR #1 ni cerrar H0-b. **H1** se cierra cuando ADR-0001 está aceptado por el responsable para D-01 a D-04 y D-10, con la evidencia medida de POC-1a, POC-1b, POC-2 y POC-3. Si POC-4 todavía no se ha hecho, D-11 y D-17 quedan pendientes en el ADR y POC-4 pasa a ser condición de entrada en H2. | — | Aprobada 2026-10-15 · texto revisado en `90a66f3` · conversación |
+| H0A-16 | Se autorizan las POC con el contrato de la sección siguiente. La autorización no cubre instalar dependencias hasta que el responsable revise la matriz de versiones (paso 2 de la secuencia). | — | Pendiente. **Nota:** autoriza todas las POC con sus reglas de decisión, que se corrigieron el 2026-10-15; la preparación técnica (base, perfiles, batería y matriz) se autorizó aparte, y ninguna instalación está autorizada |
 
 ## Contrato de las POC
 
@@ -43,19 +43,22 @@ No se exigen firmas criptográficas. Si el responsable acepta una entrada con ca
 - No hay push.
 - Cada medición es la mediana de 3 ejecuciones en la misma máquina, con el hardware y las versiones registrados.
 - Toda prueba informa del comando, los recuentos y el código de salida.
-- Los umbrales marcados como «propuesto» son provisionales. Si no se aprueban, la POC sólo mide y no decide.
+- Los umbrales son objetivos provisionales que se miden, no motivos automáticos de descarte. La decisión pondera además seguridad, cumplimiento funcional, accesibilidad, mantenimiento y costo.
+- Las mediciones de rendimiento son comparaciones iniciales de laboratorio. No equivalen a una garantía de rendimiento real para usuarios.
 
 **Regla para repetir una POC:** se repite como máximo una vez, y sólo si el fallo viene de una versión, una configuración o una medición incorrectas y documentables. Un fallo de diseño del candidato no se repite: se rechaza.
 
 ### POC-1a · Candidata A, contenido y acceso (prioridad 1)
 
 - **Hipótesis:** la Candidata A cubre F3 y F1 (borradores, publicación, retirada, vista previa, medios privados y sesión de administrador) con un control de acceso nativo que deniega por defecto en todos los canales.
+- **Público y privado:** el portafolio y los servicios publicados se consultan de forma anónima. Los borradores, las solicitudes, las observaciones internas y los archivos privados requieren autorización. Las restricciones se comprueban por todos los canales de acceso, no sólo en la interfaz.
 - **Candidatos:** la Candidata A de `ARQUITECTURA.md`, con las versiones de la matriz aprobada.
 - **Aceptación:**
-  - Ninguna lectura anónima de borradores, medios privados ni `/admin` tiene éxito por ningún canal expuesto: REST, GraphQL si está habilitado, acciones de servidor y rutas de medios.
+  - Los proyectos, servicios y medios publicados son visibles de forma anónima en el HTML y en la API.
+  - Ninguna lectura anónima de borradores, solicitudes, observaciones internas, medios privados ni `/admin` tiene éxito por ningún canal expuesto: REST, GraphQL si está habilitado, acciones de servidor, rutas de medios y sitemap.
   - La E2E de F3 y F1 pasa.
   - El HTML público es indexable y legible sin JavaScript.
-  - El contenido se publica sin commit, con el tiempo de propagación medido. Umbral propuesto: 60 s o menos.
+  - El contenido se publica sin commit, con el tiempo de propagación medido. Objetivo provisional: 60 s o menos; si no se alcanza, se registra y se pondera, no descarta la candidata.
 - **Seguridad:**
   - Pruebas negativas por canal.
   - Un slug de borrador responde igual que uno inexistente.
@@ -114,8 +117,8 @@ No se exigen firmas criptográficas. Si el responsable acepta una entrada con ca
 - **Mediciones:** las mismas que POC-1a. Aquí la propagación equivale al tiempo de regeneración.
 - **Costos y dependencias:** una tabla de costes operativos estimados (dos despliegues, el panel y la autenticación).
 - **Decisión:**
-  - Umbral propuesto: B sólo pasa a POC completa si mejora en un 20 % o más el LCP de laboratorio o el JS público de A, o si A incumple un criterio que B sí cumple.
-  - En cualquier otro caso, B se descarta para el MVP y queda registrada en el ADR.
+  - Referencia orientativa, no barrera: una mejora del 20 % o más en el LCP de laboratorio o en el JS público frente a A.
+  - B también puede justificarse por seguridad, cumplimiento funcional, accesibilidad, mantenimiento o costo. El responsable decide si pasa a POC completa; si no, queda registrada en el ADR.
 - **Evidencia para ADR-0001:** D-01 y D-04.
 
 ### POC-3 · Intake seguro (prioridad 3, sobre el stack de POC-1)
