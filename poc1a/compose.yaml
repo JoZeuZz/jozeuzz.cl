@@ -1,0 +1,69 @@
+# Proyecto Docker Compose exclusivo de POC-1a. Imágenes fijadas por digest.
+# Sin socket Docker, sin puertos externos: sólo 127.0.0.1. La base de datos no publica puertos.
+name: jozeuzz-poc-a
+
+x-node: &node
+  image: node:24.22.0-trixie-slim@sha256:7f486cabe892bff8fef04c0f7da8dba84a560be3e4e2740b7a86afc57ebec315
+  user: "1000:1000"
+  working_dir: /app
+  volumes:
+    - ./:/app
+  environment:
+    NEXT_TELEMETRY_DISABLED: "1"
+    NPM_CONFIG_CACHE: /app/.npm-cache
+
+services:
+  db:
+    image: postgres:18.6-trixie@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
+    environment:
+      POSTGRES_DB: poc
+      POSTGRES_USER: poc
+      POSTGRES_PASSWORD: ${POC_DB_PASSWORD:?ejecuta ./poc.sh init}
+    volumes:
+      - db:/var/lib/postgresql
+    networks: [interna]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U poc -d poc"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Instalador puntual: única pieza con salida a Internet para descargar paquetes.
+  deps:
+    <<: *node
+    profiles: [deps]
+    networks: [externa]
+    command: ["npm", "ci"]
+
+  app:
+    <<: *node
+    environment:
+      NEXT_TELEMETRY_DISABLED: "1"
+      DATABASE_URL: postgres://poc:${POC_DB_PASSWORD:?ejecuta ./poc.sh init}@db:5432/poc
+      PAYLOAD_SECRET: ${PAYLOAD_SECRET:?ejecuta ./poc.sh init}
+    command: ["npm", "run", "dev"]
+    ports:
+      - "127.0.0.1:3101:3000"
+    networks: [interna, externa]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  e2e:
+    image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf
+    profiles: [e2e]
+    user: pwuser
+    working_dir: /app
+    volumes:
+      - ./:/app
+    environment:
+      POC_BASE_URL: http://app:3000
+    networks: [externa]
+
+volumes:
+  db:
+
+networks:
+  interna:
+    internal: true
+  externa: {}
