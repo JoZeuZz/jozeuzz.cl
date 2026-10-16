@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# jz-checkpoint — registra un punto de recuperación en .jz-state/checkpoints/ y .jz-state/LATEST.md.
+# Combina lo que declara el agente (unidad, estado, problemas, siguiente paso) con el estado real
+# que calcula jz-state. Si se declara "validado" sin una ejecución de jz-run en verde sobre el árbol
+# actual, lo registra como "incompleto" y lo advierte.
+#
+# Uso: .jz/bin/jz-checkpoint --unit "<unidad funcional>" --state validado|incompleto|bloqueado|cuota \
+#        [--next "<siguiente paso>"] [--issue "<problema abierto>"]... [--note .jz-state/notes/<archivo>.md]
+set -euo pipefail
+
+SELF=$(readlink -f "${BASH_SOURCE[0]}")
+WT=$(cd "$(dirname "$SELF")/../.." && pwd -P)
+STATE=$WT/.jz-state
+unit='' state='' next='' note=''
+issues=()
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --unit) unit=$2; shift 2 ;;
+    --state) state=$2; shift 2 ;;
+    --next) next=$2; shift 2 ;;
+    --issue) issues+=("$2"); shift 2 ;;
+    --note) note=$2; shift 2 ;;
+    *) echo "jz-checkpoint: argumento desconocido: $1" >&2; exit 2 ;;
+  esac
+done
+case $state in validado|incompleto|bloqueado|cuota) ;; *)
+  echo "jz-checkpoint: --state debe ser validado, incompleto, bloqueado o cuota" >&2; exit 2 ;;
+esac
+[[ -n $unit ]] || { echo "jz-checkpoint: falta --unit" >&2; exit 2; }
+if [[ -n $note ]]; then
+  note_real=$(readlink -m "$WT/$note")
+  case "$note_real" in "$STATE/notes/"*) ;; *)
+    echo "jz-checkpoint: --note debe estar en .jz-state/notes/" >&2; exit 2 ;;
+  esac
+fi
+
+fp=$("$WT/.jz/bin/jz-run" --fingerprint)
+green=''
+[[ -s $STATE/runs.jsonl ]] && green=$(jq -r --arg fp "$fp" 'select(.tree == $fp and .rc == 0) | .ts' "$STATE/runs.jsonl" | tail -n 1)
+warning=''
+if [[ $state == validado && -z $green ]]; then
+  state=incompleto
+  warning='AVISO: se declaró "validado", pero no hay ejecución de jz-run en verde sobre el árbol actual; se registra como incompleto.'
+fi
+
+mkdir -p "$STATE/checkpoints"
+ts=$(date -u +%Y%m%dT%H%M%SZ)
+engine=${JZ_ENGINE:-unknown}
+file=$STATE/checkpoints/$ts-$engine.md
+{
+  echo "# Checkpoint $ts"
+  echo
+  echo "- Fecha: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "- Motor: $engine"
+  echo "- Unidad: $unit"
+  echo "- Estado declarado: $state"
+  echo "- Validación del árbol actual: ${green:-ninguna ejecución en verde}"
+  echo "- Siguiente paso: ${next:-(no indicado)}"
+  [[ -n $warning ]] && echo "- $warning"
+  echo
+  echo "## Problemas abiertos"
+  if [[ ${#issues[@]} -eq 0 ]]; then echo "Ninguno declarado."; else printf -- '- %s\n' "${issues[@]}"; fi
+  if [[ -n $note ]]; then
+    echo
+    echo "## Notas ($note)"
+    cat "$note_real"
+  fi
+  echo
+  "$WT/.jz/bin/jz-state" 10 | sed 's/^# Estado jz/## Estado jz/' || true
+} > "$file"
+cp "$file" "$STATE/LATEST.md"
+[[ -n $warning ]] && echo "$warning" >&2
+echo "jz-checkpoint: ${file#"$WT"/} (copiado a .jz-state/LATEST.md)"

@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+# jz-run — ejecutor acotado para comandos de desarrollo (tests, typecheck, lint, build).
+#
+# Ejecuta el comando dentro de espacios de nombres nuevos (mount, pid, net, ipc, uts)
+# sobre una raíz mínima construida con pivot_root:
+#   - /usr y /etc de sólo lectura (sin /etc/shadow, /etc/ssh, /etc/ssl/private, /etc/docker);
+#   - /tmp, /run y HOME efímeros; sin /root, sin /home/proyectos ajeno, sin /var, sin docker.sock;
+#   - sin red (sólo loopback propio), sin ver ni señalizar procesos del host;
+#   - el worktree es lo único escribible, salvo el plano de control (.git, .claude, .opencode,
+#     .jz, .jz-state, AGENTS.md, CLAUDE.md, opencode.json[c], .mcp.json), montado en sólo lectura;
+#   - el proceso final no tiene capacidades (bounding set vacío, no_new_privs) y su entorno
+#     se reinicia (no hereda tokens ni variables del agente).
+# Al terminar registra el resultado real en .jz-state/runs.jsonl y pone en cuarentena
+# cualquier ruta del plano de control creada o enlace simbólico nuevo que apunte fuera del worktree.
+#
+# Uso: .jz/bin/jz-run [--cwd <subdirectorio>] [--] <comando> [argumentos...]
+#      .jz/bin/jz-run --fingerprint   (huella del árbol actual, la que registra cada ejecución)
+# Ejemplos: .jz/bin/jz-run npm test
+#           .jz/bin/jz-run node --test eval/orquestador/
+#           .jz/bin/jz-run --cwd poc1a npx tsc --noEmit
+# No hay opción de red: instalar dependencias requiere intervención humana.
+set -euo pipefail
+
+SELF=$(readlink -f "${BASH_SOURCE[0]}")
+PROTECTED=(.git .claude .opencode .jz .jz-state AGENTS.md CLAUDE.md opencode.json opencode.jsonc .mcp.json)
+MASK_FILES=(/etc/shadow /etc/shadow- /etc/gshadow /etc/gshadow- /etc/sudoers)
+MASK_DIRS=(/etc/ssh /etc/ssl/private /etc/docker /etc/containerd /etc/sudoers.d)
+QUARANTINE_RC=86
+
+# ---------------------------------------------------------------- etapa interna
+if [[ ${JZ_RUN_STAGE:-} == inner ]]; then
+  WT=$1 CWD=$2
+  shift 2
+
+  robind() { # origen destino
+    if [[ -d $1 ]]; then mkdir -p "$2"; else touch "$2"; fi
+    mount --bind "$1" "$2"
+    mount -o remount,bind,ro,nosuid,nodev "$2"
+  }
+
+  mount --make-rprivate /
+  mount -t tmpfs -o mode=0755,size=1m jz-stage /mnt
+  R=/mnt/root
+  mkdir "$R"
+  mount -t tmpfs -o mode=0755,size=16m jz-root "$R"
+
+  for d in bin sbin lib lib32 lib64 libx32; do
+    if [[ -L /$d ]]; then ln -s "$(readlink "/$d")" "$R/$d"
+    elif [[ -d /$d ]]; then robind "/$d" "$R/$d"; fi
+  done
+  robind /usr "$R/usr"
+  robind /etc "$R/etc"
+  for f in "${MASK_FILES[@]}"; do [[ -f $R$f ]] && mount --bind /dev/null "$R$f"; done
+  for d in "${MASK_DIRS[@]}"; do [[ -d $R$d ]] && mount -t tmpfs -o ro,size=4k jz-mask "$R$d"; done
+
+  mkdir "$R/dev"
+  mount -t tmpfs -o mode=0755,nosuid,size=64k jz-dev "$R/dev"
+  for n in null zero full random urandom tty; do
+    touch "$R/dev/$n"
+    mount --bind "/dev/$n" "$R/dev/$n"
+  done
+  ln -s /proc/self/fd "$R/dev/fd"
+  ln -s /proc/self/fd/0 "$R/dev/stdin"
+  ln -s /proc/self/fd/1 "$R/dev/stdout"
+  ln -s /proc/self/fd/2 "$R/dev/stderr"
+  mkdir "$R/dev/shm"
+  mount -t tmpfs -o nosuid,nodev,mode=1777 jz-shm "$R/dev/shm"
+
+  mkdir "$R/proc" "$R/tmp" "$R/run"
+  mount -t proc -o nosuid,nodev,noexec proc "$R/proc"
+  mount -t tmpfs -o nosuid,nodev,mode=1777 jz-tmp "$R/tmp"
+  mount -t tmpfs -o nosuid,nodev,mode=0755,size=1m jz-run "$R/run"
+  mkdir -m 0700 "$R/tmp/home"
+
+  mkdir -p "$R$WT"
+  mount --bind "$WT" "$R$WT"
+  mount -o remount,bind,nosuid,nodev "$R$WT"
+  for p in "${PROTECTED[@]}"; do
+    [[ -e $WT/$p ]] && robind "$R$WT/$p" "$R$WT/$p"
+  done
+  # Secretos del worktree (mismos patrones que la política): se ven vacíos y no se pueden escribir.
+  while IFS= read -r -d '' f; do
+    mount --bind /dev/null "$R$f"
+    mount -o remount,bind,ro,nosuid,nodev "$R$f"
+  done < <(find "$WT" \( -name .git -o -name .jz-state -o -name node_modules -o -name '.next*' \
+      -o -name .npm-cache \) -prune -o -type f \( \
+      \( \( -name .env -o -name '.env.*' \) ! -name .env.example ! -name .env.sample ! -name .env.template \) \
+      -o -name '*.pem' -o -name '*.key' -o -name '*.p12' -o -name '*.pfx' \
+      -o -name 'id_rsa*' -o -name 'id_ed25519*' -o -name 'id_ecdsa*' -o -name 'id_dsa*' \) -print0)
+
+  cd "$R"
+  mkdir .oldroot
+  pivot_root . .oldroot
+  cd /
+  umount -l /.oldroot
+  rmdir /.oldroot
+  mount -o remount,ro jz-root /
+  hostname jz-sandbox
+  command -v ip >/dev/null && ip link set lo up
+
+  cd "$CWD"
+  exec setpriv --no-new-privs --clear-groups --inh-caps=-all --ambient-caps=-all --bounding-set=-all -- \
+    env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp/home TMPDIR=/tmp LANG=C.UTF-8 \
+      CI=1 NO_COLOR=1 TERM=dumb JZ_SANDBOX=1 "$@"
+fi
+
+# ---------------------------------------------------------------- etapa externa
+WT=$(cd "$(dirname "$SELF")/../.." && pwd -P)
+STATE=$WT/.jz-state
+
+tree_fingerprint() {
+  {
+    git -C "$WT" rev-parse HEAD 2>/dev/null || echo no-head
+    git -C "$WT" diff HEAD --binary 2>/dev/null
+    git -C "$WT" ls-files -o --exclude-standard -z 2>/dev/null | (cd "$WT" && xargs -0 -r sha256sum)
+  } | sha256sum | cut -c1-16
+}
+
+if [[ ${1:-} == --fingerprint ]]; then
+  tree_fingerprint
+  exit 0
+fi
+if [[ ${1:-} == --cwd ]]; then
+  CWD=$(cd "$WT" && cd "${2:?--cwd requiere un directorio}" && pwd -P)
+  shift 2
+  case "$CWD/" in "$WT"/*) ;; *) echo "jz-run: --cwd fuera del worktree" >&2; exit 2 ;; esac
+else
+  CWD=$(pwd -P)
+  case "$CWD/" in "$WT"/*) ;; *) CWD=$WT ;; esac
+fi
+[[ ${1:-} == -- ]] && shift
+if [[ $# -eq 0 ]]; then
+  echo "uso: .jz/bin/jz-run [--cwd <subdirectorio>] [--] <comando> [argumentos...]" >&2
+  exit 2
+fi
+
+control_snapshot() {
+  local p
+  for p in "${PROTECTED[@]}"; do
+    if [[ -L $WT/$p ]]; then echo "$p symlink $(readlink "$WT/$p")"
+    elif [[ -f $WT/$p ]]; then echo "$p file $(sha256sum < "$WT/$p" | cut -c1-64)"
+    elif [[ -d $WT/$p ]]; then echo "$p dir"
+    fi
+  done
+}
+
+outside_symlinks() {
+  local l t
+  while IFS= read -r -d '' l; do
+    t=$(readlink -m "$l")
+    case "$t/" in "$WT"/*) ;; *) printf '%s\n' "${l#"$WT"/}" ;; esac
+  done < <(find "$WT" -path "$WT/.jz-state" -prune -o -type l -print0)
+}
+
+
+mkdir -p "$STATE/runs"
+ts=$(date -u +%Y%m%dT%H%M%SZ)
+log=$STATE/runs/$ts-$$.log
+head=$(git -C "$WT" rev-parse --short HEAD 2>/dev/null || echo none)
+fp=$(tree_fingerprint)
+before_ctl=$(control_snapshot)
+before_links=$(outside_symlinks)
+start=$(date +%s)
+
+set +e
+unshare --mount --pid --net --ipc --uts --fork --kill-child -- \
+  env -i JZ_RUN_STAGE=inner PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash "$SELF" "$WT" "$CWD" "$@" 2>&1 | tee "$log"
+rc=${PIPESTATUS[0]}
+set -e
+
+after_ctl=$(control_snapshot)
+after_links=$(outside_symlinks)
+quarantined=()
+qdir=$STATE/quarantine/$ts-$$
+if [[ $after_ctl != "$before_ctl" ]]; then
+  for p in "${PROTECTED[@]}"; do
+    if [[ -e $WT/$p || -L $WT/$p ]] && ! grep -q "^$p " <<<"$before_ctl"; then
+      mkdir -p "$qdir"
+      mv "$WT/$p" "$qdir/"
+      quarantined+=("$p")
+    fi
+  done
+  [[ ${#quarantined[@]} -gt 0 ]] || quarantined+=("(plano de control modificado; revisar a mano)")
+fi
+while IFS= read -r l; do
+  [[ -z $l ]] && continue
+  if ! grep -qxF -- "$l" <<<"$before_links"; then
+    mkdir -p "$qdir/$(dirname "$l")"
+    mv "$WT/$l" "$qdir/$l"
+    quarantined+=("$l")
+  fi
+done <<<"$after_links"
+
+if [[ ${#quarantined[@]} -gt 0 ]]; then
+  {
+    echo "jz-run: el comando creó rutas no permitidas; se movieron a ${qdir#"$WT"/}:"
+    printf '  %s\n' "${quarantined[@]}"
+  } | tee -a "$log" >&2
+  rc=$QUARANTINE_RC
+fi
+
+printf '%s\0' "$@" | jq -cRs --arg ts "$ts" --arg head "$head" --arg fp "$fp" --arg cwd "${CWD#"$WT"}" \
+  --arg log "${log#"$WT"/}" --argjson rc "$rc" --argjson secs "$(( $(date +%s) - start ))" \
+  --arg engine "${JZ_ENGINE:-unknown}" \
+  '{ts:$ts, engine:$engine, head:$head, tree:$fp, cwd:(if $cwd=="" then "." else $cwd end),
+    cmd:(split("\u0000")[:-1]), rc:$rc, secs:$secs, log:$log}' >> "$STATE/runs.jsonl"
+echo "jz-run: rc=$rc head=$head tree=$fp log=${log#"$WT"/}" >&2
+exit "$rc"
