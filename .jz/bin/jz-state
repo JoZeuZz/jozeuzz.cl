@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# jz-state — estado verificable del worktree para reanudar trabajo entre motores.
+# Sólo lee: rama, HEAD, cambios, escritor activo, procesos de motores, últimas ejecuciones de
+# jz-run (indicando si validan el árbol actual), último checkpoint y cuarentena.
+# Termina con un veredicto: REANUDABLE o BLOQUEADO (código de salida 0 o 3).
+set -euo pipefail
+
+SELF=$(readlink -f "${BASH_SOURCE[0]}")
+WT=$(cd "$(dirname "$SELF")/../.." && pwd -P)
+STATE=$WT/.jz-state
+N=${1:-5}
+blockers=()
+
+ancestors=" $$ "
+pid=$$
+while [[ $pid -gt 1 ]]; do
+  pid=$(awk '{print $4}' "/proc/$pid/stat" 2>/dev/null || echo 1)
+  ancestors+="$pid "
+done
+
+echo "# Estado jz — $WT"
+echo
+echo "- Fecha: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "- Rama: $(git -C "$WT" branch --show-current)"
+echo "- HEAD: $(git -C "$WT" log -1 --format='%h %s' 2>/dev/null || echo '(sin commits)')"
+fp=$("$WT/.jz/bin/jz-run" --fingerprint)
+echo "- Huella del árbol actual: $fp"
+
+echo
+echo "## Cambios sin confirmar"
+changes=$(git -C "$WT" status --porcelain=v1 --untracked-files=all)
+if [[ -z $changes ]]; then echo "Ninguno (árbol limpio)."; else echo '```'; echo "$changes"; echo '```'; fi
+
+echo
+echo "## Escritor"
+if [[ -f $STATE/writer.lock ]]; then
+  lpid=$(jq -r '.pid' "$STATE/writer.lock")
+  desc=$(jq -r '"\(.agent) (\(.engine), pid \(.pid), sesión \(.session), desde \(.since))"' "$STATE/writer.lock")
+  if kill -0 "$lpid" 2>/dev/null; then
+    echo "ACTIVO: $desc"
+    [[ $ancestors == *" $lpid "* ]] || blockers+=("bloqueo de escritor vivo de otro proceso: $desc")
+  else
+    echo "Huérfano (el proceso ya no existe): $desc. Se recupera solo en la siguiente delegación."
+  fi
+else
+  echo "Ninguno."
+fi
+
+echo
+echo "## Procesos de motores con directorio en este worktree"
+found=0
+for d in /proc/[0-9]*; do
+  p=${d#/proc/}
+  [[ $ancestors == *" $p "* ]] && continue
+  comm=$(cat "$d/comm" 2>/dev/null) || continue
+  [[ $comm == claude || $comm == opencode ]] || continue
+  cwd=$(readlink "$d/cwd" 2>/dev/null) || continue
+  case "$cwd/" in "$WT"/*)
+    echo "- pid $p $comm (cwd $cwd)"
+    found=1
+    blockers+=("proceso $comm $p activo en el worktree")
+  ;; esac
+done
+[[ $found -eq 1 ]] || echo "Ninguno (aparte de la sesión que consulta)."
+
+echo
+echo "## Últimas ejecuciones de jz-run"
+if [[ -s $STATE/runs.jsonl ]]; then
+  tail -n "$N" "$STATE/runs.jsonl" | jq -r --arg fp "$fp" \
+    '"- \(.ts) rc=\(.rc) [\(.engine)] `\(.cmd | join(" "))` head=\(.head) \(if .tree != $fp then "(otro árbol)" elif .rc == 0 then "(árbol actual, en verde)" else "(árbol actual, falló)" end) — \(.log)"'
+  last_ok=$(jq -r --arg fp "$fp" 'select(.tree == $fp and .rc == 0) | .ts' "$STATE/runs.jsonl" | tail -n 1)
+  echo
+  if [[ -n $last_ok ]]; then echo "Árbol actual con ejecución en verde: sí ($last_ok)."
+  else echo "Árbol actual con ejecución en verde: NO. Los cambios actuales no están validados."; fi
+else
+  echo "Sin ejecuciones registradas."
+fi
+
+echo
+echo "## Último checkpoint"
+if [[ -f $STATE/LATEST.md ]]; then
+  grep -E '^- (Unidad|Estado declarado|Siguiente paso|Motor|Fecha):' "$STATE/LATEST.md" || true
+  echo "- Archivo: .jz-state/LATEST.md"
+else
+  echo "Ninguno."
+fi
+
+if [[ -d $STATE/quarantine ]] && [[ -n $(ls -A "$STATE/quarantine") ]]; then
+  echo
+  echo "## Cuarentena"
+  find "$STATE/quarantine" -mindepth 2 -maxdepth 4 | sed "s#^$WT/#- #"
+  blockers+=("hay rutas en cuarentena: revisión humana")
+fi
+
+echo
+if [[ ${#blockers[@]} -eq 0 ]]; then
+  echo "## Veredicto: REANUDABLE"
+  echo "Antes de continuar: leer .jz-state/LATEST.md y las notas, revisar el diff y no repetir a ciegas la última tarea."
+  exit 0
+fi
+echo "## Veredicto: BLOQUEADO"
+printf -- '- %s\n' "${blockers[@]}"
+exit 3
