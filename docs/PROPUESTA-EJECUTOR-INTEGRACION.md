@@ -1,6 +1,6 @@
 # Propuesta: ejecutor aislado para las pruebas con Docker
 
-Estado: **propuesta, sin implementar** (2026-10-16). Revisada por jz-security en modo lectura; sus hallazgos 9 a 12 (ejecución del commit en el host de la VM, lista negra de Compose, integridad de la evidencia y precarga de npm) están incorporados en §3.1 y §4. Nada de este documento está autorizado. Complementa `docs/AUTONOMIA-JZ.md` §9 («Pendiente de decisión: pruebas con Docker»).
+Estado: **propuesta, sin implementar** (2026-10-16). Revisada por jz-security en modo lectura; sus hallazgos 9 a 12 (ejecución del commit en el host de la VM, lista negra de Compose, integridad de la evidencia y precarga de npm) están incorporados en §3.1 y §4. Nada de este documento está autorizado. **Actualización (2026-10-16):** el diseño aprobado es `docs/ESPEC-VM-PRUEBAS.md` (etapa 1, aprobada como diseño y sin crear). Donde esta propuesta discrepe de ella, prevalece la especificación: `dockerd` rootless obligatorio, sin manifiesto firmado en la etapa 1, `git archive` en vez de `git bundle`, cuatro argumentos para `jz-runner`, destrucción del clon tras cada ejecución y validación del YAML antes de invocar Compose. Complementa `docs/AUTONOMIA-JZ.md` §9 («Pendiente de decisión: pruebas con Docker»).
 
 ## 1. Problema
 
@@ -41,7 +41,7 @@ Se crea una VM KVM, `jz-poc-runner`, con su propio kernel y su propio `dockerd`.
    - destruye el proyecto (`down -v --remove-orphans`) y el directorio.
 4. `jz-remote` comprueba la clave de host de la VM (`StrictHostKeyChecking yes`) y la firma del manifiesto. Sólo admite archivos regulares, con un tope de tamaño y sin rutas absolutas ni `..`. Después registra el resultado en `.jz-state/runs.jsonl` con `engine`, `remote: true`, `head`, la suite y la firma. Así `jz-state` y `jz-qa` pueden verificarlo igual que una ejecución de `jz-run`. Los logs se tratan como datos no confiables: pueden contener texto que intente instruir a los agentes.
 
-**Quién habla con `dockerd`.** El usuario de `jz-runner` no pertenece al grupo `docker`. Las órdenes a Docker las da un daemon rootless por ejecución, con un usuario dedicado, o un envoltorio mínimo propiedad de root que sólo acepta `up`/`run`/`down` sobre el JSON validado. Así, aunque el código del commit lograra salir de un contenedor, no sería root en la VM.
+**Quién habla con `dockerd`.** El usuario de `jz-runner` no pertenece al grupo `docker`. Las órdenes a Docker las da un daemon rootless por ejecución, con un usuario dedicado, o un envoltorio mínimo propiedad de root que sólo acepta `up`/`run`/`down` sobre el JSON validado. Corrección (2026-10-16): sólo el daemon rootless evita que una salida del contenedor sea root en la VM; con un `dockerd` de root, quien escapa es root con o sin envoltorio. Por eso la especificación hace obligatorio rootless.
 
 **Aislamiento de datos y secretos.** La VM no monta nada del CT ni tiene credenciales de los agentes, de Proxmox o de Git remoto. El `.env` es sintético y distinto en cada ejecución. La clave SSH sólo permite `jz-runner`. Si una prueba se comporta mal, sólo puede afectar a la propia VM, que es desechable y se restaura desde un snapshot.
 

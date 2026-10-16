@@ -1,6 +1,6 @@
 # Contrato de tarea · POC-3, unidades 0, 0b y 1
 
-Estado: **preparado, NO autorizado**. Ninguna de estas unidades empieza hasta que el responsable apruebe H0A-16c y las decisiones P3 que se indican en cada una. Plan: `docs/PLAN-POC-3.md`. Hallazgos y requisitos: `docs/TRAZABILIDAD-POC-3.md` (T-01 a T-14). Protocolo: `docs/AUTONOMIA-JZ.md`.
+Estado: **autorizado** (H0A-16c y P3-01 a P3-10 aprobadas el 2026-10-16). Rama `poc/candidata-a-3`. Plan: `docs/PLAN-POC-3.md`. Hallazgos y requisitos: `docs/TRAZABILIDAD-POC-3.md` (T-01 a T-14). Protocolo: `docs/AUTONOMIA-JZ.md`.
 
 ## Reglas comunes
 

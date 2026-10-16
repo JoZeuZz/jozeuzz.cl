@@ -1,6 +1,6 @@
 # Plan preparado de POC-3 · Intake seguro (candidata A)
 
-Estado: **preparado, no autorizado** (2026-10-16). POC-3 requiere su propia entrada de autorización (H0A-16c, según H0A-16). Este plan no elige el stack definitivo (ADR-0001), no instala nada y no crea ramas. Trabaja sobre el stack de POC-1 (candidata A: Next.js 16.4.1, Payload 3.90.2, PostgreSQL 18.6, Node 24 en contenedor), como fija el contrato de POC-3.
+Estado: **autorizado** (H0A-16c, 2026-10-16, texto revisado en `f45b2c9`). Las decisiones del §7 están aprobadas con las opciones que se indican. Este plan no elige el stack definitivo (ADR-0001), no instala nada y no crea ramas. Trabaja sobre el stack de POC-1 (candidata A: Next.js 16.4.1, Payload 3.90.2, PostgreSQL 18.6, Node 24 en contenedor), como fija el contrato de POC-3.
 
 Fuentes:
 
@@ -183,6 +183,8 @@ Columna «Ejecución»:
 
 ## 7. Decisiones del responsable antes de empezar
 
+**Aprobadas por el responsable el 2026-10-16** (conversación; texto revisado en `f45b2c9`). Opciones elegidas: P3-01 rama nueva `poc/candidata-a-3`; P3-02 proxy `nginx:1.30.6-alpine` fijado por digest; P3-03 rechazar; P3-04 los valores indicados; P3-05 `@axe-core/playwright` 4.13.0; P3-06 como se indica; P3-07 Docker con `poc.sh` desde la sesión principal; P3-08 sí, también `x-www-form-urlencoded`; P3-09 retirar R-1 al cierre; P3-10 TLS en el proxy con una CA efímera generada en cada ejecución.
+
 - **P3-01 · Autorización H0A-16c:** candidata A, sólo local, rama nueva `poc/candidata-a-3` desde el cierre de POC-1b (o continuar en `poc/candidata-a-1b`), mismo proyecto Compose, base `poc3_*` nueva.
 - **P3-02 · Proxy inverso:** se añade un servicio de proxy al Compose del POC (imagen fijada por digest; requiere autorizar la imagen) con la sobrescritura de `X-Real-IP` descrita en §3, y un override de pruebas con IP sintética. Sin proxy, IN-11 no se puede implementar de forma segura.
 - **P3-03 · Campos administrativos:** rechazarlos (recomendado) o ignorarlos (IN-08).
@@ -197,6 +199,7 @@ Columna «Ejecución»:
 - **P3-07 · Ejecución con Docker:** sin el ejecutor aislado, las unidades 0, 2 (hook), 4 (desde cero) y 5–9 las lanza el humano.
 - **P3-08 · Formulario sin JavaScript:** si debe funcionar sin JS, se acepta además `x-www-form-urlencoded`, con el mismo CSRF.
 - **P3-09 · Retirada de R-1:** retirar R-1 al cierre (recomendado) o mantenerlo como modo explícito.
+- **P3-10 · Cookies `Secure` en el POC** (`TRAZABILIDAD-POC-3.md` T-07): TLS en el proxy con una CA local efímera generada en cada ejecución, o `__Host-` sobre http sólo si se demuestra que Chromium la acepta. Con la guarda de producción de T-07, sólo la primera sirve en `app-prod`.
 
 ## 8. Trazabilidad de la revisión (2026-10-16)
 
