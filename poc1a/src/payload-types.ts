@@ -71,6 +71,7 @@ export interface Config {
     proyectos: Proyecto;
     servicios: Servicio;
     solicitudes: Solicitude;
+    'eventos-solicitud': EventosSolicitud;
     'medios-publicos': MediosPublico;
     'medios-privados': MediosPrivado;
     'payload-kv': PayloadKv;
@@ -84,6 +85,7 @@ export interface Config {
     proyectos: ProyectosSelect<false> | ProyectosSelect<true>;
     servicios: ServiciosSelect<false> | ServiciosSelect<true>;
     solicitudes: SolicitudesSelect<false> | SolicitudesSelect<true>;
+    'eventos-solicitud': EventosSolicitudSelect<false> | EventosSolicitudSelect<true>;
     'medios-publicos': MediosPublicosSelect<false> | MediosPublicosSelect<true>;
     'medios-privados': MediosPrivadosSelect<false> | MediosPrivadosSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
@@ -248,6 +250,21 @@ export interface Solicitude {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "eventos-solicitud".
+ */
+export interface EventosSolicitud {
+  id: number;
+  solicitud: number | Solicitude;
+  estado_anterior: 'recibida' | 'en_gestion' | 'cerrada';
+  estado_nuevo: 'recibida' | 'en_gestion' | 'cerrada';
+  actor: string;
+  fecha: string;
+  motivo_cierre?: ('atendida' | 'descartada' | 'duplicada' | 'spam') | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
@@ -285,6 +302,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'solicitudes';
         value: number | Solicitude;
+      } | null)
+    | ({
+        relationTo: 'eventos-solicitud';
+        value: number | EventosSolicitud;
       } | null)
     | ({
         relationTo: 'medios-publicos';
@@ -399,6 +420,20 @@ export interface SolicitudesSelect<T extends boolean = true> {
   estado?: T;
   motivo_cierre?: T;
   observaciones_internas?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "eventos-solicitud_select".
+ */
+export interface EventosSolicitudSelect<T extends boolean = true> {
+  solicitud?: T;
+  estado_anterior?: T;
+  estado_nuevo?: T;
+  actor?: T;
+  fecha?: T;
+  motivo_cierre?: T;
   updatedAt?: T;
   createdAt?: T;
 }

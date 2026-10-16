@@ -9,6 +9,7 @@ import { MediosPrivados, MediosPublicos } from './collections/Medios'
 import { Proyectos } from './collections/Proyectos'
 import { Servicios } from './collections/Servicios'
 import { Solicitudes } from './collections/Solicitudes'
+import { EventosSolicitud } from './collections/EventosSolicitud'
 import { Users } from './collections/Users'
 
 const filename = fileURLToPath(import.meta.url)
@@ -28,7 +29,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Proyectos, Servicios, Solicitudes, MediosPublicos, MediosPrivados],
+  collections: [Users, Proyectos, Servicios, Solicitudes, EventosSolicitud, MediosPublicos, MediosPrivados],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {
