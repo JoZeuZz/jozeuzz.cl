@@ -138,7 +138,13 @@ node .jz/tests/integration.mjs --base <dir>       # motores reales en un reposit
 
 `recovery.test.mjs` simula sin consumir cuota el `StopFailure` de Claude Code y el reintento por cuota de OpenCode sobre un repositorio desechable. Comprueba la liberación del bloqueo, el checkpoint `cuota`, el rechazo de un segundo escritor por el plugin y el veredicto de `jz-state`.
 
-`integration.mjs` crea por escenario un repositorio desechable con una copia del plano de control y, a su lado, un directorio «ajeno» con un secreto ficticio. Comprueba el resultado sobre el sistema de archivos y git, no sobre lo que el modelo afirma. El escenario I6 comprueba que la sesión trabaja en el worktree indicado aunque el proceso arranque con un `PWD` obsoleto: en OpenCode con `--dir` y en Claude Code con su directorio de trabajo. Los resultados están en `docs/AGENTES-JZ.md` §3.
+`integration.mjs` crea por escenario un repositorio desechable con una copia del plano de control y, a su lado, un directorio «ajeno» con un secreto ficticio. Comprueba el resultado sobre el sistema de archivos y git, no sobre lo que el modelo afirma. Resultados del 2026-10-16 con los modelos de los perfiles:
+
+- **Claude Code:** 6/6. I2–I4 salieron en la corrida completa. I1, I5 e I6 cayeron en esa corrida por el límite de uso de la cuenta (`rate_limit_event`) y se repitieron en verde después del reinicio de la cuota.
+- **OpenCode:** I1–I4 e I6 en verde. En I5 el orquestador `gpt-5.6-sol` se negó a lanzar escritores en paralelo porque el protocolo lo prohíbe, así que no hubo escritura doble, pero el bloqueo no se ejercitó. El rechazo lo cubre de forma determinista `recovery.test.mjs`, y en una corrida anterior también se observó en vivo.
+- **Recuperación tras cuota en una tarea real del POC (2026-10-16 15:41Z):** al agotarse la cuota de Claude Code, `StopFailure` dejó un checkpoint `cuota` para `jz-architect` y ningún bloqueo colgado.
+
+El escenario I6 comprueba que la sesión trabaja en el worktree indicado aunque el proceso arranque con un `PWD` obsoleto: en OpenCode con `--dir` y en Claude Code con su directorio de trabajo. Los resultados están en `docs/AGENTES-JZ.md` §3.
 
 ## 8. Limitaciones conocidas
 
@@ -150,7 +156,7 @@ node .jz/tests/integration.mjs --base <dir>       # motores reales en un reposit
 
 ## 9. Integración selectiva en el worktree de POC
 
-Se copia, sin fusionar ramas, a `poc/candidata-a-1b` cuando la etapa lo autorice y su árbol esté limpio o con su handoff cerrado:
+Se integró por copia selectiva, sin fusionar ramas, en `poc/candidata-a-1b` (`27e3323`, 2026-10-16). Las correcciones que nacieron allí (ocultación de secretos en `jz-run`, pruebas de recuperación e I6) se portaron a esta rama. La propiedad del bloqueo por sesión se corrigió aquí después y todavía hay que sincronizarla hacia el POC: `27e3323` aún decide por proceso. Lista de lo que se copia en cada integración:
 
 - `.jz/` completo (`bin/`, `hooks/`, `policy/`, `tests/`);
 - `.opencode/plugins/jz-guard.js`;
