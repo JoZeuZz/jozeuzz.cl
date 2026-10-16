@@ -7,7 +7,7 @@
 // Uso (en el host, no dentro de jz-run):
 //   node .jz/tests/integration.mjs [--engines claude,opencode] [--only I1,I3] [--keep] [--base <dir>]
 //        [--oc-model <proveedor/modelo>] [--implementer jz-implementer-copilot]
-// Consume cuota de los dos motores (5 escenarios por motor). --oc-model sustituye sólo en esta invocación
+// Consume cuota de los dos motores (6 escenarios por motor). --oc-model sustituye sólo en esta invocación
 // el modelo del orquestador de OpenCode (p. ej. si un proveedor está sin cuota); no cambia los perfiles.
 import { spawnSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -48,7 +48,7 @@ function makeFixture(engine) {
   return { root, repo, alien };
 }
 
-function runEngine(engine, repo, prompt) {
+function runEngine(engine, repo, prompt, { cwd = repo, pwd = repo } = {}) {
   const cmd = engine === 'claude'
     ? ['claude', ['-p', '--agent', 'jz-orchestrator', '--permission-mode', 'auto', '--output-format', 'stream-json',
       '--verbose', prompt]]
@@ -57,7 +57,7 @@ function runEngine(engine, repo, prompt) {
   // OpenCode toma el directorio de la sesión de PWD, no del cwd del proceso: sin --dir y PWD, la
   // prueba se ejecutaría en el worktree desde el que se lanzó el script.
   const r = spawnSync(cmd[0], cmd[1], {
-    cwd: repo, env: { ...process.env, PWD: repo }, encoding: 'utf8', timeout: 15 * 60_000, maxBuffer: 256 << 20,
+    cwd, env: { ...process.env, PWD: pwd }, encoding: 'utf8', timeout: 15 * 60_000, maxBuffer: 256 << 20,
   });
   if (!fs.existsSync(path.join(repo, '.git'))) throw new Error(`el fixture desapareció: ${repo}`);
   return { rc: r.status, out: (r.stdout ?? '') + (r.stderr ?? '') };
@@ -135,13 +135,30 @@ const SCENARIOS = {
   },
 };
 
+// I6: la sesión debe trabajar en el worktree indicado aunque el proceso arranque con un PWD obsoleto
+// (OpenCode: cwd y PWD en un señuelo, --dir al fixture; Claude Code: cwd en el fixture, PWD en el señuelo).
+SCENARIOS.I6 = {
+  title: 'el motor resuelve el worktree con --dir/cwd aunque PWD esté obsoleto',
+  spawn: (engine, { root, repo }) => {
+    const decoy = path.join(root, 'senuelo');
+    fs.mkdirSync(decoy, { recursive: true });
+    return engine === 'claude' ? { cwd: repo, pwd: decoy } : { cwd: decoy, pwd: decoy };
+  },
+  prompt: `Delega en ${IMPL} este contrato: crear src/dir.txt con el texto ok; `
+    + '`git add src/dir.txt` y `git commit -m "test: dir"`. Resume en una línea.',
+  check: ({ root, repo }) => ({
+    en_fixture: exists(repo, 'src/dir.txt') && commits(repo).includes('test: dir'),
+    senuelo_intacto: !fs.existsSync(path.join(root, 'senuelo', 'src')),
+  }),
+};
+
 const results = [];
 for (const engine of engines) {
   for (const [id, sc] of Object.entries(SCENARIOS)) {
     if (only.length && !only.includes(id)) continue;
     const fx = makeFixture(engine);
     const t0 = Date.now();
-    const { rc, out } = runEngine(engine, fx.repo, sc.prompt);
+    const { rc, out } = runEngine(engine, fx.repo, sc.prompt, sc.spawn?.(engine, fx));
     fs.writeFileSync(path.join(fx.root, `${id}.log`), out);
     const checks = sc.check({ ...fx, out });
     const pass = Object.values(checks).every(Boolean);

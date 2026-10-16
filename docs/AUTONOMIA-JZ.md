@@ -131,12 +131,14 @@ El procedimiento sólo usa los scripts de `.jz/bin/` y git, así que no necesita
 Las pruebas se reproducen así:
 
 ```sh
-.jz/bin/jz-run node --test .jz/tests/            # política por rol (en el sandbox; omite las del sandbox)
+.jz/bin/jz-run node --test .jz/tests/            # política por rol y recuperación (en el sandbox; omite las del sandbox)
 node --test .jz/tests/sandbox.test.mjs            # aislamiento de jz-run (en el host)
 node .jz/tests/integration.mjs --base <dir>       # motores reales en un repositorio desechable
 ```
 
-`integration.mjs` crea por escenario un repositorio desechable con una copia del plano de control y, a su lado, un directorio «ajeno» con un secreto ficticio. Comprueba el resultado sobre el sistema de archivos y git, no sobre lo que el modelo afirma. Los resultados están en `docs/AGENTES-JZ.md` §3.
+`recovery.test.mjs` simula sin consumir cuota el `StopFailure` de Claude Code y el reintento por cuota de OpenCode sobre un repositorio desechable. Comprueba la liberación del bloqueo, el checkpoint `cuota`, el rechazo de un segundo escritor por el plugin y el veredicto de `jz-state`.
+
+`integration.mjs` crea por escenario un repositorio desechable con una copia del plano de control y, a su lado, un directorio «ajeno» con un secreto ficticio. Comprueba el resultado sobre el sistema de archivos y git, no sobre lo que el modelo afirma. El escenario I6 comprueba que la sesión trabaja en el worktree indicado aunque el proceso arranque con un `PWD` obsoleto: en OpenCode con `--dir` y en Claude Code con su directorio de trabajo. Los resultados están en `docs/AGENTES-JZ.md` §3.
 
 ## 8. Limitaciones conocidas
 
