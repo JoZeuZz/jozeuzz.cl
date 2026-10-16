@@ -72,6 +72,9 @@ beforeAll(async () => {
     overrideAccess: true,
   })
   ids.solicitud = sol.id
+  await payload.update({ collection: 'solicitudes', id: sol.id, data: { estado: 'en_gestion' }, overrideAccess: true })
+  const eventos = await payload.find({ collection: 'eventos-solicitud', where: { solicitud: { equals: sol.id } }, overrideAccess: true })
+  ids.evento = eventos.docs[0]?.id
 })
 
 afterAll(async () => {
@@ -151,6 +154,14 @@ describe('B1: notas_internas no se filtra por REST', () => {
 })
 
 describe('B2: rutas REST auxiliares en anónimo', () => {
+  it('IDOR: IDs reales de solicitud y evento no entregan datos al anónimo', async () => {
+    const solicitud = await pedir(`/api/solicitudes/${ids.solicitud}`)
+    expect(solicitud.status).toBeGreaterThanOrEqual(400)
+    expect(solicitud.texto).not.toContain(S.solicitud)
+    const evento = await pedir(`/api/eventos-solicitud/${ids.evento ?? '2147483646'}`)
+    expect(evento.status).toBeGreaterThanOrEqual(400)
+    expect(evento.texto).not.toContain('estado_anterior')
+  })
   it('/api/proyectos/versions sin datos', async () => {
     const r = await pedir('/api/proyectos/versions')
     expect(r.status).not.toBe(200)

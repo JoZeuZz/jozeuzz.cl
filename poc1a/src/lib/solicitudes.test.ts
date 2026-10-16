@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { validarTransicion } from './solicitudes'
+import { solicitudPublica, validarTransicion } from './solicitudes'
 
 describe('validarTransicion', () => {
   it('acepta recibida a en_gestion sin motivo', () => {
@@ -12,4 +12,8 @@ describe('validarTransicion', () => {
     expect(() => validarTransicion('cerrada', 'en_gestion', undefined)).toThrow('transición')
     expect(validarTransicion('en_gestion', 'cerrada', 'atendida')).toEqual({ motivo_cierre: 'atendida' })
   })
+})
+
+it('allowlist R-1 descarta campos administrativos', () => {
+  expect(solicitudPublica({ nombre: 'n', contacto: 'c', tipo_equipo: 'e', descripcion: 'd', servicio: 1, estado: 'cerrada', motivo_cierre: 'spam', observaciones_internas: 'o', actor: 'x' })).toEqual({ nombre: 'n', contacto: 'c', tipo_equipo: 'e', descripcion: 'd', servicio: 1 })
 })
