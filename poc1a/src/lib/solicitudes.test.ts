@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { getPayload } from 'payload'
+import { describe, expect, it, vi } from 'vitest'
 
+import { listarServiciosPublicos } from './publico'
 import { solicitudPublica, validarSolicitudPublica, validarTransicion } from './solicitudes'
+
+vi.mock('payload', async (importOriginal) => ({ ...await importOriginal<typeof import('payload')>(), getPayload: vi.fn() }))
 
 describe('validarTransicion', () => {
   it('acepta recibida a en_gestion sin motivo', () => {
@@ -39,13 +43,20 @@ describe('validarSolicitudPublica', () => {
     expect(validarSolicitudPublica({ ...solicitudValida(), descripcion: '😀'.repeat(4001) })).toEqual({ ok: false, codigo: 'datos_invalidos', campos: ['descripcion'] })
   })
 
-  it('mide nombre en code points y rechaza NUL', () => {
+  it('mide nombre, contacto y tipo_equipo en code points', () => {
     expect(validarSolicitudPublica({ ...solicitudValida(), nombre: '😀'.repeat(120) })).toMatchObject({ ok: true })
     expect(validarSolicitudPublica({ ...solicitudValida(), nombre: '😀'.repeat(121) })).toEqual({ ok: false, codigo: 'datos_invalidos', campos: ['nombre'] })
-    expect(validarSolicitudPublica({ ...solicitudValida(), nombre: 'válido\u0000' })).toEqual({ ok: false, codigo: 'datos_invalidos', campos: ['nombre'] })
+    expect(validarSolicitudPublica({ ...solicitudValida(), contacto: '😀'.repeat(200) })).toMatchObject({ ok: true })
+    expect(validarSolicitudPublica({ ...solicitudValida(), contacto: '😀'.repeat(201) })).toEqual({ ok: false, codigo: 'datos_invalidos', campos: ['contacto'] })
+    expect(validarSolicitudPublica({ ...solicitudValida(), tipo_equipo: '😀'.repeat(120) })).toMatchObject({ ok: true })
+    expect(validarSolicitudPublica({ ...solicitudValida(), tipo_equipo: '😀'.repeat(121) })).toEqual({ ok: false, codigo: 'datos_invalidos', campos: ['tipo_equipo'] })
   })
 
-  it.each(['estado', 'motivo_cierre', 'observaciones_internas', 'id', 'creada_en'])('rechaza campo administrativo %s', (campo) => {
+  it.each(['nombre', 'contacto', 'tipo_equipo', 'descripcion'] as const)('rechaza U+0000 en %s', (campo) => {
+    expect(validarSolicitudPublica({ ...solicitudValida(), [campo]: 'válido\u0000' })).toEqual({ ok: false, codigo: 'datos_invalidos', campos: [campo] })
+  })
+
+  it.each(['estado', 'motivo_cierre', 'observaciones_internas', 'id', 'creada_en', 'campo_forjado'])('rechaza campo no permitido %s', (campo) => {
     expect(validarSolicitudPublica({ ...solicitudValida(), [campo]: 'forjado' })).toEqual({ ok: false, codigo: 'campos_no_permitidos' })
   })
 
@@ -62,5 +73,22 @@ describe('validarSolicitudPublica', () => {
     expect(validarSolicitudPublica({ ...solicitudValida(), servicio: null })).toEqual({ ok: false, codigo: 'datos_invalidos', campos: ['servicio'] })
     expect(validarSolicitudPublica({ ...solicitudValida(), servicio: 'No-valido' })).toEqual({ ok: false, codigo: 'datos_invalidos', campos: ['servicio'] })
     expect(validarSolicitudPublica({ ...solicitudValida(), servicio: 'soporte-remoto' })).toEqual({ ok: true, datos: { ...solicitudValida(), servicio: 'soporte-remoto' } })
+    expect(validarSolicitudPublica({ ...solicitudValida(), servicio: 'a'.repeat(80) })).toMatchObject({ ok: true })
+    expect(validarSolicitudPublica({ ...solicitudValida(), servicio: 'a'.repeat(81) })).toEqual({ ok: false, codigo: 'datos_invalidos', campos: ['servicio'] })
+  })
+
+  it('acepta token y sitio_web sin incluirlos en datos guardables', () => {
+    expect(validarSolicitudPublica({ ...solicitudValida(), token: 'token', sitio_web: 'https://forjado.invalid' })).toEqual({
+      ok: true,
+      datos: { ...solicitudValida(), servicio: undefined },
+    })
+  })
+
+  it('consulta servicios públicos sólo activos', async () => {
+    const find = vi.fn().mockResolvedValue({ docs: [{ slug: 'activo', titulo: 'Activo', descripcion: null }] })
+    vi.mocked(getPayload).mockResolvedValue({ find } as never)
+
+    await expect(listarServiciosPublicos()).resolves.toEqual([{ slug: 'activo', titulo: 'Activo', descripcion: '' }])
+    expect(find).toHaveBeenCalledWith(expect.objectContaining({ where: { activo: { equals: true } }, overrideAccess: false }))
   })
 })

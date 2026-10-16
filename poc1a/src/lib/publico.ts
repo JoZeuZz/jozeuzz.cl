@@ -52,6 +52,7 @@ export async function listarServiciosPublicos(): Promise<ServicioPublico[]> {
   const payload = await getPayload({ config })
   const r = await payload.find({
     collection: 'servicios',
+    where: { activo: { equals: true } },
     overrideAccess: false,
     user: undefined,
     draft: false,
