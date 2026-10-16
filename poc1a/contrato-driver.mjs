@@ -10,8 +10,8 @@ import { NoImplementado } from '../contrato/errores.mjs';
 
 const aqui = path.dirname(fileURLToPath(import.meta.url));
 const BASE_POC1B = process.env.POC_TARGET_DATABASE;
-if (!/^poc1b_[a-z0-9_]+$/.test(BASE_POC1B ?? '')) {
-  throw new Error('POC_TARGET_DATABASE debe indicar una base poc1b_ explícita');
+if (!/^poc(1b|3)_[a-z0-9_]+$/.test(BASE_POC1B ?? '')) {
+  throw new Error('POC_TARGET_DATABASE debe indicar una base POC aislada explícita');
 }
 // Para producción: POC_RESET_ENV='POC_DB_SCHEMA=poc_prod POC_MEDIA_DIR=/app/media-store-prod' y POC_LOG_SERVICE=app-prod.
 const RESET_ENV = (process.env.POC_RESET_ENV ?? '').split(/\s+/).filter(Boolean);

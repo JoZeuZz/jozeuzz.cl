@@ -7,11 +7,11 @@ C="docker compose -p jozeuzz-poc-a -f compose.yaml"
 cmd="${1:-}"; [ $# -gt 0 ] && shift
 nombre_poc1b() {
   case "$1" in
-    poc1b_?*) ;;
-    *) echo "base POC-1b inválida: $1" >&2; exit 2 ;;
+    poc1b_?*|poc3_?*) ;;
+    *) echo "base POC aislada inválida: $1" >&2; exit 2 ;;
   esac
   case "$1" in
-    *[!a-z0-9_]*) echo "base POC-1b inválida: $1" >&2; exit 2 ;;
+    *[!a-z0-9_]*) echo "base POC aislada inválida: $1" >&2; exit 2 ;;
   esac
 }
 case "$cmd" in

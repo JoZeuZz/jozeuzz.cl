@@ -4,8 +4,8 @@ import { getPayload } from 'payload'
 import config from '../src/payload.config'
 
 const esperada = process.argv[2]
-if (!/^poc1b_[a-z0-9_]+$/.test(esperada ?? '')) {
-  throw new Error('base POC-1b explícita requerida')
+if (!/^poc(1b|3)_[a-z0-9_]+$/.test(esperada ?? '')) {
+  throw new Error('base POC aislada explícita requerida')
 }
 
 const payload = await getPayload({ config })
