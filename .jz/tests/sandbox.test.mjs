@@ -45,10 +45,25 @@ test('no ve credenciales, otros proyectos ni el socket de Docker', { skip }, () 
   const r = run('ls /root 2>&1; ls /home/proyectos; ls /var/run/docker.sock /run/docker.sock 2>&1; '
     + 'wc -c < /etc/shadow; ls -A /etc/ssh | wc -l');
   assert.match(r.out, /'\/root': No such file or directory/);
-  assert.equal(r.out.split('\n').find((l) => l.startsWith('jozeuzz')), path.basename(WT));
-  assert.doesNotMatch(r.out, /wealthfolio|jozeuzz-poc|MoneyPrinter/i);
+  // Sólo el propio worktree es visible; el nombre del worktree (p. ej. jozeuzz-poc-…) no cuenta como ajeno.
+  assert.deepEqual(r.out.split('\n').filter((l) => l.startsWith('jozeuzz')), [path.basename(WT)]);
+  assert.doesNotMatch(r.out.replaceAll(path.basename(WT), ''), /wealthfolio|jozeuzz|MoneyPrinter/i);
   assert.match(r.out, /'\/run\/docker\.sock': No such file or directory/);
   assert.match(r.out, /^0$/m, '/etc/shadow vacío');
+});
+
+test('no lee secretos del worktree (.env*, claves), salvo los de ejemplo', { skip }, () => {
+  const dir = path.join(WT, PROBE, 'secretos');
+  fs.mkdirSync(path.join(dir, 'sub'), { recursive: true });
+  const secrets = ['.env', '.env.local', 'sub/.env.production', 'servidor.key', 'cert.pem', 'id_ed25519'];
+  for (const f of secrets) fs.writeFileSync(path.join(dir, f), 'SECRETO-SONDA-77\n');
+  fs.writeFileSync(path.join(dir, '.env.example'), 'EJEMPLO-VISIBLE\n');
+  const rel = path.relative(WT, dir);
+  const r = run(`cd ${rel} && cat ${secrets.join(' ')} .env.example; echo x > .env; echo rc_escritura=$?`);
+  assert.doesNotMatch(r.out, /SECRETO-SONDA-77/);
+  assert.match(r.out, /EJEMPLO-VISIBLE/);
+  assert.doesNotMatch(r.out, /rc_escritura=0/);
+  assert.equal(fs.readFileSync(path.join(dir, '.env'), 'utf8'), 'SECRETO-SONDA-77\n');
 });
 
 test('sin red y sin acceso a servicios del host', { skip }, () => {

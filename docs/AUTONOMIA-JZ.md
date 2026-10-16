@@ -23,6 +23,7 @@ El CT es compartido, el usuario es `root` y pertenece al grupo `docker`. Cualqui
    - crea espacios de nombres nuevos de montaje, PID, red, IPC y UTS, y una raíz mínima con `pivot_root`, desmontando por completo la raíz anterior;
    - monta `/usr` y `/etc` en sólo lectura, sin `/etc/shadow`, `/etc/ssh`, `/etc/ssl/private` ni `/etc/docker`;
    - no monta `/root`, `/var`, `/home` de otros proyectos ni `docker.sock`;
+   - los secretos del propio worktree (`.env*` salvo los de ejemplo, `*.pem`, `*.key`, `*.p12`, `*.pfx` e `id_*`, fuera de `node_modules`, `.git` y `.next*`) se ven vacíos y en sólo lectura, con los mismos patrones que aplica la política a las lecturas;
    - deja sin red al proceso (sólo tiene su propio loopback);
    - el proceso no tiene capacidades: el bounding set está vacío y `no_new_privs` activo, así que no puede remontar ni crear user namespaces;
    - el entorno se vacía, de modo que no hereda los tokens del agente;
