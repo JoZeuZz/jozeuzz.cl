@@ -10,6 +10,8 @@ R-1 es `scripts/solicitud-sintetica.ts`, interno, sin ruta HTTP: exige
 `POC_TARGET_DATABASE=poc1b_migraciones POC_INTAKE_SINTETICO=1 node ../contrato/run.mjs --driver contrato-driver.mjs --solo <lista-handoff>`.
 No ejecutar IN-* como evidencia: POC-3 sigue pendiente.
 
+Orden seguro POC-1b: `./poc.sh up-fallos-en poc1b_migraciones`; `./poc.sh comprobar-en poc1b_migraciones`; exportar `POC_TARGET_DATABASE=poc1b_migraciones` y `POC_INTAKE_SINTETICO=1`; ejecutar `run.mjs --solo AU-05,AU-06,AU-07,PR-04,PR-07,CO-01,CO-02,CO-03,CO-04,CO-05,CO-06,CO-07,CA-02,ES-01,ES-02,ES-03,ES-04,ES-05,ES-06,ES-07,ES-08,ES-09,ES-10,ES-11,MO-01,MO-02,MO-03,MO-04,MO-05,AU-01,AU-02,AU-03,AU-04,PR-01,PR-02,PR-03,PR-05,PR-06,EV-01,EV-02,EV-03,EV-04,EV-05,EV-06`; finalmente `./poc.sh e2e-en poc1b_migraciones` (recrea app con gate apagado). Migraciones: `migrate-en`, `build-en` y `up-prod-en` sobre `poc1b_migraciones_revision`; comprobar con `psql-en ... -Atqc 'SELECT current_database()'`.
+
 POC desechable en rama `poc/candidata-a`. No es el scaffold del producto. La aplicación, la base y las pruebas de vitest/Playwright corren en Docker a través de
 `./poc.sh` (proyecto Compose `jozeuzz-poc-a`, imágenes fijadas por digest, puertos sólo en 127.0.0.1).
 

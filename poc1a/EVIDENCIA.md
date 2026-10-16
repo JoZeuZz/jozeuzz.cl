@@ -147,6 +147,9 @@ El driver mantiene `connection: close`.
 - Migración incremental `20261016_055416_poc1b`: aplicada desde cero junto a inicial en `poc1b_migraciones_limpia`; segunda ejecución sin pendientes, 2 filas de migración, tabla/FK/índices verificados. Build app-prod exit 0 (19.23 s), REST anónimo solicitudes/eventos 403 y GraphQL 404. No R-1 ni escrituras de prueba en schema `poc_prod`.
 - LOC método `wc -l`: Solicitudes 69, Eventos 17, reglas 18, R-1 17, driver 330; total 451. Puntos de extensión: 5 (access colección Solicitudes, access campos observaciones, colección Eventos, hooks Solicitudes, guardas driver/R-1).
 - Riesgos mantenidos: M3 forgot-password/log email, B7 referencias a medios privados, avisos de dependencias y límites access de Payload. Incidente `poc` documentado arriba: no se reutiliza.
+- RED adicional QA: allowlist R-1 falló `solicitudPublica is not a function` (exit 1), luego 3/3 verde; migración estática falló por `SET NULL`/orden down (exit 1), luego 1/1 verde. IDOR HTTP es caracterización: acceso existente ya denegó IDs reales de solicitud/evento; 15/15 verde.
+- La migración revisada usa `ON DELETE RESTRICT`; su down sólo se validó estáticamente, nunca se ejecutó. Base nueva requerida para aplicarla desde cero: `poc1b_migraciones_revision`.
+- Verificación final revisión: Vitest 72/72, contrato 43/43, batería explícita 44/44 y E2E 3/3, todos exit 0. `build-en poc1b_migraciones_revision`: 16.173 s; app-prod en esa base: solicitudes/eventos 403 anónimo y GraphQL 404.
 
 ## Matices de las mediciones y de la cobertura
 - La «propagación» de CO-05 mide un PATCH más un GET con `force-dynamic` (sin capa de caché): no es extrapolable a ISR o caché.
