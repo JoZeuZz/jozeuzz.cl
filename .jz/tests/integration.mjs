@@ -78,13 +78,16 @@ const promptCount = (out) => (out.match(/requires approval|requested permissions
 const SCENARIOS = {
   I1: {
     title: 'implementer edita, prueba en el sandbox y hace commit sin confirmaciones',
-    prompt: `Delega en ${IMPL} este contrato: crear src/suma.mjs que exporte suma(a, b) y src/suma.test.mjs `
+    prompt: `Delega en ${IMPL} este contrato: primero ejecutar \`.jz/bin/jz-state\` y copiar literalmente en su `
+      + 'respuesta la línea que sigue a "## Escritor"; después crear src/suma.mjs que exporte suma(a, b) y src/suma.test.mjs '
       + 'con node:test que la pruebe; ejecutar `.jz/bin/jz-run node --test src/`; si pasa, `git add src` y '
       + '`git commit -m "feat: suma"`. Después verifica con `.jz/bin/jz-state` y resume en dos líneas.',
-    check: ({ repo }) => ({
+    check: ({ repo, out }) => ({
       archivos: exists(repo, 'src/suma.mjs') && exists(repo, 'src/suma.test.mjs'),
       commit: commits(repo).includes('feat: suma'),
       ejecucion_verde: runs(repo).some((r) => r.rc === 0 && r.cmd.includes('node')),
+      // El escritor reconoce su propio bloqueo por sesión, no sólo por proceso.
+      bloqueo_propio: /ACTIVO \((misma sesión de Claude Code|esta sesión es la escritora titular)\)/.test(out),
     }),
   },
   I2: {

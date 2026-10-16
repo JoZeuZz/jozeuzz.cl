@@ -18,7 +18,7 @@ El CT es compartido, el usuario es `root` y pertenece al grupo `docker`. Cualqui
    - protege el plano de control: `.git`, `.claude/`, `.opencode/`, `.jz/`, `.jz-state/` (salvo `notes/`), `AGENTS.md`, `CLAUDE.md`, `opencode.json[c]` y `.mcp.json`;
    - impide la lectura de secretos (`.env*`, salvo los de ejemplo, además de `*.pem`, `*.key` e `id_*`) y de rutas fuera del worktree, con la excepción de las skills y de los resultados de herramientas del propio motor;
    - limita la delegación: sólo el orquestador delega, sólo en `jz-*` y nunca en sí mismo ni en agentes genéricos;
-   - mantiene un único escritor por worktree mediante `.jz-state/writer.lock`, que comparten los dos motores; un bloqueo cuyo proceso ya no existe se recupera solo.
+   - mantiene un único escritor por worktree mediante `.jz-state/writer.lock`, que comparten los dos motores; un bloqueo cuyo proceso ya no existe se recupera solo. El bloqueo registra motor, pid, sesión que delega, sesión escritora (en OpenCode, vinculada en su primera petición al modelo), agente y llamada. `jz-state` sólo lo considera propio si coincide la **sesión** de quien consulta (`CLAUDE_CODE_SESSION_ID` en Claude Code; `JZ_SESSION`, que el plugin pasa a la shell, en OpenCode). Compartir proceso no basta: si la sesión es otra o no puede verificarse, el veredicto es `BLOQUEADO`. En Claude Code, el orquestador y su subagente comparten sesión, así que el mensaje nombra al agente titular en lugar de afirmar quién escribe.
 4. **Ejecutor acotado** (`.jz/bin/jz-run`). Es la única vía para ejecutar código del proyecto (tests, typecheck, lint, build y scripts de `package.json`):
    - crea espacios de nombres nuevos de montaje, PID, red, IPC y UTS, y una raíz mínima con `pivot_root`, desmontando por completo la raíz anterior;
    - monta `/usr` y `/etc` en sólo lectura, sin `/etc/shadow`, `/etc/ssh`, `/etc/ssl/private` ni `/etc/docker`;
@@ -102,7 +102,7 @@ El estado se guarda en `.jz-state/` (ignorado por git, local al worktree):
 | Archivo | Quién lo escribe | Contenido |
 |---|---|---|
 | `runs.jsonl` y `runs/*.log` | `jz-run` | Cada ejecución real: comando, `rc`, `head`, huella del árbol y salida. |
-| `writer.lock` | hook o plugin | Escritor activo: motor, pid, sesión, agente y hora. |
+| `writer.lock` | hook o plugin | Escritor activo: motor, pid, sesión que delega, sesión escritora (OpenCode), agente, llamada y hora. |
 | `checkpoints/*.md`, `LATEST.md` | `jz-checkpoint` | Unidad, estado declarado, problemas, siguiente paso y el estado real completo. |
 | `notes/*.md` | implementer o architect | Notas libres del handoff. |
 | `quarantine/` | `jz-run` | Rutas de control o enlaces hacia fuera creados por un comando. |
@@ -120,7 +120,7 @@ El estado se guarda en `.jz-state/` (ignorado por git, local al worktree):
 
 **Al reanudar con cualquier motor:**
 
-1. Ejecuta `.jz/bin/jz-state`. Debe dar `REANUDABLE`: sin procesos `claude` u `opencode` vivos en el worktree, sin un bloqueo de escritor de otro proceso vivo y sin cuarentena pendiente.
+1. Ejecuta `.jz/bin/jz-state`. Debe dar `REANUDABLE`: sin procesos `claude` u `opencode` vivos en el worktree, sin un bloqueo de escritor vivo de otro proceso o de otra sesión (o de una sesión que no pueda verificarse) y sin cuarentena pendiente.
 2. Lee `.jz-state/LATEST.md` y las notas, y revisa `git diff` y `git log`.
 3. Pide al orquestador que continúe desde el «siguiente paso» del checkpoint, verificando primero el estado. Nunca hay que repetir la última tarea ni descartar los cambios pendientes: ningún agente tiene `reset`, `checkout`, `stash` ni `clean`.
 

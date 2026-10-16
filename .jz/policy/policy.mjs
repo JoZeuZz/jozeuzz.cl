@@ -394,6 +394,17 @@ export function acquireWriter(wt, holder) {
   return deny('no se pudo adquirir el bloqueo de escritor');
 }
 
+// OpenCode: el bloqueo lo adquiere la sesión que delega; la sesión del subagente escritor se conoce después,
+// con su primera petición al modelo. Se vincula una sola vez, y sólo si coincide el titular.
+export function bindWriterSession(wt, match, session) {
+  const cur = readLock(wt);
+  if (!cur || cur.writer_session || !Object.entries(match).every(([k, v]) => cur[k] === v)) return false;
+  const tmp = `${lockPath(wt)}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify({ ...cur, writer_session: session }) + '\n');
+  fs.renameSync(tmp, lockPath(wt));
+  return true;
+}
+
 export function releaseWriter(wt, match) {
   const cur = readLock(wt);
   if (!cur) return false;

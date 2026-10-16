@@ -132,3 +132,60 @@ test('jz-state: BLOQUEADO con un escritor vivo de otro proceso; REANUDABLE cuand
   assert.equal(free.rc, 0, free.out);
   assert.match(free.out, /Huérfano \(el proceso ya no existe\)/);
 });
+
+// Propiedad del bloqueo: compartir proceso no basta para ser la misma sesión.
+const stateAs = (repo, env) => {
+  const clean = Object.fromEntries(Object.entries(process.env)
+    .filter(([k]) => !['CLAUDE_CODE_SESSION_ID', 'JZ_SESSION', 'JZ_AGENT', 'JZ_ENGINE'].includes(k)));
+  const r = spawnSync(path.join(repo, '.jz/bin/jz-state'), [], { cwd: repo, encoding: 'utf8', env: { ...clean, ...env } });
+  return { rc: r.status, out: r.stdout + r.stderr };
+};
+
+test('jz-state (Claude Code): misma sesión sólo si coincide el id de sesión, no sólo el proceso', () => {
+  const repo = fixture();
+  writeLock(repo, { engine: 'claude-code', pid: process.pid, session: 'S1', agent: 'jz-implementer', call: 'c1' });
+  const same = stateAs(repo, { JZ_ENGINE: 'claude-code', CLAUDE_CODE_SESSION_ID: 'S1' });
+  assert.equal(same.rc, 0, same.out);
+  assert.match(same.out, /ACTIVO \(misma sesión de Claude Code\)/);
+  assert.doesNotMatch(same.out, /puedes escribir/);
+  const other = stateAs(repo, { JZ_ENGINE: 'claude-code', CLAUDE_CODE_SESSION_ID: 'S2' });
+  assert.equal(other.rc, 3, other.out);
+  assert.match(other.out, /ACTIVO \(mismo proceso, otra sesión\)/);
+  const unknown = stateAs(repo, {});
+  assert.equal(unknown.rc, 3, unknown.out);
+  assert.match(unknown.out, /ACTIVO \(mismo proceso, sesión no verificable\)/);
+});
+
+test('jz-state (OpenCode): distingue la sesión escritora, la delegante y otra del mismo proceso', () => {
+  const repo = fixture();
+  writeLock(repo, { engine: 'opencode', pid: process.pid, session: 'orq', writer_session: 'imp',
+    agent: 'jz-implementer', call: 'k1' });
+  const writer = stateAs(repo, { JZ_ENGINE: 'opencode', JZ_SESSION: 'imp' });
+  assert.equal(writer.rc, 0, writer.out);
+  assert.match(writer.out, /ACTIVO \(esta sesión es la escritora titular\)/);
+  const delegating = stateAs(repo, { JZ_ENGINE: 'opencode', JZ_SESSION: 'orq' });
+  assert.equal(delegating.rc, 0, delegating.out);
+  assert.match(delegating.out, /ACTIVO \(delegación en curso desde esta sesión\)/);
+  const other = stateAs(repo, { JZ_ENGINE: 'opencode', JZ_SESSION: 'qa' });
+  assert.equal(other.rc, 3, other.out);
+  assert.match(other.out, /ACTIVO \(mismo proceso, otra sesión\)/);
+  const crossEngine = stateAs(repo, { JZ_ENGINE: 'claude-code', CLAUDE_CODE_SESSION_ID: 'imp' });
+  assert.equal(crossEngine.rc, 3, crossEngine.out);
+});
+
+test('OpenCode: el plugin expone la sesión a la shell y vincula la sesión escritora al bloqueo', async () => {
+  const repo = fixture();
+  const { JzGuard } = await import(pathToFileURL(path.join(repo, '.opencode/plugins/jz-guard.js')).href);
+  const hooks = await JzGuard({ client: { session: { abort: async () => {} } }, directory: repo, worktree: repo });
+  await hooks['chat.params']({ sessionID: 'orq', agent: 'jz-orchestrator' });
+  await hooks['tool.execute.before']({ tool: 'task', sessionID: 'orq', callID: 'k1' },
+    { args: { subagent_type: 'jz-implementer' } });
+  await hooks['chat.params']({ sessionID: 'lector', agent: 'jz-qa' });
+  assert.equal(JSON.parse(fs.readFileSync(lockFile(repo), 'utf8')).writer_session, undefined, 'otro rol no se vincula');
+  await hooks['chat.params']({ sessionID: 'imp', agent: 'jz-implementer' });
+  await hooks['chat.params']({ sessionID: 'imp2', agent: 'jz-implementer' });
+  assert.equal(JSON.parse(fs.readFileSync(lockFile(repo), 'utf8')).writer_session, 'imp', 'sólo la primera sesión del rol');
+  const out = { env: {} };
+  await hooks['shell.env']({ cwd: repo, sessionID: 'imp', callID: 'b1' }, out);
+  assert.deepEqual(out.env, { JZ_ENGINE: 'opencode', JZ_SESSION: 'imp', JZ_AGENT: 'jz-implementer' });
+});

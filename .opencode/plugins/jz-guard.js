@@ -8,7 +8,8 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  roleOf, checkRead, checkWrite, checkBash, checkDelegate, acquireWriter, releaseWriter, readLock, WRITER_ROLES,
+  roleOf, checkRead, checkWrite, checkBash, checkDelegate, acquireWriter, releaseWriter, readLock, bindWriterSession,
+  WRITER_ROLES,
 } from '../../.jz/policy/policy.mjs';
 
 const PATCH_PATH = /^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$/gm;
@@ -60,9 +61,17 @@ export const JzGuard = async ({ client, directory, worktree }) => {
     },
     'chat.params': async (input) => {
       agentBySession.set(input.sessionID, input.agent);
+      if (WRITER_ROLES.has(input.agent)) {
+        bindWriterSession(wt, { engine: 'opencode', pid: process.pid, agent: input.agent }, input.sessionID);
+      }
     },
-    'shell.env': async (_input, output) => {
+    // jz-state usa la sesión, no sólo el proceso, para decidir si un bloqueo vivo es propio.
+    'shell.env': async (input, output) => {
       output.env.JZ_ENGINE = 'opencode';
+      if (input?.sessionID) {
+        output.env.JZ_SESSION = input.sessionID;
+        output.env.JZ_AGENT = agentBySession.get(input.sessionID) ?? '';
+      }
     },
     'tool.execute.before': async (input, output) => {
       const role = roleOf(agentBySession.get(input.sessionID));

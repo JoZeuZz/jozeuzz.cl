@@ -31,14 +31,40 @@ echo "## Cambios sin confirmar"
 changes=$(git -C "$WT" status --porcelain=v1 --untracked-files=all)
 if [[ -z $changes ]]; then echo "Ninguno (árbol limpio)."; else echo '```'; echo "$changes"; echo '```'; fi
 
+# Identidad de quien consulta: compartir proceso no basta para ser la misma sesión.
+caller_engine=${JZ_ENGINE:-}
+case $caller_engine in
+  claude-code) caller_session=${CLAUDE_CODE_SESSION_ID:-} ;;
+  opencode) caller_session=${JZ_SESSION:-} ;;
+  *) caller_session='' ;;
+esac
+
 echo
 echo "## Escritor"
 if [[ -f $STATE/writer.lock ]]; then
   lpid=$(jq -r '.pid' "$STATE/writer.lock")
-  desc=$(jq -r '"\(.agent) (\(.engine), pid \(.pid), sesión \(.session), desde \(.since))"' "$STATE/writer.lock")
+  lengine=$(jq -r '.engine // empty' "$STATE/writer.lock")
+  lsession=$(jq -r '.session // empty' "$STATE/writer.lock")
+  lwriter=$(jq -r '.writer_session // empty' "$STATE/writer.lock")
+  lagent=$(jq -r '.agent // empty' "$STATE/writer.lock")
+  desc=$(jq -r '"\(.agent) (\(.engine), pid \(.pid), sesión \(.session)\(if .writer_session then ", sesión escritora \(.writer_session)" else "" end), llamada \(.call), desde \(.since))"' "$STATE/writer.lock")
   if kill -0 "$lpid" 2>/dev/null; then
-    echo "ACTIVO: $desc"
-    [[ $ancestors == *" $lpid "* ]] || blockers+=("bloqueo de escritor vivo de otro proceso: $desc")
+    if [[ $ancestors != *" $lpid "* ]]; then
+      echo "ACTIVO (otro proceso): $desc"
+      blockers+=("bloqueo de escritor vivo de otro proceso: $desc")
+    elif [[ -z $caller_session || $caller_engine != "$lengine" ]]; then
+      echo "ACTIVO (mismo proceso, sesión no verificable): $desc"
+      blockers+=("bloqueo de escritor vivo sin sesión verificable: $desc")
+    elif [[ $lengine == opencode && $caller_session == "$lwriter" ]]; then
+      echo "ACTIVO (esta sesión es la escritora titular): $desc"
+    elif [[ $caller_session == "$lsession" && $lengine == opencode ]]; then
+      echo "ACTIVO (delegación en curso desde esta sesión): $desc. Sólo escribe $lagent."
+    elif [[ $caller_session == "$lsession" ]]; then
+      echo "ACTIVO (misma sesión de Claude Code): $desc. Sólo escribe el titular ($lagent); por sesión no se distingue al orquestador de su subagente."
+    else
+      echo "ACTIVO (mismo proceso, otra sesión): $desc"
+      blockers+=("bloqueo de escritor vivo de otra sesión: $desc")
+    fi
   else
     echo "Huérfano (el proceso ya no existe): $desc. Se recupera solo en la siguiente delegación."
   fi
