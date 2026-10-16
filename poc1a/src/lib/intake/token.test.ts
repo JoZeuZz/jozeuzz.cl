@@ -10,6 +10,11 @@ const config = cargarConfigIntake({ INTAKE_SECRETO: 'ab'.repeat(32), PAYLOAD_SEC
 const ahora = 1_700_000_000_000
 
 const alterar = (texto: string) => `${texto.slice(0, -1)}${texto.endsWith('a') ? 'b' : 'a'}`
+const firmaNoCanonica = (firma: string) => {
+  const alfabeto = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+  const indice = alfabeto.indexOf(firma.at(-1)!)
+  return `${firma.slice(0, -1)}${alfabeto[(indice & ~3) | 1]}`
+}
 const firmarCuerpo = (cuerpo: Record<string, unknown>) => {
   const parte = Buffer.from(JSON.stringify(cuerpo)).toString('base64url')
   const firma = createHmac('sha256', derivarClaves(config.secretoHex).token).update(`intake-token|${parte}`).digest('base64url')
@@ -34,7 +39,13 @@ describe('token CSRF', () => {
     const cuerpoAlterado = Buffer.from(JSON.stringify(json)).toString('base64url')
 
     expect(verificarToken(config, `${cuerpoAlterado}.${firma}`, ahora)).toBeNull()
-    expect(verificarToken(config, `${cuerpo}.${alterar(firma)}`, ahora)).toBeNull()
+    expect(verificarToken(config, `${cuerpo}.${firma.startsWith('A') ? 'B' : 'A'}${firma.slice(1)}`, ahora)).toBeNull()
+  })
+
+  it('rechaza firma base64url no canónica aunque decodifique los mismos bytes', () => {
+    const [cuerpo, firma] = emitirToken(config, ahora).split('.')
+
+    expect(verificarToken(config, `${cuerpo}.${firmaNoCanonica(firma)}`, ahora)).toBeNull()
   })
 
   it.each([

@@ -33,7 +33,7 @@ export function verificarToken(config: ConfigIntake, token: string, ahora: numbe
   const claves = derivarClaves(config.secretoHex)
   const firma = Buffer.from(partes[1], 'base64url')
   const esperada = Buffer.from(firmar(claves.token, partes[0]), 'base64url')
-  if (firma.length !== esperada.length || !timingSafeEqual(firma, esperada)) return null
+  if (firma.toString('base64url') !== partes[1] || firma.length !== esperada.length || !timingSafeEqual(firma, esperada)) return null
 
   let cuerpo: unknown
   try {
