@@ -159,7 +159,7 @@ El driver mantiene `connection: close`.
 - RAM/CPU: tres instantáneas en reposo; sin pico bajo carga ni p95.
 - 23 casos POC-1b usan R-1 sintético; los 31/31 sólo son verdes en batería explícita. Esto no valida intake POC-3 ni IN-*.
 - Los mutantes del contrato se aplican al driver oráculo, no a la candidata, y `mutantes.test.mjs` acepta cualquier excepción como detección; `denegado()`
-  acepta 404, y `AU-06` apunta a `eventos-solicitud` (no existe aquí). Pendiente del contrato, no de la candidata.
+  acepta 404. Pendiente del contrato, no de la candidata.
 
 ## Auditoría de dependencias (heredada de la fase 1; `npm audit` no se volvió a ejecutar en la fase 2 ni en la ronda de correcciones: requiere red y no aporta)
 - 10 hallazgos restantes, todos en herramientas de build/desarrollo (no en el runtime de producción).
