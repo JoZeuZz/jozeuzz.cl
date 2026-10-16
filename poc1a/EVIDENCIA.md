@@ -139,6 +139,15 @@ El driver mantiene `connection: close`.
 - Cabeceras CSP, HSTS y X-Frame-Options: fuera de alcance de la POC (despliegue); `SameSite=Strict` mitiga en parte.
 - `GET /api/users/init` informa a un anónimo si ya existe un admin. En el producto, crear el admin por CLI antes de exponer el puerto.
 
+## POC-1b — cierre local (2026-10-16)
+- H0A-16b autorizada en `87c9fb1`. R-1 sólo crea datos sintéticos internos y no es endpoint; no cubre POC-3 ni IN-*.
+- Batería explícita: 44/44 ok, 0 fail (13 POC-1a + 31 POC-1b), exit 0. Regresión `--alcance poc-1a`: 21 ok/0 fail/35 pendientes: 13 originales más 8 POC-1b sin intake. El handoff decía 7 sin intake/24 con; contratos reales dieron 8/23.
+- Vitest 69/69, `tsc --noEmit`, contrato 43/43 y E2E 3/3: exit 0. Integración `solicitudes-eventos.int.test.ts` prueba persistencia de evento y EV-04 rollback PostgreSQL real.
+- Atomicidad: evento anidado recibe mismo `req`; header interno `x-poc-fallo` sólo activa con admin, app dev aislada `POC_FALLOS_INYECTABLES=1` y nunca producción. Auth/IDOR: REST anónimo solicitudes/eventos 403; GraphQL 404; update/delete eventos denegados.
+- Migración incremental `20261016_055416_poc1b`: aplicada desde cero junto a inicial en `poc1b_migraciones_limpia`; segunda ejecución sin pendientes, 2 filas de migración, tabla/FK/índices verificados. Build app-prod exit 0 (19.23 s), REST anónimo solicitudes/eventos 403 y GraphQL 404. No R-1 ni escrituras de prueba en schema `poc_prod`.
+- LOC método `wc -l`: Solicitudes 69, Eventos 17, reglas 18, R-1 17, driver 330; total 451. Puntos de extensión: 5 (access colección Solicitudes, access campos observaciones, colección Eventos, hooks Solicitudes, guardas driver/R-1).
+- Riesgos mantenidos: M3 forgot-password/log email, B7 referencias a medios privados, avisos de dependencias y límites access de Payload. Incidente `poc` documentado arriba: no se reutiliza.
+
 ## Matices de las mediciones y de la cobertura
 - La «propagación» de CO-05 mide un PATCH más un GET con `force-dynamic` (sin capa de caché): no es extrapolable a ISR o caché.
 - E2E (F3, F1 sin JS, acciones de servidor) solo se ejecutaron contra `next dev`, no contra el build de producción.

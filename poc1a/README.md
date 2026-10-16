@@ -1,5 +1,15 @@
 # POC-1a — candidata A (Next.js + Payload + PostgreSQL)
 
+## POC-1b — reglas de negocio (2026-10-16)
+
+H0A-02/03/04 se validan en servidor: transiciones `recibida → en_gestion|cerrada` y
+`en_gestion → cerrada`; cierre con motivo; observaciones sólo admin; eventos inmutables.
+R-1 es `scripts/solicitud-sintetica.ts`, interno, sin ruta HTTP: exige
+`POC_INTAKE_SINTETICO=1`, `POC_TEST_RUN=1`, target `poc1b_*`, DB coincidente y nunca
+`poc_prod`/producción. Para batería POC-1b usar sólo la lista explícita de 44 casos:
+`POC_TARGET_DATABASE=poc1b_migraciones POC_INTAKE_SINTETICO=1 node ../contrato/run.mjs --driver contrato-driver.mjs --solo <lista-handoff>`.
+No ejecutar IN-* como evidencia: POC-3 sigue pendiente.
+
 POC desechable en rama `poc/candidata-a`. No es el scaffold del producto. La aplicación, la base y las pruebas de vitest/Playwright corren en Docker a través de
 `./poc.sh` (proyecto Compose `jozeuzz-poc-a`, imágenes fijadas por digest, puertos sólo en 127.0.0.1).
 
