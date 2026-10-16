@@ -142,10 +142,10 @@ El driver mantiene `connection: close`.
 ## POC-1b — cierre local (2026-10-16)
 - H0A-16b autorizada en `87c9fb1`. R-1 sólo crea datos sintéticos internos y no es endpoint; no cubre POC-3 ni IN-*.
 - Batería explícita: 44/44 ok, 0 fail (13 POC-1a + 31 POC-1b), exit 0. Regresión `--alcance poc-1a`: 21 ok/0 fail/35 pendientes: 13 originales más 8 POC-1b sin intake. El handoff decía 7 sin intake/24 con; contratos reales dieron 8/23.
-- Vitest 69/69, `tsc --noEmit`, contrato 43/43 y E2E 3/3: exit 0. Integración `solicitudes-eventos.int.test.ts` prueba persistencia de evento y EV-04 rollback PostgreSQL real.
+- Vitest 72/72, `tsc --noEmit`, contrato 43/43 y E2E 3/3: exit 0. Integración `solicitudes-eventos.int.test.ts` prueba persistencia de evento y EV-04 rollback PostgreSQL real.
 - Atomicidad: evento anidado recibe mismo `req`; header interno `x-poc-fallo` sólo activa con admin, app dev aislada `POC_FALLOS_INYECTABLES=1` y nunca producción. Auth/IDOR: REST anónimo solicitudes/eventos 403; GraphQL 404; update/delete eventos denegados.
-- Migración incremental `20261016_055416_poc1b`: aplicada desde cero junto a inicial en `poc1b_migraciones_limpia`; segunda ejecución sin pendientes, 2 filas de migración, tabla/FK/índices verificados. Build app-prod exit 0 (19.23 s), REST anónimo solicitudes/eventos 403 y GraphQL 404. No R-1 ni escrituras de prueba en schema `poc_prod`.
-- LOC método `wc -l`: Solicitudes 69, Eventos 17, reglas 18, R-1 17, driver 330; total 451. Puntos de extensión: 5 (access colección Solicitudes, access campos observaciones, colección Eventos, hooks Solicitudes, guardas driver/R-1).
+- Migración incremental `20261016_055416_poc1b`: `poc1b_migraciones_limpia` fue artefacto previo. Verificación definitiva desde cero en `poc1b_migraciones_revision`: segunda ejecución sin pendientes, 2 filas, tabla/FK/índices; FK final `RESTRICT`. Build app-prod exit 0 (16.173 s), REST anónimo solicitudes/eventos 403 y GraphQL 404. No R-1 ni escrituras de prueba en schema `poc_prod`.
+- LOC método `wc -l`: Solicitudes 69, Eventos 17, reglas 25, R-1 17, driver 330; total 458. Puntos de extensión: 5 (access colección Solicitudes, access campos observaciones, colección Eventos, hooks Solicitudes, guardas driver/R-1).
 - Riesgos mantenidos: M3 forgot-password/log email, B7 referencias a medios privados, avisos de dependencias y límites access de Payload. Incidente `poc` documentado arriba: no se reutiliza.
 - RED adicional QA: allowlist R-1 falló `solicitudPublica is not a function` (exit 1), luego 3/3 verde; migración estática falló por `SET NULL`/orden down (exit 1), luego 1/1 verde. IDOR HTTP es caracterización: acceso existente ya denegó IDs reales de solicitud/evento; 15/15 verde.
 - La migración revisada usa `ON DELETE RESTRICT`; su down sólo se validó estáticamente, nunca se ejecutó. Base nueva requerida para aplicarla desde cero: `poc1b_migraciones_revision`.
@@ -157,8 +157,7 @@ El driver mantiene `connection: close`.
 - n=3 sin dispersión (no se reporta rango); la VM es compartida.
 - El JS público cuenta solo gzip de scripts externos referenciados en el HTML (sin brotli, scripts inline de RSC, CSS ni imágenes).
 - RAM/CPU: tres instantáneas en reposo; sin pico bajo carga ni p95.
-- Muchos casos de POC-1b (PR-01, PR-05, PR-06, estados, motivos, eventos) dependen del intake (`crearSolicitud`/`solicitudEn`, POC-3): no se pueden activar
-  al implementar solo POC-1b; no esperar 31 verdes al cerrarlo.
+- 23 casos POC-1b usan R-1 sintético; los 31/31 sólo son verdes en batería explícita. Esto no valida intake POC-3 ni IN-*.
 - Los mutantes del contrato se aplican al driver oráculo, no a la candidata, y `mutantes.test.mjs` acepta cualquier excepción como detección; `denegado()`
   acepta 404, y `AU-06` apunta a `eventos-solicitud` (no existe aquí). Pendiente del contrato, no de la candidata.
 
