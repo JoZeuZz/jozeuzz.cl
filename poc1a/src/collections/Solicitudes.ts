@@ -14,6 +14,12 @@ export const Solicitudes: CollectionConfig = {
       if (operation === 'create') {
         data.estado = 'recibida'
         data.motivo_cierre = null
+        if (req.context?.canal === 'intake') {
+          data.observaciones_internas = ''
+          delete data.id
+          delete data.createdAt
+          delete data.updatedAt
+        }
         return data
       }
       if (data.estado !== undefined && data.estado !== originalDoc.estado) {

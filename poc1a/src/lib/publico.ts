@@ -76,6 +76,21 @@ export async function obtenerServicioPublico(slug: string): Promise<ServicioPubl
   return r.docs[0] ? servicio(r.docs[0]) : null
 }
 
+export async function resolverServicioActivo(slug: string): Promise<number | null> {
+  const payload = await getPayload({ config })
+  const r = await payload.find({
+    collection: 'servicios',
+    where: { slug: { equals: slug }, activo: { equals: true } },
+    overrideAccess: false,
+    user: undefined,
+    draft: false,
+    depth: 0,
+    limit: 1,
+  })
+  const id = r.docs[0]?.id
+  return typeof id === 'number' ? id : null
+}
+
 /** Rutas del sitemap: sólo lo que el anónimo puede ver. */
 export async function urlsSitemap(): Promise<string[]> {
   const [proyectos, servicios] = await Promise.all([listarProyectosPublicos(), listarServiciosPublicos()])
