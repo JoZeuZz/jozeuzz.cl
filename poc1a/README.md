@@ -2,17 +2,30 @@
 
 ## POC-1b — reglas de negocio (2026-10-16)
 
-H0A-02/03/04 se validan en servidor: transiciones `recibida → en_gestion|cerrada` y
-`en_gestion → cerrada`; cierre con motivo; observaciones sólo admin; eventos inmutables.
-R-1 es `scripts/solicitud-sintetica.ts`, interno, sin ruta HTTP: exige
-`POC_INTAKE_SINTETICO=1`, `POC_TEST_RUN=1`, target `poc1b_*`, DB coincidente y nunca
-`poc_prod`/producción. Para batería POC-1b usar sólo la lista explícita de 44 casos:
-`POC_TARGET_DATABASE=poc1b_migraciones POC_INTAKE_SINTETICO=1 node ../contrato/run.mjs --driver contrato-driver.mjs --solo <lista-handoff>`.
-No ejecutar IN-* como evidencia: POC-3 sigue pendiente.
+H0A-02/03/04 se validan en servidor. R-1 es interno, sin endpoint; no ejecutar IN-* como evidencia. Rama: `poc/candidata-a-1b`.
 
-Orden seguro POC-1b: `./poc.sh up-fallos-en poc1b_migraciones`; `./poc.sh comprobar-en poc1b_migraciones`; exportar `POC_TARGET_DATABASE=poc1b_migraciones` y `POC_INTAKE_SINTETICO=1`; ejecutar `run.mjs --solo AU-05,AU-06,AU-07,PR-04,PR-07,CO-01,CO-02,CO-03,CO-04,CO-05,CO-06,CO-07,CA-02,ES-01,ES-02,ES-03,ES-04,ES-05,ES-06,ES-07,ES-08,ES-09,ES-10,ES-11,MO-01,MO-02,MO-03,MO-04,MO-05,AU-01,AU-02,AU-03,AU-04,PR-01,PR-02,PR-03,PR-05,PR-06,EV-01,EV-02,EV-03,EV-04,EV-05,EV-06`; finalmente `./poc.sh e2e-en poc1b_migraciones` (recrea app con gate apagado). Migraciones: `migrate-en`, `build-en` y `up-prod-en` sobre `poc1b_migraciones_revision`; comprobar con `psql-en ... -Atqc 'SELECT current_database()'`.
+```sh
+# desde poc1a/; nunca usar base poc, ./poc.sh up/e2e/migrate heredados
+./poc.sh db-up
+./poc.sh psql -c 'CREATE DATABASE poc1b_migraciones' # sólo si no existe
+./poc.sh up-en poc1b_migraciones
+./poc.sh comprobar-en poc1b_migraciones
+./poc.sh exec-en poc1b_migraciones npx vitest run
+./poc.sh exec-en poc1b_migraciones npx tsc --noEmit
+node --test ../contrato/test/
+POC_TARGET_DATABASE=poc1b_migraciones node ../contrato/run.mjs --driver contrato-driver.mjs --alcance poc-1a
+./poc.sh up-fallos-en poc1b_migraciones
+POC_TARGET_DATABASE=poc1b_migraciones POC_INTAKE_SINTETICO=1 node ../contrato/run.mjs --driver contrato-driver.mjs --solo AU-05,AU-06,AU-07,PR-04,PR-07,CO-01,CO-02,CO-03,CO-04,CO-05,CO-06,CO-07,CA-02,ES-01,ES-02,ES-03,ES-04,ES-05,ES-06,ES-07,ES-08,ES-09,ES-10,ES-11,MO-01,MO-02,MO-03,MO-04,MO-05,AU-01,AU-02,AU-03,AU-04,PR-01,PR-02,PR-03,PR-05,PR-06,EV-01,EV-02,EV-03,EV-04,EV-05,EV-06
+./poc.sh e2e-en poc1b_migraciones # último: apaga gate EV-04
+./poc.sh migrate-en poc1b_migraciones_revision
+./poc.sh build-en poc1b_migraciones_revision
+./poc.sh up-prod-en poc1b_migraciones_revision
+./poc.sh psql-en poc1b_migraciones_revision -Atqc 'SELECT current_database()'
+```
 
-POC desechable en rama `poc/candidata-a`. No es el scaffold del producto. La aplicación, la base y las pruebas de vitest/Playwright corren en Docker a través de
+No R-1 ni escrituras de prueba en `poc_prod`. El `down` de migración no se ejecuta por prohibición de borrado; rollback requerido es EV-04, transacción fallida.
+
+POC desechable en rama `poc/candidata-a-1b`. No es el scaffold del producto. La aplicación, la base y las pruebas de vitest/Playwright corren en Docker a través de
 `./poc.sh` (proyecto Compose `jozeuzz-poc-a`, imágenes fijadas por digest, puertos sólo en 127.0.0.1).
 
 ## Requisitos
