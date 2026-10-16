@@ -18,7 +18,7 @@ El CT es compartido, el usuario es `root` y pertenece al grupo `docker`. Cualqui
    - protege el plano de control: `.git`, `.claude/`, `.opencode/`, `.jz/`, `.jz-state/` (salvo `notes/`), `AGENTS.md`, `CLAUDE.md`, `opencode.json[c]` y `.mcp.json`;
    - impide la lectura de secretos (`.env*`, salvo los de ejemplo, además de `*.pem`, `*.key` e `id_*`) y de rutas fuera del worktree, con la excepción de las skills y de los resultados de herramientas del propio motor;
    - limita la delegación: sólo el orquestador delega, sólo en `jz-*` y nunca en sí mismo ni en agentes genéricos;
-   - mantiene un único escritor por worktree mediante `.jz-state/writer.lock`, que comparten los dos motores; un bloqueo cuyo proceso ya no existe se recupera solo.
+   - mantiene un único escritor por worktree mediante `.jz-state/writer.lock`, que comparten los dos motores; un bloqueo cuyo proceso ya no existe se recupera solo. El bloqueo registra motor, pid, sesión que delega, sesión escritora (en OpenCode, vinculada en su primera petición al modelo), agente y llamada. `jz-state` sólo lo considera propio si coincide la **sesión** de quien consulta (`CLAUDE_CODE_SESSION_ID` en Claude Code; `JZ_SESSION`, que el plugin pasa a la shell, en OpenCode). Compartir proceso no basta: si la sesión es otra o no puede verificarse, el veredicto es `BLOQUEADO`. En Claude Code, el orquestador y su subagente comparten sesión, así que el mensaje nombra al agente titular en lugar de afirmar quién escribe.
 4. **Ejecutor acotado** (`.jz/bin/jz-run`). Es la única vía para ejecutar código del proyecto (tests, typecheck, lint, build y scripts de `package.json`):
    - crea espacios de nombres nuevos de montaje, PID, red, IPC y UTS, y una raíz mínima con `pivot_root`, desmontando por completo la raíz anterior;
    - monta `/usr` y `/etc` en sólo lectura, sin `/etc/shadow`, `/etc/ssh`, `/etc/ssl/private` ni `/etc/docker`;
@@ -102,7 +102,7 @@ El estado se guarda en `.jz-state/` (ignorado por git, local al worktree):
 | Archivo | Quién lo escribe | Contenido |
 |---|---|---|
 | `runs.jsonl` y `runs/*.log` | `jz-run` | Cada ejecución real: comando, `rc`, `head`, huella del árbol y salida. |
-| `writer.lock` | hook o plugin | Escritor activo: motor, pid, sesión, agente y hora. |
+| `writer.lock` | hook o plugin | Escritor activo: motor, pid, sesión que delega, sesión escritora (OpenCode), agente, llamada y hora. |
 | `checkpoints/*.md`, `LATEST.md` | `jz-checkpoint` | Unidad, estado declarado, problemas, siguiente paso y el estado real completo. |
 | `notes/*.md` | implementer o architect | Notas libres del handoff. |
 | `quarantine/` | `jz-run` | Rutas de control o enlaces hacia fuera creados por un comando. |
@@ -120,7 +120,7 @@ El estado se guarda en `.jz-state/` (ignorado por git, local al worktree):
 
 **Al reanudar con cualquier motor:**
 
-1. Ejecuta `.jz/bin/jz-state`. Debe dar `REANUDABLE`: sin procesos `claude` u `opencode` vivos en el worktree, sin un bloqueo de escritor de otro proceso vivo y sin cuarentena pendiente.
+1. Ejecuta `.jz/bin/jz-state`. Debe dar `REANUDABLE`: sin procesos `claude` u `opencode` vivos en el worktree, sin un bloqueo de escritor vivo de otro proceso o de otra sesión (o de una sesión que no pueda verificarse) y sin cuarentena pendiente.
 2. Lee `.jz-state/LATEST.md` y las notas, y revisa `git diff` y `git log`.
 3. Pide al orquestador que continúe desde el «siguiente paso» del checkpoint, verificando primero el estado. Nunca hay que repetir la última tarea ni descartar los cambios pendientes: ningún agente tiene `reset`, `checkout`, `stash` ni `clean`.
 
@@ -172,7 +172,7 @@ Cambios respecto a `chore/jz-agents`, todos más restrictivos o de prueba:
 - La política y la recuperación dan 16/16 en `jz-run`, y el aislamiento del sandbox 9/9 en el host.
 - Integración con Claude Code: 6/6 (I1–I6), sin solicitudes interactivas.
 - Integración con OpenCode: I1–I4 e I6 superados. La concurrencia de I5 depende del modelo. En la primera ejecución, `gpt-5.6-sol` se negó a lanzar escritores en paralelo porque lo prohíbe el protocolo, así que no hubo escritura doble, pero el bloqueo no llegó a ejercitarse. En la repetición con `-m github-copilot/claude-sonnet-4.6`, las tareas salieron en mensajes separados, una detrás de otra. En la tercera, `gpt-5.6-sol` las lanzó en el mismo mensaje y el plugin rechazó la segunda con «otro escritor está activo». El rechazo también se comprueba de forma determinista en `recovery.test.mjs`.
-- Al repetir I5, el segundo implementador interpretó su propio bloqueo como el de otro escritor. Desde entonces, `jz-state` distingue `ACTIVO (esta sesión; puedes escribir)` de `ACTIVO (otro proceso)`.
+- Al repetir I5, el segundo implementador interpretó su propio bloqueo como el de otro escritor. La primera corrección del POC decidía por proceso (`ACTIVO (esta sesión; puedes escribir)` si el pid del bloqueo era un ancestro), y eso confundía con el escritor a otra sesión alojada en el mismo proceso del motor. Se sustituyó por la propiedad por sesión de `cfdff82` (`chore/jz-agents`), sincronizada aquí el 2026-10-16 sin cambios: `jz-state`, `policy.mjs`, `jz-guard.js`, `recovery.test.mjs` e `integration.mjs` son idénticos a los de ese commit. Comprobación tras la sincronización: `node --test` de `policy`, `recovery` y `sandbox` en el host, 27/27. La batería de integración (I1–I6) no se repitió aquí: se validó en vivo en `chore/jz-agents` con esos mismos archivos y consume cuota de los motores.
 
 **Comprobaciones de `poc1a/` sin servicios.** Se lanzan con `--cwd` y el binario local:
 
