@@ -120,6 +120,7 @@ El driver mantiene `connection: close`.
 6. Sin defectos reales de Payload/Next frente al contrato; ningún criterio de parada activado.
 
 ## Riesgos aceptados
+- **Incidente POC-1b (2026-10-16):** el `e2e` heredado recreó `app` sin `POC_DATABASE_NAME` y lo conectó a `poc`. Dos logins sintéticos fallidos incrementaron `public.users.login_attempts` a 2 y actualizaron su marca temporal; no hubo truncado en esa ejecución. Decisión humana: no reparar ni volver a escribir `poc`; queda contaminada y fuera de uso. Corrección `79ea54f`: variantes `*-en` exigen `^poc1b_[a-z0-9_]+$`, verifican `current_database()` dentro de app y propagan el target a Compose, reset y runner E2E. `./poc.sh e2e-en poc1b_migraciones` pasó 3/3.
 - `maxLoginAttempts` bloquea por cuenta, no por IP: permite denegar el acceso al único admin (10 min de `lockTime`).
 - `first-register` queda abierto mientras no exista ningún usuario.
 - Cookies `Secure`: sólo funcionan por HTTPS o en loopback; el despliegue real exige TLS.
