@@ -43,6 +43,7 @@ services:
       DATABASE_URL: postgres://poc:${POC_DB_PASSWORD:?ejecuta ./poc.sh init}@db:5432/${POC_DATABASE_NAME:-poc}
       PAYLOAD_SECRET: ${PAYLOAD_SECRET:?ejecuta ./poc.sh init}
       POC_SERVER_URL: http://127.0.0.1:3101
+      POC_FALLOS_INYECTABLES: ${POC_FALLOS_INYECTABLES:-0}
     command: ["npm", "run", "dev"]
     ports:
       - "127.0.0.1:3101:3000"

@@ -28,10 +28,10 @@ function jwtFalsificado() {
   return `${cab}.${cuerpo}.${firma}`;
 }
 
-async function http(sesion, metodo, ruta, cuerpo) {
+async function http(sesion, metodo, ruta, cuerpo, extras = {}) {
   // Sin keep-alive: el servidor cierra conexiones ociosas (~5 s) y el reintento de undici sobre un socket
   // reutilizado producía «fetch failed» entre un reset y la primera petición.
-  const headers = { connection: 'close' };
+  const headers = { connection: 'close', ...extras };
   if (sesion?.token) headers.authorization = `JWT ${sesion.token}`;
   if (cuerpo !== undefined) headers['content-type'] = 'application/json';
   let res;
@@ -183,11 +183,11 @@ export default async function crearDriver() {
       return crudo(await http(sesion, 'POST', `/api/${COLECCION[tipo]}`, traducir(tipo, datos)));
     },
     async actualizar(sesion, { tipo, ref, cambios }) {
-      const id = tipo === 'evento' ? ref : idDe(tipo, ref);
+      const id = tipo === 'evento' ? (/^\d+$/.test(String(ref)) ? ref : ID_INEXISTENTE) : idDe(tipo, ref);
       return crudo(await http(sesion, 'PATCH', `/api/${COLECCION[tipo]}/${id}`, traducir(tipo, cambios)));
     },
     async eliminar(sesion, { tipo, ref }) {
-      const id = tipo === 'evento' ? ref : idDe(tipo, ref);
+      const id = tipo === 'evento' ? (/^\d+$/.test(String(ref)) ? ref : ID_INEXISTENTE) : idDe(tipo, ref);
       return crudo(await http(sesion, 'DELETE', `/api/${COLECCION[tipo]}/${id}`));
     },
   };
@@ -247,13 +247,19 @@ export default async function crearDriver() {
       return { status: r.status };
     },
     async transicionar() {
-      throw new NoImplementado('POC-1b: transiciones de estado');
+      const [ref, datos, opts] = arguments
+      const cuerpo = { estado: datos.a, motivo_cierre: datos.motivo_cierre }
+      const r = await http(sesion, 'PATCH', `/api/solicitudes/${encodeURIComponent(ref)}`, cuerpo, opts?.falla === 'tras-estado' ? { 'x-poc-fallo': 'tras-estado' } : {})
+      return crudo(r)
     },
     async fijarObservaciones() {
-      throw new NoImplementado('POC-1b: observaciones internas');
+      const [ref, observaciones_internas] = arguments
+      return crudo(await http(sesion, 'PATCH', `/api/solicitudes/${encodeURIComponent(ref)}`, { observaciones_internas }))
     },
     async listarEventos() {
-      throw new NoImplementado('POC-1b: eventos');
+      const [ref] = arguments
+      const r = await http(sesion, 'GET', `/api/eventos-solicitud?where[solicitud][equals]=${encodeURIComponent(ref)}&sort=createdAt&depth=0`)
+      return r.status === 200 ? { status: 200, data: r.json.docs.map((e) => ({ id: String(e.id), solicitud: String(e.solicitud), estado_anterior: e.estado_anterior, estado_nuevo: e.estado_nuevo, actor: e.actor, fecha: e.fecha, motivo_cierre: e.motivo_cierre ?? null })) } : { status: r.status }
     },
   });
 
@@ -305,10 +311,14 @@ export default async function crearDriver() {
     intake: {
       limite: { max: 1 },
       async preparar() {
-        throw new NoImplementado('POC-3: intake público');
+        if (process.env.POC_INTAKE_SINTETICO !== '1') throw new NoImplementado('POC-3: intake público');
+        return arguments[0]
       },
       async enviar() {
-        throw new NoImplementado('POC-3: intake público');
+        if (process.env.POC_INTAKE_SINTETICO !== '1') throw new NoImplementado('POC-3: intake público');
+        const b64 = Buffer.from(JSON.stringify(arguments[0])).toString('base64')
+        const r = spawnSync('./poc.sh', ['exec-en', BASE_POC1B, 'env', 'POC_INTAKE_SINTETICO=1', 'POC_TEST_RUN=1', `POC_TARGET_DATABASE=${BASE_POC1B}`, 'npx', 'tsx', 'scripts/solicitud-sintetica.ts', b64], { cwd: aqui, encoding: 'utf8' })
+        return { status: r.status === 0 ? 201 : 400 }
       },
     },
     admin,

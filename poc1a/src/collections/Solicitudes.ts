@@ -1,4 +1,4 @@
-import type { CollectionConfig } from 'payload'
+import { ValidationError, type CollectionConfig } from 'payload'
 
 import { soloAdmin, soloAdminCampo } from '../access'
 import { validarTransicion } from '../lib/solicitudes'
@@ -10,14 +10,20 @@ export const Solicitudes: CollectionConfig = {
   admin: { useAsTitle: 'nombre' },
   access: { read: soloAdmin, create: soloAdmin, update: soloAdmin, delete: soloAdmin },
   hooks: {
-    beforeChange: [({ data, operation, originalDoc }) => {
+    beforeChange: [({ data, operation, originalDoc, req }) => {
       if (operation === 'create') {
         data.estado = 'recibida'
         data.motivo_cierre = null
         return data
       }
       if (data.estado !== undefined && data.estado !== originalDoc.estado) {
-        data.motivo_cierre = validarTransicion(originalDoc.estado, data.estado, data.motivo_cierre).motivo_cierre
+        try {
+          data.motivo_cierre = validarTransicion(originalDoc.estado, data.estado, data.motivo_cierre).motivo_cierre
+        } catch (error) {
+          throw new ValidationError({ collection: 'solicitudes', errors: [{ path: 'estado', message: error instanceof Error ? error.message : 'transición inválida' }], req })
+        }
+      } else if (data.estado !== undefined && Object.hasOwn(req.data ?? {}, 'estado')) {
+        throw new ValidationError({ collection: 'solicitudes', errors: [{ path: 'estado', message: 'transición inválida' }], req })
       }
       return data
     }],
@@ -36,7 +42,7 @@ export const Solicitudes: CollectionConfig = {
         overrideAccess: true,
         req,
       })
-      if (process.env.POC_FALLOS_INYECTABLES === '1' && process.env.NODE_ENV !== 'production') throw new Error('fallo inyectado tras estado')
+      if (process.env.POC_FALLOS_INYECTABLES === '1' && process.env.NODE_ENV !== 'production' && req.headers.get('x-poc-fallo') === 'tras-estado' && req.user?.collection === 'users') throw new Error('fallo inyectado tras estado')
       return doc
     }],
   },

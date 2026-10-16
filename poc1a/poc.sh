@@ -26,6 +26,9 @@ case "$cmd" in
   up-en)
     base="${1:?uso: up-en <base-poc1b>}"; nombre_poc1b "$base"
     POC_DATABASE_NAME="$base" $C up -d db app ;;
+  up-fallos-en)
+    base="${1:?uso: up-fallos-en <base-poc1b>}"; nombre_poc1b "$base"
+    POC_DATABASE_NAME="$base" POC_FALLOS_INYECTABLES=1 $C up -d --force-recreate app ;;
   comprobar-en)
     base="${1:?uso: comprobar-en <base-poc1b>}"; nombre_poc1b "$base"
     POC_DATABASE_NAME="$base" $C exec -T app npx tsx scripts/verificar-db.ts "$base" ;;
