@@ -50,7 +50,7 @@ export async function enviar({ base, esperaMinimaMs }, { ip, cuerpo, formularioP
   const crudo = await respuesta.text()
   let json
   try { json = JSON.parse(crudo) } catch { json = undefined }
-  return { status: respuesta.status, json }
+  return { status: respuesta.status, json, correlacion: respuesta.headers.get('x-correlacion') ?? undefined }
 }
 
 export const solicitudValida = (nombre, token) => ({
@@ -75,9 +75,14 @@ export function buscarFugas(lineas, { valores, ips }) {
     { nombre: 'SNT-', prueba: (l) => l.includes('SNT-') },
     { nombre: 'Failed query', prueba: (l) => l.includes('Failed query') },
     { nombre: 'DETAIL', prueba: (l) => l.includes('DETAIL') },
-    { nombre: 'stack', prueba: (l) => /\bstack\b/.test(l) },
+    // Clave JSON "stack" o marco de pila («    at funcion (archivo:1:2)»); la palabra suelta («stack depth») no es una fuga.
+    { nombre: 'stack', prueba: (l) => /"stack"\s*:|\s{2,}at\s+(?:\S+\s+\()?\S+:\d+/.test(l) },
   ]
   return lineas.flatMap((linea) => prohibidos.filter((p) => p.prueba(linea)).map((p) => `${p.nombre}: ${linea.slice(0, 240)}`))
 }
 
 export const lineasDeEvento = (lineas) => lineas.filter((l) => l.includes('"evento":"intake"'))
+
+/** Líneas `"evento":"intake","codigo":"interno"` atadas a una petición por su `x-correlacion`. */
+export const lineasInternas = (lineas, correlacion) =>
+  lineasDeEvento(lineas).filter((l) => l.includes('"codigo":"interno"') && correlacion !== undefined && l.includes(`"correlacion":"${correlacion}"`))

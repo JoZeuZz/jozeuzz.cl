@@ -74,6 +74,18 @@ describe('manejarIntake: retención y fallos', () => {
     expect(mocks.logger.error).toHaveBeenCalledWith(expect.objectContaining({ evento: 'intake', codigo: 'interno' }))
   })
 
+  it('si respuestaFormulario rechaza dentro del catch (origen inválido, urlencoded) responde 500 interno sin rechazar', async () => {
+    mocks.contarIntento.mockResolvedValue({ permitido: true, reintentarEnS: 5 })
+    mocks.respuestaFormulario.mockRejectedValue(new Error('plantilla'))
+
+    const respuesta = await manejarIntake(peticion('application/x-www-form-urlencoded'))
+
+    expect(respuesta.status).toBe(500)
+    expect(await respuesta.json()).toEqual({ error: 'interno' })
+    expect(respuesta.headers.get('x-correlacion')).toBeTruthy()
+    expect(mocks.logger.error).toHaveBeenCalledWith(expect.objectContaining({ evento: 'intake', codigo: 'interno' }))
+  })
+
   it('un fallo síncrono de la purga tampoco altera la respuesta', async () => {
     mocks.contarIntento.mockResolvedValue({ permitido: true, reintentarEnS: 5 })
     mocks.purgarIntake.mockImplementation(() => { throw new Error('síncrono') })

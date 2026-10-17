@@ -44,7 +44,11 @@ export function metadatosError(error: unknown): { err_name?: string; pg_code?: s
 
 /** Sustituye todo valor error-like (cualquier nivel hasta PROFUNDIDAD_MAXIMA, incluidos arrays y `cause`). */
 function sanearValor(valor: unknown, profundidad: number, visto: { error: boolean }): unknown {
-  if (pareceError(valor)) { visto.error = true; return serializarError(valor) }
+  if (pareceError(valor)) {
+    visto.error = true
+    // Un error desnudo como argumento de la llamada se envolvería en la raíz del registro y pisaría `name` del logger.
+    return profundidad === 0 ? { err: serializarError(valor) } : serializarError(valor)
+  }
   if (profundidad >= PROFUNDIDAD_MAXIMA || !esObjeto(valor)) return valor
   if (Array.isArray(valor)) return valor.map((elemento) => sanearValor(elemento, profundidad + 1, visto))
   if (!esLiteral(valor)) return valor

@@ -5,3 +5,7 @@ services:
   app:
     networks:
       - proxy_prod
+  # Sólo pruebas: habilita la inyección en app-prod para demostrar que NODE_ENV=production la anula. Nunca en compose.yaml.
+  app-prod:
+    environment:
+      POC_FALLOS_INYECTABLES: "1"

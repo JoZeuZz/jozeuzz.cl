@@ -56,6 +56,14 @@ describe('logger de Payload sin PII', () => {
     expect(registro.err).toEqual({ name: 'DrizzleQueryError', pg_code: '23514' })
   })
 
+  it('un Error desnudo conserva el name del logger y su clase queda en err.name', () => {
+    const { logger, salida } = crearLogger()
+    logger.error(errorDrizzle())
+    const registro = JSON.parse(salida().trim()) as { name: string; err: Record<string, unknown> }
+    expect(registro.name).toBe('payload')
+    expect(registro.err).toEqual({ name: 'DrizzleQueryError', pg_code: '23514' })
+  })
+
   it('conserva intacto el registro de evento del manejador', () => {
     const { logger, salida } = crearLogger()
     logger.info({ evento: 'intake', codigo: 'creada', duracion_ms: 1, correlacion: 'c' })

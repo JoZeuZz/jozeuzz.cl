@@ -57,15 +57,20 @@ POC_INTAKE_SINTETICO=1 POC_BASE_URL=https://127.0.0.1:3443 NODE_EXTRA_CA_CERTS="
 
 Payload usa `pino` con `src/lib/intake/log.ts` (sin `pino-pretty`); `db` arranca con `log_min_messages=fatal`, `log_min_error_statement=panic` y `log_error_verbosity=terse`. `src/lib/intake/fallos.ts` inyecta fallos reales sólo con `NODE_ENV!=='production'` y `POC_FALLOS_INYECTABLES=1` (`up-fallos-en`) y la cabecera `x-poc-fallo`. Comandos Docker pendientes de ejecución humana, desde `poc1a/` (`export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"` tras cada `up-*`, que recrea la CA):
 
+`up-prod-pruebas-en` usa `compose.pruebas.yaml`, que da `POC_FALLOS_INYECTABLES=1` sólo a `app-prod` (nunca `compose.yaml`) para que la prueba de no inyección en producción no sea vacua. Orden obligatorio: el build antes de levantar `app-prod`, y la prueba de build sólo después de un build reciente.
+
 ```sh
-./poc.sh up-fallos-en poc3_intake
-node --test test/docker/logs-intake-fallos.test.mjs
-./poc.sh up-prod-pruebas-en poc3_intake
-POC_BASE_URL=https://127.0.0.1:3444 node --test test/docker/logs-intake.test.mjs
 ./poc.sh build-en poc3_intake
-# desde la raíz del worktree:
-.jz/bin/jz-run node --test poc1a/test/build/
+./poc.sh up-prod-pruebas-en poc3_intake
+export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
+POC_BASE_URL=https://127.0.0.1:3444 node --test test/docker/logs-intake.test.mjs
+node --test test/build/sin-inyeccion.test.mjs   # exige .next-prod actual (BUILD_ID posterior a las fuentes de intake)
+./poc.sh up-fallos-en poc3_intake
+export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
+node --test test/docker/logs-intake-fallos.test.mjs
 ```
+
+La lógica de la prueba de build (`test/build/comprobar-build.mjs`) tiene su propia prueba sin Docker: `node --test test/build/comprobar-build.test.mjs`.
 
 ## POC-3 U8 — accesibilidad, sin JavaScript y E2E
 

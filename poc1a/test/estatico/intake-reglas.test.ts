@@ -107,6 +107,16 @@ describe('reglas estáticas del intake', () => {
     expect(cuerpo).toMatch(/return await respuestaError\(/)
   })
 
+  it('el catch del manejador también espera respuestaError y captura su rechazo', () => {
+    const manejador = leer('src/lib/intake/manejador.ts')
+    const inicio = manejador.indexOf('} catch (error) {\n    const intake')
+    const captura = manejador.slice(inicio, manejador.indexOf('} finally {', inicio))
+    expect(inicio).toBeGreaterThan(0)
+    expect(captura).not.toMatch(/return\s+respuestaError\(/)
+    expect(captura).toMatch(/try \{ return await respuestaError\(/)
+    expect(captura).toMatch(/\} catch \{[^}]*codigo = 'interno'[^}]*respuestaJson\(500/)
+  })
+
   it('las consultas de límites y purga califican el schema del adaptador', () => {
     for (const ruta of ['src/lib/intake/limites.ts', 'src/lib/intake/purga.ts']) {
       const fuente = leer(ruta)

@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buscarFugas, entorno, enviar, instanteInicial, ipSinteticaUnica, lineasDeEvento, recogerLogs, solicitudValida, valorSintetico } from './ayuda-logs.mjs'
+import { buscarFugas, entorno, enviar, instanteInicial, ipSinteticaUnica, lineasDeEvento, lineasInternas, recogerLogs, solicitudValida, valorSintetico } from './ayuda-logs.mjs'
 
 const destino = entorno(3443)
 const desde = instanteInicial()
@@ -20,13 +20,19 @@ function nuevoEnvio(etiqueta) {
   return { nombre, ip }
 }
 
+const correlaciones = new Map()
+// pg_code que el manejador debe registrar (por correlación) para cada fallo; intake-fuera no tiene código de PostgreSQL asegurado.
+const PG_ESPERADO = { 'intake-pg-check': '23514', 'intake-pg-tipo': '22P02', 'intake-log-crudo': '22P02' }
+
 for (const fallo of ['intake-log-crudo', 'intake-pg-check', 'intake-pg-tipo', 'intake-fuera']) {
   test(`fallo inyectado ${fallo}: 500 interno genérico, sin eco de valores`, async () => {
     const { nombre, ip } = nuevoEnvio(fallo)
-    const { status, json } = await enviar(destino, { ip, cabeceras: { 'x-poc-fallo': fallo }, cuerpo: (token) => solicitudValida(nombre, token) })
+    const { status, json, correlacion } = await enviar(destino, { ip, cabeceras: { 'x-poc-fallo': fallo }, cuerpo: (token) => solicitudValida(nombre, token) })
     // Si la inyección no está activa el envío se crearía (201): la prueba debe fallar, no pasar en vacío.
     assert.equal(status, 500, `${fallo}: la inyección no está activa (¿se levantó con up-fallos-en?)`)
     assert.deepEqual(json, { error: 'interno' })
+    assert.ok(correlacion, `${fallo}: la respuesta debe llevar x-correlacion`)
+    correlaciones.set(fallo, correlacion)
   })
 }
 
@@ -50,4 +56,25 @@ test('los logs de proxy, app, app-prod y db no contienen PII, IPs, /64 ni textos
   const eventos = lineasDeEvento(lineas)
   assert.ok(eventos.length >= 1, 'debe haber al menos una línea con "evento":"intake" (si no, la prueba no vería nada)')
   assert.ok(eventos.some((linea) => linea.includes('"codigo":"interno"')), 'los fallos inyectados deben quedar registrados como codigo interno')
+})
+
+test('cada fallo inyectado deja su línea interna con el pg_code esperado, atada por correlación', async () => {
+  const lineas = await recogerLogs(desde)
+  assert.equal(correlaciones.size, 4, 'deben haberse ejecutado los cuatro fallos inyectados')
+  for (const [fallo, correlacion] of correlaciones) {
+    const internas = lineasInternas(lineas, correlacion)
+    assert.equal(internas.length, 1, `${fallo}: debe haber exactamente una línea interna con la correlación ${correlacion}`)
+    if (PG_ESPERADO[fallo]) assert.ok(internas[0].includes(`"pg_code":"${PG_ESPERADO[fallo]}"`), `${fallo}: falta "pg_code":"${PG_ESPERADO[fallo]}" en ${internas[0].slice(0, 240)}`)
+  }
+})
+
+test('intake-log-crudo: el error crudo del logger de Payload sale saneado', async () => {
+  const lineas = await recogerLogs(desde)
+  const crudas = lineas.filter((linea) => linea.includes('"name":"payload"') && !linea.includes('"evento"') && linea.includes('"pg_code":"22P02"'))
+  assert.ok(crudas.length >= 1, 'debe haber una línea del logger de payload con el error saneado ("err" con pg_code 22P02)')
+  for (const linea of crudas) {
+    assert.ok(linea.includes('"err":{'), `la línea saneada debe llevar err: ${linea.slice(0, 240)}`)
+    assert.ok(!linea.includes('Failed query'), 'sin Failed query')
+  }
+  assert.ok(!lineas.some((linea) => linea.includes('Failed query')), 'ninguna línea contiene Failed query')
 })

@@ -21,11 +21,24 @@ describe('topología TLS aislada', () => {
     const override = await leerCompose('compose.pruebas.yaml')
 
     expect(Object.keys(override)).toEqual(['services'])
-    expect(Object.keys(override.services)).toEqual(['proxy', 'app'])
+    expect(Object.keys(override.services)).toEqual(['proxy', 'app', 'app-prod'])
     expect(override.services.proxy).toEqual({
       volumes: ['./proxy/ip-cliente.pruebas.conf:/etc/nginx/poc/ip-cliente.conf:ro'],
     })
     expect(override.services.app).toEqual({ networks: ['proxy_prod'] })
+    expect(override.services['app-prod']).toEqual({ environment: { POC_FALLOS_INYECTABLES: '1' } })
+  })
+
+  it('POC_FALLOS_INYECTABLES llega a app-prod sólo con el override de pruebas, que usa up-prod-pruebas-en', async () => {
+    const compose = await leerCompose('compose.yaml')
+    const override = await leerCompose('compose.pruebas.yaml')
+    expect(compose.services['app-prod'].environment).not.toHaveProperty('POC_FALLOS_INYECTABLES')
+    expect(override.services['app-prod'].environment?.POC_FALLOS_INYECTABLES).toBe('1')
+    const poc = await readFile(path.join(raiz, 'poc.sh'), 'utf8')
+    expect(poc).toContain('CP="$C -f compose.pruebas.yaml"')
+    const orden = /up-prod-pruebas-en\)[\s\S]*?;;/.exec(poc)?.[0] ?? ''
+    expect(orden).toContain('$CP --profile prod up -d db app-prod')
+    expect(/up-prod-en\)[\s\S]*?;;/.exec(poc)?.[0]).not.toContain('$CP')
   })
 
   it('expone sólo proxy y separa clientes, apps y bases por red', async () => {

@@ -107,7 +107,10 @@ export async function manejarIntake(request: Request): Promise<Response> {
     metadatos = metadatosError(error)
     const tipo = request.headers.get('content-type') === 'application/x-www-form-urlencoded' ? 'application/x-www-form-urlencoded' : 'application/json'
     if (!config) return respuestaJson(500, { error: 'interno' }, correlacion)
-    return respuestaError(intake.codigo, intake.campos, tipo, correlacion, config)
+    try { return await respuestaError(intake.codigo, intake.campos, tipo, correlacion, config) } catch {
+      codigo = 'interno'
+      return respuestaJson(500, { error: 'interno' }, correlacion)
+    }
   } finally {
     try {
       if (payload && codigo === 'interno') payload.logger.error({ evento: 'intake', codigo, duracion_ms: Date.now() - inicio, correlacion, ...metadatos })

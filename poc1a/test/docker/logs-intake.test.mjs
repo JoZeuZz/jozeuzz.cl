@@ -1,6 +1,7 @@
 // POC-3 U7 (IN-12, T-05, T-09) sin fallos inyectados, contra app-prod (puerto 3444, producción real): ningún log de proxy,
 // app, app-prod ni db contiene PII sintética ni IPs, con envíos válidos e inválidos. PRECONDICIÓN:
-// `./poc.sh up-prod-pruebas-en poc3_intake` (proxy con IP sintética) y, desde poc1a/,
+// `./poc.sh build-en poc3_intake` y luego `./poc.sh up-prod-pruebas-en poc3_intake` (proxy con IP sintética y
+// POC_FALLOS_INYECTABLES=1 sólo en app-prod, para que la prueba de no inyección no sea vacua) y, desde poc1a/,
 // `NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt" POC_BASE_URL=https://127.0.0.1:3444 node --test test/docker/logs-intake.test.mjs`.
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -11,6 +12,7 @@ const destino = entorno(3444)
 const desde = instanteInicial()
 const valores = []
 const ips = []
+const sinInyeccion = []
 
 function nuevoEnvio(etiqueta) {
   const nombre = valorSintetico(etiqueta)
@@ -27,10 +29,14 @@ test('envío válido: 201', async () => {
   assert.deepEqual(json, { ok: true })
 })
 
-test('la cabecera x-poc-fallo no inyecta nada en producción', async () => {
+// app-prod recibe POC_FALLOS_INYECTABLES=1 desde compose.pruebas.yaml (up-prod-pruebas-en): sólo NODE_ENV=production
+// (inlineado por Next) impide la inyección, así que un 201 aquí demuestra que el bloque no está activo.
+test('la cabecera x-poc-fallo no inyecta nada en producción aunque POC_FALLOS_INYECTABLES=1', async () => {
   const { nombre, ip } = nuevoEnvio('sin-inyeccion')
-  const { status } = await enviar(destino, { ip, cabeceras: { 'x-poc-fallo': 'intake-pg-check' }, cuerpo: (token) => solicitudValida(nombre, token) })
+  const { status, json, correlacion } = await enviar(destino, { ip, cabeceras: { 'x-poc-fallo': 'intake-pg-check' }, cuerpo: (token) => solicitudValida(nombre, token) })
   assert.equal(status, 201)
+  assert.deepEqual(json, { ok: true })
+  sinInyeccion.push(correlacion)
 })
 
 test('datos inválidos con PII sintética: 400 datos_invalidos', async () => {
@@ -74,4 +80,7 @@ test('los logs de proxy, app, app-prod y db no contienen PII, IPs, /64 ni textos
   const eventos = lineasDeEvento(lineas)
   assert.ok(eventos.length >= 1, 'debe haber al menos una línea con "evento":"intake"')
   assert.ok(eventos.some((linea) => linea.includes('"codigo":"creada"')), 'el envío válido debe quedar registrado como creada')
+  assert.equal(eventos.filter((linea) => linea.includes('"codigo":"interno"')).length, 0, 'sin fallos inyectados no debe haber eventos internos')
+  assert.equal(sinInyeccion.length, 1)
+  assert.ok(eventos.some((linea) => linea.includes('"codigo":"creada"') && linea.includes(`"correlacion":"${sinInyeccion[0]}"`)), 'el envío con x-poc-fallo debe quedar creada, no interno')
 })
