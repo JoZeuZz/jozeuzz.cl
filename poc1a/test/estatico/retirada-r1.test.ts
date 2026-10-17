@@ -50,6 +50,34 @@ describe('retirada de R-1 (intake sintético)', () => {
   })
 })
 
+describe('README: gate de la unidad 9', () => {
+  const idsDe = (linea: string) => linea.split('--solo ')[1].trim().split(',')
+
+  it('documenta 44 casos en app y 43 (sin EV-04) en app-prod, con P-U1-01 pendiente', async () => {
+    const readme = await readFile(path.join(raiz, 'README.md'), 'utf8')
+    const seccion = readme.slice(readme.indexOf('## POC-3 U9'))
+    expect(seccion.startsWith('## POC-3 U9')).toBe(true)
+    const lineas = seccion.split('\n').filter((l) => l.includes('contrato/run.mjs') && l.includes('--solo '))
+    expect(lineas).toHaveLength(2)
+    const [enApp, enProd] = lineas.map(idsDe)
+    expect(enApp).toHaveLength(44)
+    expect(new Set(enApp).size).toBe(44)
+    expect(enApp).toContain('EV-04')
+    expect(enProd).toHaveLength(43)
+    expect(enProd).not.toContain('EV-04')
+    expect(enProd.filter((id) => id !== 'EV-04').sort()).toEqual([...enApp].filter((id) => id !== 'EV-04').sort())
+    expect(lineas[0]).toContain('POC_BASE_URL=https://127.0.0.1:3443')
+    expect(lineas[1]).toContain('POC_BASE_URL=https://127.0.0.1:3444')
+    expect(lineas[1]).toContain("POC_RESET_ENV='POC_DB_SCHEMA=poc_prod POC_MEDIA_DIR=/app/media-store-prod'")
+    for (const l of lineas) expect(l).toContain('POC_TARGET_DATABASE=poc3_intake')
+    expect(seccion.match(/--alcance poc-3/g)).toHaveLength(2)
+    expect(seccion).toContain('node medicion/intake-latencia.mjs')
+    expect(seccion).toContain('P-U1-01')
+    expect(seccion).toContain('up-fallos-en poc3_intake')
+    expect(seccion).toContain('up-prod-pruebas-en poc3_intake')
+  })
+})
+
 describe('logs() del driver no pasa en vacío (IN-12)', () => {
   async function cargar() {
     const modulo = await import(pathToFileURL(path.join(raiz, 'driver/logs-intake.mjs')).href)

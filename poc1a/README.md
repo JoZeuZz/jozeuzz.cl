@@ -83,6 +83,41 @@ La lógica de la prueba de build (`test/build/comprobar-build.mjs`) tiene su pro
 ./poc.sh e2e-prod-en poc3_intake
 ```
 
+## POC-3 U9 — gate: regresión contra el intake real, mediciones y antiabuso en papel
+
+R-1 (el intake sintético de POC-1b) ya no existe: `scripts/` no lo contiene y el driver sólo habla con `GET /solicitar` y `POST /api/intake` por el proxy, con una IP sintética distinta por origen (`driver/ip-sintetica.mjs`; `x-poc-ip-sintetica` sólo lo acepta el proxy de pruebas). `intake.limite.max` es 5. `POC_INTAKE_TIEMPO_MINIMO_MS` (por defecto 200) debe coincidir con `INTAKE_TIEMPO_MINIMO_MS` de Compose. `logs()` lanza si el driver ya envió al intake y ningún log trae `"evento":"intake"`, de modo que IN-12 no pasa en vacío.
+
+Casos de los 44 que pasan por el intake real (23): ES-03 a ES-11, EV-01 a EV-06, MO-01 a MO-05, PR-01, PR-05 y PR-06. PR-02 sólo lee logs. Los IN-* (12) son el alcance `poc-3`.
+
+**P-U1-01 — pendiente de confirmación del responsable.** EV-04 necesita la cabecera `x-poc-fallo`, que `src/collections/Solicitudes.ts` sólo honra con `NODE_ENV !== 'production'` y `POC_FALLOS_INYECTABLES=1`. El override `compose.pruebas.yaml` da la variable a `app-prod`, pero `app-prod` sigue en `NODE_ENV=production`: EV-04 no puede pasar ahí sin debilitar producción. Propuesta implementada como modo explícito: en `app` (3443) la regresión corre los 44; en `app-prod` (3444) corre los 43 restantes, sin EV-04. Si el responsable decide otra cosa, sólo cambia la lista de la segunda orden.
+
+Comandos Docker pendientes de ejecución humana, desde `poc1a/` (Docker no se ejecutó en esta unidad). `up-*` recrea la CA efímera: reexporte `NODE_EXTRA_CA_CERTS` después de cada uno.
+
+```sh
+./poc.sh init
+./poc.sh db-up
+./poc.sh psql -c 'CREATE DATABASE poc3_intake' # sólo si no existe
+# 1) app (3443): 44 casos y 12 IN-*
+./poc.sh up-fallos-en poc3_intake
+export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
+POC_TARGET_DATABASE=poc3_intake POC_BASE_URL=https://127.0.0.1:3443 node ../contrato/run.mjs --driver contrato-driver.mjs --solo AU-05,AU-06,AU-07,PR-04,PR-07,CO-01,CO-02,CO-03,CO-04,CO-05,CO-06,CO-07,CA-02,ES-01,ES-02,ES-03,ES-04,ES-05,ES-06,ES-07,ES-08,ES-09,ES-10,ES-11,MO-01,MO-02,MO-03,MO-04,MO-05,AU-01,AU-02,AU-03,AU-04,PR-01,PR-02,PR-03,PR-05,PR-06,EV-01,EV-02,EV-03,EV-04,EV-05,EV-06
+POC_TARGET_DATABASE=poc3_intake POC_BASE_URL=https://127.0.0.1:3443 node ../contrato/run.mjs --driver contrato-driver.mjs --alcance poc-3
+./poc.sh e2e-en poc3_intake
+# 2) app-prod (3444): 43 casos (sin EV-04, P-U1-01) y 12 IN-*
+./poc.sh build-en poc3_intake
+./poc.sh migrate-en poc3_intake # sólo si el schema poc_prod de la base no está migrado
+./poc.sh up-prod-pruebas-en poc3_intake
+export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
+POC_TARGET_DATABASE=poc3_intake POC_BASE_URL=https://127.0.0.1:3444 POC_RESET_ENV='POC_DB_SCHEMA=poc_prod POC_MEDIA_DIR=/app/media-store-prod' node ../contrato/run.mjs --driver contrato-driver.mjs --solo AU-05,AU-06,AU-07,PR-04,PR-07,CO-01,CO-02,CO-03,CO-04,CO-05,CO-06,CO-07,CA-02,ES-01,ES-02,ES-03,ES-04,ES-05,ES-06,ES-07,ES-08,ES-09,ES-10,ES-11,MO-01,MO-02,MO-03,MO-04,MO-05,AU-01,AU-02,AU-03,AU-04,PR-01,PR-02,PR-03,PR-05,PR-06,EV-01,EV-02,EV-03,EV-05,EV-06
+POC_TARGET_DATABASE=poc3_intake POC_BASE_URL=https://127.0.0.1:3444 POC_RESET_ENV='POC_DB_SCHEMA=poc_prod POC_MEDIA_DIR=/app/media-store-prod' node ../contrato/run.mjs --driver contrato-driver.mjs --alcance poc-3
+./poc.sh e2e-prod-en poc3_intake
+# 3) medición (al final: crea 150 solicitudes en poc_prod); app-prod sigue arriba con el proxy de pruebas
+export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
+POC_BASE_URL=https://127.0.0.1:3444 node medicion/intake-latencia.mjs
+```
+
+Anote en `EVIDENCIA.md` (sección «POC-3 · Intake seguro»): cada resultado, la propagación de CO-05 en `app-prod` (ahora incluye el proxy y TLS) y la salida JSON de la medición. El script sale con código distinto de 0 si hay falsos positivos o errores. Prueba sin Docker de sus funciones puras: `node --test medicion/`.
+
 ## Comandos históricos POC-1a
 
 La reproducción histórica de POC-1a quedó en `4b4b806`; resultados y mediciones permanecen en `EVIDENCIA.md`. No use esos comandos contra esta POC-1b.
