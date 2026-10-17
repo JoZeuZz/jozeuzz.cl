@@ -10,9 +10,11 @@ import { claveEnvio, claveIp, derivarClaves } from './claves'
 import { leerCuerpoIntake, ErrorCuerpoIntake } from './cuerpo'
 import { cargarConfigIntake } from './config'
 import { ErrorIntake, type CodigoIntake } from './errores'
+import { sondaDePrueba } from './fallos'
 import { respuestaFormulario } from './formulario'
 import { normalizarIp } from './ip'
 import { contarIntento, schemaIntake } from './limites'
+import { metadatosError } from './log'
 import { origenValido } from './origen'
 import { persistirIntake } from './persistir'
 import { purgarIntake } from './purga'
@@ -39,16 +41,6 @@ function csrfValido(cuerpo: Record<string, unknown>, cookie: string | null, conf
 
 function respuestaJson(status: number, cuerpo: object, correlacion: string): Response {
   return new Response(JSON.stringify(cuerpo), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-correlacion': correlacion } })
-}
-
-function metadatosError(error: unknown): { err_name?: string; pg_code?: string } {
-  const objeto = error && typeof error === 'object' ? error as { constructor?: { name?: unknown }; code?: unknown; cause?: { code?: unknown } } : undefined
-  const nombre = objeto?.constructor?.name
-  const pg = objeto?.cause?.code ?? objeto?.code
-  return {
-    ...(typeof nombre === 'string' && /^[A-Za-z]{1,40}$/.test(nombre) ? { err_name: nombre } : {}),
-    ...(typeof pg === 'string' && /^[0-9A-Z]{5}$/.test(pg) ? { pg_code: pg } : {}),
-  }
 }
 
 async function respuestaError(codigo: CodigoRespuesta, campos: string[] | undefined, tipo: 'application/json' | 'application/x-www-form-urlencoded', correlacion: string, config: ReturnType<typeof cargarConfigIntake>, reintentarEnS?: number): Promise<Response> {
@@ -82,7 +74,8 @@ export async function manejarIntake(request: Request): Promise<Response> {
     const schema = schemaIntake(payload.db)
     const limiteIntentos = await contarIntento(drizzle, claveIp(claves, ip), schema)
     const logger = payload.logger
-    void Promise.resolve(purgarIntake(drizzle, () => logger.error({ evento: 'intake_purga' }), schema)).catch(() => undefined)
+    // Sin await: ningún error de la purga puede alterar la respuesta ni llegar a unhandledRejection.
+    void (async () => purgarIntake(drizzle, () => logger.error({ evento: 'intake_purga' }), schema))().catch(() => undefined)
     if (!limiteIntentos.permitido) {
       codigo = 'limite'
       return await respuestaError('demasiados_intentos', undefined, request.headers.get('content-type') === 'application/x-www-form-urlencoded' ? 'application/x-www-form-urlencoded' : 'application/json', correlacion, config, limiteIntentos.reintentarEnS)
@@ -103,7 +96,7 @@ export async function manejarIntake(request: Request): Promise<Response> {
     if (!validacion.ok) throw new ErrorIntake(validacion.codigo, estado(validacion.codigo), 'campos' in validacion ? validacion.campos : undefined)
     const servicio = validacion.datos.servicio === undefined ? undefined : await resolverServicioActivo(validacion.datos.servicio)
     if (validacion.datos.servicio !== undefined && servicio === null) throw new ErrorIntake('datos_invalidos', 400, ['servicio'])
-    const resultado = await persistirIntake(payload, { datos: { ...validacion.datos, servicio: servicio ?? undefined }, claveEnvio: claveEnvio(claves, token.n), claveIp: claveIp(claves, ip) })
+    const resultado = await persistirIntake(payload, { datos: { ...validacion.datos, servicio: servicio ?? undefined }, claveEnvio: claveEnvio(claves, token.n), claveIp: claveIp(claves, ip) }, sondaDePrueba(request))
     codigo = resultado.tipo
     if (resultado.tipo === 'limite') return await respuestaError('limite_creaciones', undefined, tipo, correlacion, config, resultado.reintentarEnS)
     if (tipo === 'application/x-www-form-urlencoded') return new Response(null, { status: 303, headers: { location: '/solicitar?estado=recibida', 'cache-control': 'no-store', 'x-correlacion': correlacion } })
@@ -116,6 +109,25 @@ export async function manejarIntake(request: Request): Promise<Response> {
     if (!config) return respuestaJson(500, { error: 'interno' }, correlacion)
     return respuestaError(intake.codigo, intake.campos, tipo, correlacion, config)
   } finally {
-    if (payload) payload.logger[codigo === 'interno' ? 'error' : 'info']({ evento: 'intake', codigo, duracion_ms: Date.now() - inicio, correlacion, ...metadatos })
+    try {
+      if (payload && codigo === 'interno') payload.logger.error({ evento: 'intake', codigo, duracion_ms: Date.now() - inicio, correlacion, ...metadatos })
+      else if (payload) payload.logger.info({ evento: 'intake', codigo, duracion_ms: Date.now() - inicio, correlacion, ...metadatos })
+    } catch { /* un logger roto no altera la respuesta */ }
+  }
+}
+
+/** GET /solicitar: nada se propaga a Next; ante cualquier fallo, 500 genérico y un registro sin valores. */
+export async function manejarFormularioIntake(request: Request): Promise<Response> {
+  const inicio = Date.now()
+  const correlacion = crypto.randomUUID()
+  try {
+    return await respuestaFormulario(undefined, undefined, new URL(request.url).searchParams.get('estado') === 'recibida')
+  } catch (error) {
+    const metadatos = metadatosError(error)
+    try {
+      const payload = await getPayload({ config: configPayload })
+      payload.logger.error({ evento: 'intake', codigo: 'interno', duracion_ms: Date.now() - inicio, correlacion, ...metadatos })
+    } catch { /* sin logger disponible: sólo la respuesta genérica */ }
+    return respuestaJson(500, { error: 'interno' }, correlacion)
   }
 }

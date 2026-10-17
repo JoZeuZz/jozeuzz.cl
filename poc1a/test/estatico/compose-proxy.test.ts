@@ -8,7 +8,7 @@ const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const { load } = createRequire(import.meta.url)('js-yaml') as { load(texto: string): unknown }
 
 type Compose = {
-  services: Record<string, { image?: string; networks?: string[]; ports?: string[]; network_mode?: string; volumes?: string[]; environment?: Record<string, string> }>
+  services: Record<string, { image?: string; networks?: string[]; ports?: string[]; network_mode?: string; command?: string[]; volumes?: string[]; environment?: Record<string, string> }>
   networks: Record<string, { internal?: boolean }>
 }
 
@@ -63,6 +63,13 @@ describe('topología TLS aislada', () => {
     ]))
     expect(compose.services.app.environment?.INTAKE_SECRETO).toContain('ejecuta ./poc.sh init')
     expect(compose.services['app-prod'].environment?.INTAKE_SECRETO).toContain('ejecuta ./poc.sh init')
+  })
+
+  it('PostgreSQL no escribe sentencias ni valores en sus logs (T-06)', async () => {
+    const compose = await leerCompose('compose.yaml')
+    expect(compose.services.db.command).toEqual(['postgres', '-c', 'log_min_messages=fatal', '-c', 'log_min_error_statement=panic', '-c', 'log_error_verbosity=terse'])
+    const sobreescritura = await leerCompose('compose.pruebas.yaml')
+    expect(sobreescritura.services.db).toBeUndefined()
   })
 
   it('mantiene proxy sin bypass de IP ni cabeceras locales', async () => {

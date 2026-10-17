@@ -19,6 +19,8 @@ services:
       POSTGRES_DB: poc
       POSTGRES_USER: poc
       POSTGRES_PASSWORD: ${POC_DB_PASSWORD:?ejecuta ./poc.sh init}
+    # Logs sin PII (diseño §5.5): sin ERROR, sin sentencias, sin DETAIL.
+    command: ["postgres", "-c", "log_min_messages=fatal", "-c", "log_min_error_statement=panic", "-c", "log_error_verbosity=terse"]
     volumes:
       - db:/var/lib/postgresql
     networks: [db_app, db_prod]

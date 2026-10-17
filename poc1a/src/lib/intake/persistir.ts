@@ -32,7 +32,7 @@ export async function persistirIntake(payload: Payload, entrada: { datos: DatosS
     const tablaEnvio = db.tables.intake_envio as { clave: unknown }
     const existe = await fuera.select().from(db.tables.intake_envio).where(eq(tablaEnvio.clave as never, entrada.claveEnvio as never))
     if (existe.length === 0) throw new Error('intake_reserva_ausente')
-    await purgarIntake(db.drizzle as never, (dato) => payload.logger.error(dato), schemaIntake(db))
+    await purgarIntake(db.drizzle as never, () => payload.logger.error({ evento: 'intake_purga' }), schemaIntake(db))
     return { tipo: 'creada' }
   } catch (error) { await killTransaction(req); throw error }
 }

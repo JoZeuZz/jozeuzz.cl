@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url'
 import sharp from 'sharp'
 
 import { extenderEsquemaIntake } from './lib/intake/esquema'
+import { opcionesLogger } from './lib/intake/log'
 import { MediosPrivados, MediosPublicos } from './collections/Medios'
 import { Proyectos } from './collections/Proyectos'
 import { Servicios } from './collections/Servicios'
@@ -32,6 +33,8 @@ export default buildConfig({
   },
   collections: [Users, Proyectos, Servicios, Solicitudes, EventosSolicitud, MediosPublicos, MediosPrivados],
   editor: lexicalEditor(),
+  // Logs sin PII (diseño §5.1): pino con serializadores/hook que nunca emiten mensajes ni valores de error.
+  logger: { options: opcionesLogger() },
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {
     outputFile: path.resolve(dirname, 'payload-types.ts'),
