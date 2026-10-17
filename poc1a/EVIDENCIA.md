@@ -166,3 +166,82 @@ El driver mantiene `connection: close`.
 - `overrides` en `package.json`: `undici` 7.29.1 y `dompurify` 3.4.17.
 - Scripts de instalación desactivados (`ignore-scripts=true` en `.npmrc`); `save-exact` y `engine-strict` activos.
 - No se instaló ni actualizó ningún paquete en la fase 2.
+
+## POC-3 · Intake seguro
+
+Estado de esta sección (unidad 9, 2026-10-17): **todo lo que requiere Docker figura como `PENDIENTE (no ejecutado)`**. Ninguna prueba de esta tabla se da por aprobada si no tiene su resultado y su log. Lo ejecutado con `jz-run` (sin red ni Docker) anota la ruta del log en `.jz-state/runs/` y el resultado real. Las filas pendientes las completa el humano tras el gate del README («POC-3 U9»).
+
+### Retirada de R-1 y regresión de los 44 (unidad 9)
+- `scripts/solicitud-sintetica.ts` se borró (`git rm`); la variable `POC_INTAKE_SINTETICO` ya no existe en `contrato-driver.mjs`, README, `poc.sh`, Compose, `scripts/` ni tests. Quedan menciones sólo en documentos históricos (este archivo, `HANDOFF-POC-1B.md`, `docs/`): describen lo que se hizo en POC-1b y no se reescriben. La prueba `test/estatico/retirada-r1.test.ts` exige lo anterior sobre los archivos vivos.
+- El driver usa sólo `GET /solicitar` + `POST /api/intake` por el proxy, con IP sintética por origen. R-1 no aportaba semántica que el driver deba conservar: `limite.max` ya era 5, el resultado (201 / 4xx) lo decide el servidor real, `listoEn` respeta `POC_INTAKE_TIEMPO_MINIMO_MS` (200 por defecto) y cada `origen` se convierte en una IP distinta.
+- `logs()` del driver lanza si el driver envió al intake desde el último `reset` y ningún log contiene `"evento":"intake"` (`driver/logs-intake.mjs`). IN-12 deja de poder pasar por vacuidad. `contrato/casos/*` no se modificó: PR-02, que sólo lee logs, no ha enviado nada y no se ve afectado.
+- Casos de los 44 que pasan por el intake real (23): ES-03 a ES-11, EV-01 a EV-06, MO-01 a MO-05, PR-01, PR-05, PR-06 (`crearSolicitud` / `solicitudEn`). Los IN-* (12) ejercen el intake directamente.
+- **P-U1-01 (pendiente de confirmación del responsable).** EV-04 necesita `x-poc-fallo`; `Solicitudes.ts` sólo la honra con `NODE_ENV !== 'production'` y `POC_FALLOS_INYECTABLES=1`. El override `compose.pruebas.yaml` da la variable a `app-prod`, pero `app-prod` corre con `NODE_ENV=production`, así que EV-04 no puede funcionar ahí sin debilitar producción. Modo implementado: 44 casos en `app` (3443), 43 en `app-prod` (3444) sin EV-04. T-10 «44/44 en `app-prod`» **no se cumple literalmente** hasta que el responsable decida; no se declara cumplido.
+
+### Evidencia por unidad (U2–U9)
+Rutas de log relativas a la raíz del repositorio. «Suite agregada» = `.jz/bin/jz-run --cwd poc1a node node_modules/vitest/vitest.mjs run --configLoader runner src/lib test/estatico` sobre `95db8f4`: 23 archivos, 178 pruebas, rc=0 (`.jz-state/runs/20261017T062748Z-1704275.log`); incluye los unitarios y estáticos de U2 a U9. No se re-ejecutó cada unidad por separado en esta unidad.
+
+| Unidad | Comando exacto | Resultado |
+|---|---|---|
+| U2 validador, slug, hook `intake` | Suite agregada (unitarios `src/lib/intake/*.test.ts`) | ok, rc=0, log arriba |
+| U2 hook con la Local API | `./poc.sh exec-en poc3_intake npx vitest run` | PENDIENTE (no ejecutado) |
+| U3 token, Origin/Referer, IP | Suite agregada (`token`, `origen`, `ip`, `ip-sintetica`, `config`, `claves`) | ok, rc=0, log arriba |
+| U4 migración | Suite agregada (`migracion-poc3.test.ts`, estático) | ok, rc=0, log arriba |
+| U4 desde cero | `./poc.sh migrate-en poc3_intake` y `./poc.sh comprobar-en poc3_intake` | PENDIENTE (no ejecutado) |
+| U5/U5a proxy, `/solicitar`, `/api/intake` | `./poc.sh init` · `./poc.sh up-en poc3_intake` · `./poc.sh sonda-red` · `./poc.sh up-fallos-en poc3_intake` · `./poc.sh exec-en poc3_intake npx vitest run` (HTTP) · `node --test test/docker/ip-produccion.test.mjs` | PENDIENTE (no ejecutado) |
+| U5a estático de Compose y proxy | Suite agregada (`compose-proxy.test.ts`, `poc-sh-aislamiento.test.ts`) | ok, rc=0, log arriba |
+| U6 límites | Suite agregada (`limites.test.ts`) | ok, rc=0, log arriba |
+| U6 IN-11, concurrencia, reenvío | Batería `--alcance poc-3` (README «POC-3 U9», 1) | PENDIENTE (no ejecutado) |
+| U7 logs sin PII, unitario | Suite agregada (`log.test.ts`, `fallos.test.ts`) | ok, rc=0, log arriba |
+| U7 logs de los servicios | `POC_BASE_URL=https://127.0.0.1:3444 node --test test/docker/logs-intake.test.mjs` · `node --test test/build/sin-inyeccion.test.mjs` · `node --test test/docker/logs-intake-fallos.test.mjs` | PENDIENTE (no ejecutado) |
+| U8 accesibilidad y E2E | `./poc.sh e2e-en poc3_intake` · `./poc.sh e2e-prod-en poc3_intake` | PENDIENTE (no ejecutado) |
+| U8 axe | requiere instalar `@axe-core/playwright@4.13.0` (paso humano del README, U8) | PENDIENTE (no ejecutado) |
+| U9 rojo de la retirada | `.jz/bin/jz-run --cwd poc1a node node_modules/vitest/vitest.mjs run --configLoader runner test/estatico/retirada-r1.test.ts` antes de implementar | rc=1, 7 de 7 fallan por la razón esperada (script existente, referencias a R-1, driver sin `logs-intake.mjs`): `.jz-state/runs/20261017T062353Z-1693736.log` |
+| U9 rojo del README del gate | misma orden tras añadir la prueba del gate | rc=1, 1 de 8 falla (sección ausente): `.jz-state/runs/20261017T062656Z-1702051.log` |
+| U9 rojo de la medición | `.jz/bin/jz-run --cwd poc1a node --test medicion/` antes de crear el script | rc=1 (módulo ausente): `.jz-state/runs/20261017T062554Z-1699377.log` |
+| U9 verde de la retirada y el gate | suite agregada | rc=0, 178/178: `.jz-state/runs/20261017T062748Z-1704275.log` |
+| U9 `tsc` | `.jz/bin/jz-run --cwd poc1a node node_modules/typescript/bin/tsc --noEmit --incremental false` | rc=0: `.jz-state/runs/20261017T062808Z-1705326.log` |
+| U9 contrato (mutantes) | `.jz/bin/jz-run node --test contrato/test/` | 43/43 ok, rc=0: `.jz-state/runs/20261017T062817Z-1705793.log` |
+| U9 funciones puras de la medición | `.jz/bin/jz-run --cwd poc1a node --test medicion/` | 8/8 ok, rc=0: `.jz-state/runs/20261017T062820Z-1706269.log` |
+| U9 sintaxis | `.jz/bin/jz-run --cwd poc1a node --check contrato-driver.mjs` · `... node --check medicion/intake-latencia.mjs` | rc=0: `.jz-state/runs/20261017T062822Z-1706597.log`, `.jz-state/runs/20261017T062823Z-1706884.log` |
+| U9 batería de 44 en `app` (3443) | README «POC-3 U9», 1, orden `--solo` de 44 | PENDIENTE (no ejecutado) |
+| U9 batería de 43 en `app-prod` (3444), sin EV-04 (P-U1-01) | README «POC-3 U9», 2, orden `--solo` de 43 | PENDIENTE (no ejecutado) |
+| U9 `--alcance poc-3` (12/12 IN-*) en `app` y en `app-prod` | README «POC-3 U9», órdenes `--alcance` | PENDIENTE (no ejecutado) |
+| U9 CO-05 en `app-prod` (incluye proxy y TLS) | salida de la batería de 43 | PENDIENTE (no ejecutado) |
+| U9 latencia y falsos positivos | `POC_BASE_URL=https://127.0.0.1:3444 node medicion/intake-latencia.mjs` | PENDIENTE (no ejecutado) |
+
+Guarda de entorno de la medición, sin Docker: sin `NODE_EXTRA_CA_CERTS` el script termina con rc=1 y el mensaje `NODE_EXTRA_CA_CERTS debe terminar en /.tls/ca.crt`, sin hacer ninguna petición (`.jz-state/runs/20261017T062629Z-1700866.log`).
+
+### Latencia del `POST /api/intake` (a completar tras ejecutar el script)
+Método: 3 series de 50 envíos legítimos distintos contra `app-prod` por el proxy de pruebas (3444). Una IP sintética (un /64) por envío; el `GET /solicitar` y la espera del tiempo mínimo (200 ms + 50) quedan fuera de la medición; se mide sólo el `POST`, con una conexión nueva por petición (incluye el saludo TLS y la lectura del cuerpo). Mediana de las medianas y p95 (rango más cercano) sobre las 150 muestras. Entorno: el de la sección «Hardware y entorno».
+
+| Serie | n | Mediana (ms) | p95 (ms) | Creados (201) | Falsos positivos | Errores |
+|---|---|---|---|---|---|---|
+| 1 | 50 | PENDIENTE | PENDIENTE | PENDIENTE | PENDIENTE | PENDIENTE |
+| 2 | 50 | PENDIENTE | PENDIENTE | PENDIENTE | PENDIENTE | PENDIENTE |
+| 3 | 50 | PENDIENTE | PENDIENTE | PENDIENTE | PENDIENTE | PENDIENTE |
+| Total / mediana de medianas / p95 global | 150 | PENDIENTE | PENDIENTE | PENDIENTE | PENDIENTE | PENDIENTE |
+
+### Falsos positivos del antiabuso
+| Envíos legítimos distintos | Creados (201) | Rechazos de envíos legítimos (falsos positivos) | Errores | Criterio |
+|---|---|---|---|---|
+| 150 | PENDIENTE | PENDIENTE | PENDIENTE | 150 creados y 0 falsos positivos; el script sale con código ≠ 0 si no |
+
+Nota de método: los envíos salen de IP sintéticas distintas, de modo que el cupo por IP no se ejerce. La medición prueba que los controles no rechazan envíos legítimos independientes; no prueba el comportamiento de usuarios reales detrás de una IP compartida (oficina, NAT de operador) que lleguen a 5 creaciones en 10 minutos.
+
+### D-08 · Antiabuso en papel
+Comparación entre lo que **está implementado** en el intake y un **desafío externo** tipo CAPTCHA o Turnstile. No se elige proveedor y no se probó ningún tercero: es análisis de diseño, sin cifras de coste inventadas.
+
+| Criterio | Implementado en la POC | Desafío externo (sin proveedor elegido) |
+|---|---|---|
+| Qué es | Límite de intentos 30 / 10 min y de creaciones 5 / 10 min por IP o /64 (la clave es un HMAC de la IP, nunca la IP en claro); campo trampa; tiempo mínimo entre `GET /solicitar` y `POST` de 3 s en producción (200 ms en las pruebas, por Compose; 0 prohibido en producción) | Un script o iframe del proveedor en el formulario y verificación del token en el servidor contra la API del proveedor |
+| Datos que recibe un tercero | Ninguno: todo se resuelve en el servidor propio; en la base sólo quedan contadores con la clave HMAC | El proveedor recibe, como mínimo, la IP del visitante, la URL de la página, el user-agent y señales del navegador (huella: pantalla, plugins, fuentes, comportamiento del ratón o del teclado según el producto) y puede fijar o leer cookies o almacenamiento propio. El alcance exacto depende del proveedor y hay que verificarlo en su documentación al elegirlo |
+| Coste | Cero adicional; una tabla y un `UPSERT` por envío | Depende del proveedor y del volumen (varios ofrecen un nivel gratuito con límites y un plan de pago); a decidir con la política vigente al elegirlo. Más: tiempo de integración y de CSP |
+| Accesibilidad | Sin interacción del usuario: no añade pasos ni desafíos visuales o auditivos. Teclado y auditoría axe en U8 (pendiente de ejecución) | Un desafío visual o auditivo choca con WCAG 1.1.1 (un CAPTCHA debe ofrecer alternativas en otras modalidades) y, si exige una prueba cognitiva, con 3.3.8 «Autenticación accesible» de WCAG 2.2 (AA). Las variantes invisibles o «gestionadas» reducen el problema pero no lo eliminan (cuando fallan, piden un reto) |
+| Funciona sin JavaScript | Sí (la página no usa scripts; CSP sin `script-src`) | No, salvo respaldo sin script; exige abrir la CSP al dominio del proveedor |
+| Dependencia y disponibilidad | Ninguna externa | Si el proveedor cae o bloquea, el formulario puede quedar inutilizable o hay que decidir entre fallar abierto (sin protección) o cerrado (sin servicio). Cambios de términos o de precio fuera de control |
+| Privacidad y transferencia internacional | Sin transferencia; la IP sólo se usa como HMAC | La IP y las señales del navegador salen hacia el proveedor (normalmente fuera de Chile): requiere base legal, información al usuario en la política de privacidad y evaluar la ley vigente de protección de datos y la Ley 21.719 (verificar su fecha de entrada en vigor) |
+| Eficacia frente a bots | Frena ráfagas desde una IP o /64 y bots simples (campo trampa, envío instantáneo). No frena una botnet distribuida ni la rotación de /64 | Mejor frente a bots automáticos conocidos y distribuidos; no detiene el abuso humano ni los servicios de resolución de CAPTCHA |
+| Falsos positivos | Medidos con el script de arriba (0 esperados); riesgo conocido: varios usuarios legítimos tras la misma IP o /64 | Un reto fallido bloquea a un usuario legítimo, sobre todo con tecnologías de apoyo, VPN o navegadores con anti-rastreo |
+
+**Recomendación para el MVP (del implementador; la decide el humano con jz-architect).** Arrancar con los controles propios: no envían datos a terceros, no añaden fricción ni dependen de un proveedor, y sus falsos positivos se miden (tablas de arriba). Dejar el desafío externo como mitigación bajo demanda, con un disparador explícito (por ejemplo, abuso observado en los logs de `evento: intake` que supere el límite propio, o más spam del que el equipo pueda atender) y, si llega ese momento, elegir un proveedor que (a) no exija cookies ni huella invasiva, (b) tenga alternativa accesible conforme a WCAG y (c) permita decidir qué hacer si cae. Antes de cerrar la decisión: ejecutar la medición de falsos positivos y confirmar cómo se comporta el límite por /64 detrás de NAT con el cliente real.
