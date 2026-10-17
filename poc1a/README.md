@@ -53,6 +53,20 @@ POC_INTAKE_SINTETICO=1 POC_BASE_URL=https://127.0.0.1:3443 NODE_EXTRA_CA_CERTS="
 ./poc.sh e2e-en poc3_intake
 ```
 
+## POC-3 U7 — logs sin PII
+
+Payload usa `pino` con `src/lib/intake/log.ts` (sin `pino-pretty`); `db` arranca con `log_min_messages=fatal`, `log_min_error_statement=panic` y `log_error_verbosity=terse`. `src/lib/intake/fallos.ts` inyecta fallos reales sólo con `NODE_ENV!=='production'` y `POC_FALLOS_INYECTABLES=1` (`up-fallos-en`) y la cabecera `x-poc-fallo`. Comandos Docker pendientes de ejecución humana, desde `poc1a/` (`export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"` tras cada `up-*`, que recrea la CA):
+
+```sh
+./poc.sh up-fallos-en poc3_intake
+node --test test/docker/logs-intake-fallos.test.mjs
+./poc.sh up-prod-pruebas-en poc3_intake
+POC_BASE_URL=https://127.0.0.1:3444 node --test test/docker/logs-intake.test.mjs
+./poc.sh build-en poc3_intake
+# desde la raíz del worktree:
+.jz/bin/jz-run node --test poc1a/test/build/
+```
+
 ## Comandos históricos POC-1a
 
 La reproducción histórica de POC-1a quedó en `4b4b806`; resultados y mediciones permanecen en `EVIDENCIA.md`. No use esos comandos contra esta POC-1b.

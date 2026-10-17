@@ -1,0 +1,53 @@
+// POC-3 U7 (IN-12, T-05, T-06, T-09): ningún log de proxy, app, app-prod ni db contiene PII sintética ni IPs,
+// ni siquiera con fallos reales inyectados. PRECONDICIÓN: `./poc.sh up-fallos-en poc3_intake` (app en 3443 con
+// POC_FALLOS_INYECTABLES=1, proxy con IP sintética, db con los flags de logs de §5.5) y
+// `NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt" node --test test/docker/logs-intake-fallos.test.mjs` desde poc1a/.
+import assert from 'node:assert/strict'
+import test from 'node:test'
+
+import { buscarFugas, entorno, enviar, instanteInicial, ipSinteticaUnica, lineasDeEvento, recogerLogs, solicitudValida, valorSintetico } from './ayuda-logs.mjs'
+
+const destino = entorno(3443)
+const desde = instanteInicial()
+const valores = []
+const ips = []
+
+function nuevoEnvio(etiqueta) {
+  const nombre = valorSintetico(etiqueta)
+  const ip = ipSinteticaUnica()
+  valores.push(nombre, `${nombre}@example.invalid`, `equipo ${nombre}`, `descripcion ${nombre}`)
+  ips.push(ip)
+  return { nombre, ip }
+}
+
+for (const fallo of ['intake-log-crudo', 'intake-pg-check', 'intake-pg-tipo', 'intake-fuera']) {
+  test(`fallo inyectado ${fallo}: 500 interno genérico, sin eco de valores`, async () => {
+    const { nombre, ip } = nuevoEnvio(fallo)
+    const { status, json } = await enviar(destino, { ip, cabeceras: { 'x-poc-fallo': fallo }, cuerpo: (token) => solicitudValida(nombre, token) })
+    // Si la inyección no está activa el envío se crearía (201): la prueba debe fallar, no pasar en vacío.
+    assert.equal(status, 500, `${fallo}: la inyección no está activa (¿se levantó con up-fallos-en?)`)
+    assert.deepEqual(json, { error: 'interno' })
+  })
+}
+
+test('JSON roto con PII sintética: 400 cuerpo_invalido', async () => {
+  const { nombre, ip } = nuevoEnvio('json-roto')
+  const { status, json } = await enviar(destino, { ip, cuerpo: `{"nombre":"${nombre}","contacto":"${nombre}@example.invalid",` })
+  assert.equal(status, 400)
+  assert.deepEqual(json, { error: 'cuerpo_invalido' })
+})
+
+test('cuerpo de 40 KiB con PII sintética: 413 cuerpo_demasiado_grande', async () => {
+  const { nombre, ip } = nuevoEnvio('413')
+  const { status, json } = await enviar(destino, { ip, cuerpo: (token) => JSON.stringify({ ...solicitudValida(nombre, token), descripcion: `descripcion ${nombre} ${'a'.repeat(40_000)}` }) })
+  assert.equal(status, 413)
+  assert.deepEqual(json, { error: 'cuerpo_demasiado_grande' })
+})
+
+test('los logs de proxy, app, app-prod y db no contienen PII, IPs, /64 ni textos de error', async () => {
+  const lineas = await recogerLogs(desde)
+  assert.deepEqual(buscarFugas(lineas, { valores, ips }), [])
+  const eventos = lineasDeEvento(lineas)
+  assert.ok(eventos.length >= 1, 'debe haber al menos una línea con "evento":"intake" (si no, la prueba no vería nada)')
+  assert.ok(eventos.some((linea) => linea.includes('"codigo":"interno"')), 'los fallos inyectados deben quedar registrados como codigo interno')
+})
