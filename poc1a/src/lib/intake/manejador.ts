@@ -12,12 +12,14 @@ import { cargarConfigIntake } from './config'
 import { ErrorIntake, type CodigoIntake } from './errores'
 import { respuestaFormulario } from './formulario'
 import { normalizarIp } from './ip'
+import { contarIntento } from './limites'
 import { origenValido } from './origen'
 import { persistirIntake } from './persistir'
 import { verificarToken } from './token'
 
 const camposPermitidos = new Set(['nombre', 'contacto', 'tipo_equipo', 'descripcion', 'servicio'])
-const estado = (codigo: CodigoIntake) => ({ ip_invalida: 400, tipo_no_soportado: 415, origen_invalido: 403, cuerpo_demasiado_grande: 413, cuerpo_invalido: 400, csrf_invalido: 403, envio_rechazado: 400, campos_no_permitidos: 400, datos_invalidos: 400, interno: 500 })[codigo]
+type CodigoRespuesta = CodigoIntake | 'demasiados_intentos' | 'limite_creaciones'
+const estado = (codigo: CodigoRespuesta) => ({ ip_invalida: 400, tipo_no_soportado: 415, origen_invalido: 403, cuerpo_demasiado_grande: 413, cuerpo_invalido: 400, csrf_invalido: 403, envio_rechazado: 400, campos_no_permitidos: 400, datos_invalidos: 400, demasiados_intentos: 429, limite_creaciones: 429, interno: 500 })[codigo]
 
 function cookieToken(headers: Headers): string | null {
   const encontrados = (headers.get('cookie') ?? '').split(';').map((parte) => parte.trim()).filter((parte) => parte.startsWith('__Host-intake='))
@@ -48,15 +50,18 @@ function metadatosError(error: unknown): { err_name?: string; pg_code?: string }
   }
 }
 
-async function respuestaError(codigo: CodigoIntake, campos: string[] | undefined, tipo: 'application/json' | 'application/x-www-form-urlencoded', correlacion: string, config: ReturnType<typeof cargarConfigIntake>): Promise<Response> {
+async function respuestaError(codigo: CodigoRespuesta, campos: string[] | undefined, tipo: 'application/json' | 'application/x-www-form-urlencoded', correlacion: string, config: ReturnType<typeof cargarConfigIntake>, reintentarEnS?: number): Promise<Response> {
   const http = estado(codigo)
   if (tipo === 'application/x-www-form-urlencoded') {
     const formulario = await respuestaFormulario(config, { codigo, campos })
     const headers = new Headers(formulario.headers)
     headers.set('x-correlacion', correlacion)
+    if (reintentarEnS) headers.set('retry-after', String(Math.max(1, reintentarEnS)))
     return new Response(formulario.body, { status: http, headers })
   }
-  return respuestaJson(http, codigo === 'datos_invalidos' ? { error: codigo, campos: (campos ?? []).filter((campo) => camposPermitidos.has(campo)) } : { error: codigo }, correlacion)
+  const respuesta = respuestaJson(http, codigo === 'datos_invalidos' ? { error: codigo, campos: (campos ?? []).filter((campo) => camposPermitidos.has(campo)) } : { error: codigo }, correlacion)
+  if (reintentarEnS) respuesta.headers.set('retry-after', String(Math.max(1, reintentarEnS)))
+  return respuesta
 }
 
 export async function manejarIntake(request: Request): Promise<Response> {
@@ -71,6 +76,12 @@ export async function manejarIntake(request: Request): Promise<Response> {
     payload = await getPayload({ config: configPayload })
     const ip = normalizarIp(request.headers.get('x-real-ip'))
     if (!ip) throw new ErrorIntake('ip_invalida', 400)
+    const claves = derivarClaves(config.secretoHex)
+    const limiteIntentos = await contarIntento(payload.db.drizzle as unknown as { execute: (consulta: unknown) => Promise<{ rows: { n: number; reintentar_en_s: number }[] }> }, claveIp(claves, ip))
+    if (!limiteIntentos.permitido) {
+      codigo = 'limite'
+      return respuestaError('demasiados_intentos', undefined, request.headers.get('content-type') === 'application/x-www-form-urlencoded' ? 'application/x-www-form-urlencoded' : 'application/json', correlacion, config, limiteIntentos.reintentarEnS)
+    }
     const tipo = request.headers.get('content-type')
     if (tipo !== 'application/json' && tipo !== 'application/x-www-form-urlencoded') throw new ErrorIntake('tipo_no_soportado', 415)
     if (!origenValido(request.headers, config.origenPublico)) throw new ErrorIntake('origen_invalido', 403)
@@ -87,8 +98,9 @@ export async function manejarIntake(request: Request): Promise<Response> {
     if (!validacion.ok) throw new ErrorIntake(validacion.codigo, estado(validacion.codigo), 'campos' in validacion ? validacion.campos : undefined)
     const servicio = validacion.datos.servicio === undefined ? undefined : await resolverServicioActivo(validacion.datos.servicio)
     if (validacion.datos.servicio !== undefined && servicio === null) throw new ErrorIntake('datos_invalidos', 400, ['servicio'])
-    const resultado = await persistirIntake(payload, { datos: { ...validacion.datos, servicio: servicio ?? undefined }, claveEnvio: claveEnvio(derivarClaves(config.secretoHex), token.n), claveIp: claveIp(derivarClaves(config.secretoHex), ip) })
+    const resultado = await persistirIntake(payload, { datos: { ...validacion.datos, servicio: servicio ?? undefined }, claveEnvio: claveEnvio(claves, token.n), claveIp: claveIp(claves, ip) })
     codigo = resultado.tipo
+    if (resultado.tipo === 'limite') return respuestaError('limite_creaciones', undefined, tipo, correlacion, config, resultado.reintentarEnS)
     if (tipo === 'application/x-www-form-urlencoded') return new Response(null, { status: 303, headers: { location: '/solicitar?estado=recibida', 'cache-control': 'no-store', 'x-correlacion': correlacion } })
     return respuestaJson(201, { ok: true }, correlacion)
   } catch (error) {

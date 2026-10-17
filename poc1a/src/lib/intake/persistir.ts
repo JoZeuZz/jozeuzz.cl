@@ -4,10 +4,11 @@ import { commitTransaction, createLocalReq, initTransaction, killTransaction, ty
 import type { DatosSolicitudPublica } from '@/lib/solicitudes'
 
 import { purgarIntake } from './purga'
+import { contarCreacion } from './limites'
 
 export type DatosSolicitud = Omit<DatosSolicitudPublica, 'servicio'> & { servicio?: number }
 export type ResultadoPersistencia = { tipo: 'creada' } | { tipo: 'duplicada' } | { tipo: 'limite'; reintentarEnS: number }
-type TxIntake = { insert: (tabla: unknown) => { values: (valor: unknown) => { onConflictDoNothing: () => { returning: () => Promise<unknown[]> } } } }
+type TxIntake = { execute: (consulta: unknown) => Promise<{ rows: { n: number; reintentar_en_s: number }[] }>; insert: (tabla: unknown) => { values: (valor: unknown) => { onConflictDoNothing: () => { returning: () => Promise<unknown[]> } } } }
 export type SondaPersistencia = { trasReserva?: (tx: TxIntake) => Promise<void>; trasCupo?: (tx: TxIntake, d: DatosSolicitud) => Promise<void>; antesDeCrear?: (d: DatosSolicitud) => DatosSolicitud }
 
 export async function persistirIntake(payload: Payload, entrada: { datos: DatosSolicitud; claveEnvio: string; claveIp: string }, sonda?: SondaPersistencia): Promise<ResultadoPersistencia> {
@@ -21,6 +22,9 @@ export async function persistirIntake(payload: Payload, entrada: { datos: DatosS
     const reserva = await tx.insert(db.tables.intake_envio).values({ clave: entrada.claveEnvio }).onConflictDoNothing().returning()
     if (reserva.length === 0) { await killTransaction(req); return { tipo: 'duplicada' } }
     await sonda?.trasReserva?.(tx)
+    const cupo = await contarCreacion(tx, entrada.claveIp)
+    if (!cupo.permitido) { await killTransaction(req); return { tipo: 'limite', reintentarEnS: cupo.reintentarEnS } }
+    await sonda?.trasCupo?.(tx, entrada.datos)
     const datos = sonda?.antesDeCrear?.(entrada.datos) ?? entrada.datos
     await payload.create({ collection: 'solicitudes', data: datos as never, req, overrideAccess: true, depth: 0, draft: false, select: { id: true } as never })
     await commitTransaction(req)

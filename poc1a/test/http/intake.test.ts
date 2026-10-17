@@ -56,6 +56,45 @@ describe('intake HTTP U5b', () => {
     const [a, b] = await Promise.all([enviar(listo.token, listo.cookie), enviar(listo.token, listo.cookie)])
     expect([a.status, b.status]).toEqual([201, 201])
     const form = await fetch(`${BASE}/api/intake`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: ORIGEN, cookie: listo.cookie, 'x-poc-ip-sintetica': '203.0.113.20' }, body: new URLSearchParams({ ...datos, token: listo.token }) })
-    expect([303, 403]).toContain(form.status)
+    expect(form.status).toBe(303)
+  })
+
+  it('permite cinco inválidos y un envío válido desde la misma IP', async () => {
+    const listo = await preparar()
+    for (let intento = 0; intento < 5; intento += 1) {
+      const respuesta = await enviar(listo.token, listo.cookie, { origin: 'https://evil.example', 'x-poc-ip-sintetica': '203.0.113.51' })
+      expect(respuesta.status).toBe(403)
+    }
+    await new Promise((resolve) => setTimeout(resolve, Number(process.env.INTAKE_TIEMPO_MINIMO_MS ?? 200) + 50))
+    const valido = await enviar(listo.token, listo.cookie, { 'x-poc-ip-sintetica': '203.0.113.51' })
+    expect(valido.status).toBe(201)
+  })
+
+  it('serializa diez creaciones paralelas de una IP en cinco éxitos y cinco límites', async () => {
+    const preparados = await Promise.all(Array.from({ length: 10 }, preparar))
+    await new Promise((resolve) => setTimeout(resolve, Number(process.env.INTAKE_TIEMPO_MINIMO_MS ?? 200) + 50))
+    const respuestas = await Promise.all(preparados.map(({ token, cookie }) => enviar(token, cookie, { 'x-poc-ip-sintetica': '203.0.113.52' })))
+    expect(respuestas.filter((respuesta) => respuesta.status === 201)).toHaveLength(5)
+    expect(respuestas.filter((respuesta) => respuesta.status === 429)).toHaveLength(5)
+    await expect(Promise.all(respuestas.filter((respuesta) => respuesta.status === 429).map((respuesta) => respuesta.json()))).resolves.toEqual(Array.from({ length: 5 }, () => ({ error: 'limite_creaciones' })))
+  })
+
+  it('reenvío duplicado tras llenar cupo retorna 201 sin consumir creación', async () => {
+    const preparados = await Promise.all(Array.from({ length: 5 }, preparar))
+    await new Promise((resolve) => setTimeout(resolve, Number(process.env.INTAKE_TIEMPO_MINIMO_MS ?? 200) + 50))
+    for (const listo of preparados) expect((await enviar(listo.token, listo.cookie, { 'x-poc-ip-sintetica': '203.0.113.54' })).status).toBe(201)
+    expect((await enviar(preparados[0].token, preparados[0].cookie, { 'x-poc-ip-sintetica': '203.0.113.54' })).status).toBe(201)
+  })
+
+  it('rechaza el intento trigésimo primero antes de leer 40 KiB', async () => {
+    const headers = { 'content-type': 'application/json', origin: ORIGEN, 'x-poc-ip-sintetica': '203.0.113.53' }
+    for (let intento = 0; intento < 30; intento += 1) {
+      const respuesta = await fetch(`${BASE}/api/intake`, { method: 'POST', headers, body: '{}' })
+      expect(respuesta.status).not.toBe(429)
+    }
+    const respuesta = await fetch(`${BASE}/api/intake`, { method: 'POST', headers, body: 'x'.repeat(40 * 1024) })
+    expect(respuesta.status).toBe(429)
+    expect(respuesta.headers.get('retry-after')).toMatch(/^[1-9][0-9]*$/)
+    await expect(respuesta.json()).resolves.toEqual({ error: 'demasiados_intentos' })
   })
 })
