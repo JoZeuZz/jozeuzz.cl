@@ -4,7 +4,7 @@ import { commitTransaction, createLocalReq, initTransaction, killTransaction, ty
 import type { DatosSolicitudPublica } from '@/lib/solicitudes'
 
 import { purgarIntake } from './purga'
-import { contarCreacion } from './limites'
+import { contarCreacion, schemaIntake } from './limites'
 
 export type DatosSolicitud = Omit<DatosSolicitudPublica, 'servicio'> & { servicio?: number }
 export type ResultadoPersistencia = { tipo: 'creada' } | { tipo: 'duplicada' } | { tipo: 'limite'; reintentarEnS: number }
@@ -22,7 +22,7 @@ export async function persistirIntake(payload: Payload, entrada: { datos: DatosS
     const reserva = await tx.insert(db.tables.intake_envio).values({ clave: entrada.claveEnvio }).onConflictDoNothing().returning()
     if (reserva.length === 0) { await killTransaction(req); return { tipo: 'duplicada' } }
     await sonda?.trasReserva?.(tx)
-    const cupo = await contarCreacion(tx, entrada.claveIp)
+    const cupo = await contarCreacion(tx, entrada.claveIp, schemaIntake(db))
     if (!cupo.permitido) { await killTransaction(req); return { tipo: 'limite', reintentarEnS: cupo.reintentarEnS } }
     await sonda?.trasCupo?.(tx, entrada.datos)
     const datos = sonda?.antesDeCrear?.(entrada.datos) ?? entrada.datos
@@ -32,7 +32,7 @@ export async function persistirIntake(payload: Payload, entrada: { datos: DatosS
     const tablaEnvio = db.tables.intake_envio as { clave: unknown }
     const existe = await fuera.select().from(db.tables.intake_envio).where(eq(tablaEnvio.clave as never, entrada.claveEnvio as never))
     if (existe.length === 0) throw new Error('intake_reserva_ausente')
-    await purgarIntake(db.drizzle as never, (dato) => payload.logger.error(dato))
+    await purgarIntake(db.drizzle as never, (dato) => payload.logger.error(dato), schemaIntake(db))
     return { tipo: 'creada' }
   } catch (error) { await killTransaction(req); throw error }
 }

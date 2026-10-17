@@ -3,6 +3,9 @@ import test from 'node:test'
 
 const base = process.env.POC_BASE_URL ?? 'https://127.0.0.1:3443'
 
+// PRECONDICIÓN: usa la IP real del gateway (no sintética), así que exige una base recién reseteada
+// (sin cupo previo de esa IP en los últimos 10 min); si no, el test falla.
+
 test('proxy producción reemplaza cabeceras de IP forjadas', async () => {
   const respuesta = await fetch(`${base}/solicitar`, { headers: { 'x-real-ip': '203.0.113.1', 'x-forwarded-for': '203.0.113.2', 'x-poc-ip-sintetica': '203.0.113.3' } })
   assert.equal(respuesta.status, 200)

@@ -32,6 +32,28 @@ describe('reglas estáticas del intake', () => {
     for (const ruta of ['test/http/intake.test.ts', 'test/integracion/intake-persistir.int.test.ts', 'test/docker/ip-produccion.test.mjs']) expect(fs.existsSync(path.join(raiz, ruta))).toBe(true)
   })
 
+  it('el manejador espera las promesas devueltas dentro del try', () => {
+    const manejador = leer('src/lib/intake/manejador.ts')
+    const cuerpo = manejador.slice(manejador.indexOf('export async function manejarIntake'), manejador.indexOf('} catch (error) {\n    const intake'))
+    expect(cuerpo).not.toMatch(/return\s+respuestaError\(/)
+    expect(cuerpo).toMatch(/return await respuestaError\(/)
+  })
+
+  it('las consultas de límites y purga califican el schema del adaptador', () => {
+    for (const ruta of ['src/lib/intake/limites.ts', 'src/lib/intake/purga.ts']) {
+      const fuente = leer(ruta)
+      expect(fuente).not.toMatch(/(?:FROM|INTO)\s+intake_/)
+      expect(fuente).toContain('sql.identifier(schema)')
+    }
+  })
+
+  it('el cupo de creaciones del driver de contrato coincide con LIMITES', async () => {
+    const { LIMITES } = await import('../../src/lib/intake/limites')
+    const driver = leer('contrato-driver.mjs')
+    const max = /limite:\s*\{\s*max:\s*(\d+)\s*\}/.exec(driver)?.[1]
+    expect(Number(max)).toBe(LIMITES.creaciones.max)
+  })
+
   it('carga configuración una vez y no registra errores crudos', () => {
     const manejador = leer('src/lib/intake/manejador.ts')
     expect(manejador.match(/cargarConfigIntake\(/g)).toHaveLength(1)

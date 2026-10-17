@@ -12,9 +12,10 @@ import { cargarConfigIntake } from './config'
 import { ErrorIntake, type CodigoIntake } from './errores'
 import { respuestaFormulario } from './formulario'
 import { normalizarIp } from './ip'
-import { contarIntento } from './limites'
+import { contarIntento, schemaIntake } from './limites'
 import { origenValido } from './origen'
 import { persistirIntake } from './persistir'
+import { purgarIntake } from './purga'
 import { verificarToken } from './token'
 
 const camposPermitidos = new Set(['nombre', 'contacto', 'tipo_equipo', 'descripcion', 'servicio'])
@@ -77,10 +78,14 @@ export async function manejarIntake(request: Request): Promise<Response> {
     const ip = normalizarIp(request.headers.get('x-real-ip'))
     if (!ip) throw new ErrorIntake('ip_invalida', 400)
     const claves = derivarClaves(config.secretoHex)
-    const limiteIntentos = await contarIntento(payload.db.drizzle as unknown as { execute: (consulta: unknown) => Promise<{ rows: { n: number; reintentar_en_s: number }[] }> }, claveIp(claves, ip))
+    const drizzle = payload.db.drizzle as unknown as { execute: (consulta: unknown) => Promise<{ rows: { n: number; reintentar_en_s: number }[] }> }
+    const schema = schemaIntake(payload.db)
+    const limiteIntentos = await contarIntento(drizzle, claveIp(claves, ip), schema)
+    const logger = payload.logger
+    void Promise.resolve(purgarIntake(drizzle, () => logger.error({ evento: 'intake_purga' }), schema)).catch(() => undefined)
     if (!limiteIntentos.permitido) {
       codigo = 'limite'
-      return respuestaError('demasiados_intentos', undefined, request.headers.get('content-type') === 'application/x-www-form-urlencoded' ? 'application/x-www-form-urlencoded' : 'application/json', correlacion, config, limiteIntentos.reintentarEnS)
+      return await respuestaError('demasiados_intentos', undefined, request.headers.get('content-type') === 'application/x-www-form-urlencoded' ? 'application/x-www-form-urlencoded' : 'application/json', correlacion, config, limiteIntentos.reintentarEnS)
     }
     const tipo = request.headers.get('content-type')
     if (tipo !== 'application/json' && tipo !== 'application/x-www-form-urlencoded') throw new ErrorIntake('tipo_no_soportado', 415)
@@ -100,7 +105,7 @@ export async function manejarIntake(request: Request): Promise<Response> {
     if (validacion.datos.servicio !== undefined && servicio === null) throw new ErrorIntake('datos_invalidos', 400, ['servicio'])
     const resultado = await persistirIntake(payload, { datos: { ...validacion.datos, servicio: servicio ?? undefined }, claveEnvio: claveEnvio(claves, token.n), claveIp: claveIp(claves, ip) })
     codigo = resultado.tipo
-    if (resultado.tipo === 'limite') return respuestaError('limite_creaciones', undefined, tipo, correlacion, config, resultado.reintentarEnS)
+    if (resultado.tipo === 'limite') return await respuestaError('limite_creaciones', undefined, tipo, correlacion, config, resultado.reintentarEnS)
     if (tipo === 'application/x-www-form-urlencoded') return new Response(null, { status: 303, headers: { location: '/solicitar?estado=recibida', 'cache-control': 'no-store', 'x-correlacion': correlacion } })
     return respuestaJson(201, { ok: true }, correlacion)
   } catch (error) {

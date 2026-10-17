@@ -39,6 +39,8 @@ Docker (lo exige `engines` de `package.json`, que aplica dentro del contenedor).
 
 `proxy` es única entrada: `https://127.0.0.1:3443` para `app` y `https://127.0.0.1:3444` para `app-prod`. `app`, `app-prod` y `e2e` no publican puertos. `./poc.sh init` genera `INTAKE_SECRETO` si falta; `.env.example` permanece sin ese placeholder por restricción de política local. Cada orden que recrea proxy genera CA efímera en `.tls/`; nunca confirmar esa carpeta.
 
+`test/docker/ip-produccion.test.mjs` usa la IP real del gateway: ejecútelo sólo con la base recién reseteada (cupo de 10 min).
+
 Comandos Docker pendientes de ejecución humana, desde `poc1a/`:
 
 ```sh

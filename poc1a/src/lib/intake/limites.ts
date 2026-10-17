@@ -9,11 +9,17 @@ type TipoLimite = 'intento' | 'creacion'
 type FilaLimite = { n: number; reintentar_en_s: number }
 type EjecutaLimite = { execute: (consulta: unknown) => Promise<{ rows: FilaLimite[] }> }
 
-async function contar(db: EjecutaLimite, claveIp: string, tipo: TipoLimite): Promise<{ permitido: boolean; reintentarEnS: number }> {
+/** Schema donde el adaptador de Payload creó las tablas (Payload no fija search_path). */
+export function schemaIntake(db: unknown): string {
+  return (db as { schemaName?: string } | undefined)?.schemaName ?? 'public'
+}
+
+async function contar(db: EjecutaLimite, claveIp: string, tipo: TipoLimite, schema: string): Promise<{ permitido: boolean; reintentarEnS: number }> {
+  const tabla = sql`${sql.identifier(schema)}.${sql.identifier('intake_limite')}`
   const resultado = await db.execute(sql`
-    INSERT INTO intake_limite (clave_hmac, tipo, ventana, n)
+    INSERT INTO ${tabla} (clave_hmac, tipo, ventana, n)
     VALUES (${claveIp}, ${tipo}, date_bin('10 minutes', now(), timestamptz '2000-01-01 00:00:00+00'), 1)
-    ON CONFLICT (clave_hmac, tipo, ventana) DO UPDATE SET n = intake_limite.n + 1
+    ON CONFLICT (clave_hmac, tipo, ventana) DO UPDATE SET n = ${tabla}.n + 1
     RETURNING n, GREATEST(1, CEIL(EXTRACT(EPOCH FROM (ventana + interval '10 minutes' - now()))))::integer AS reintentar_en_s
   `)
   const fila = resultado.rows[0]
@@ -22,10 +28,10 @@ async function contar(db: EjecutaLimite, claveIp: string, tipo: TipoLimite): Pro
   return { permitido: fila.n <= limite, reintentarEnS: Math.max(1, fila.reintentar_en_s) }
 }
 
-export function contarIntento(db: EjecutaLimite, claveIp: string) {
-  return contar(db, claveIp, 'intento')
+export function contarIntento(db: EjecutaLimite, claveIp: string, schema: string) {
+  return contar(db, claveIp, 'intento', schema)
 }
 
-export function contarCreacion(tx: EjecutaLimite, claveIp: string) {
-  return contar(tx, claveIp, 'creacion')
+export function contarCreacion(tx: EjecutaLimite, claveIp: string, schema: string) {
+  return contar(tx, claveIp, 'creacion', schema)
 }

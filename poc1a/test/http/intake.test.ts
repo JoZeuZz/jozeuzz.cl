@@ -4,6 +4,10 @@ const BASE = (process.env.POC_HTTP_BASE ?? 'https://127.0.0.1:3443').replace(/\/
 const ORIGEN = process.env.INTAKE_ORIGEN_PUBLICO ?? BASE
 const datos = { nombre: 'HTTP sintético', contacto: 'http@example.invalid', tipo_equipo: 'pc', descripcion: 'Prueba sintética', sitio_web: '' }
 
+// IP sintética nueva por test y ejecución: el grupo `ffff` está reservado a estos tests (diseño §6)
+// y el valor aleatorio evita agotar cupos si la suite se repite dentro de la ventana de 10 min.
+const ipPrueba = () => `2001:db8:ffff:${(1 + Math.floor(Math.random() * 0xfffe)).toString(16)}::1`
+
 async function preparar() {
   const respuesta = await fetch(`${BASE}/solicitar`, { redirect: 'manual' })
   const html = await respuesta.text()
@@ -14,7 +18,7 @@ async function preparar() {
 }
 
 async function enviar(token: string, cookie: string, extras: Record<string, string> = {}, cuerpo: unknown = datos) {
-  return fetch(`${BASE}/api/intake`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/json', origin: ORIGEN, cookie, 'x-poc-ip-sintetica': '203.0.113.19', ...extras }, body: JSON.stringify({ ...cuerpo as object, token }) })
+  return fetch(`${BASE}/api/intake`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/json', origin: ORIGEN, cookie, 'x-poc-ip-sintetica': ipPrueba(), ...extras }, body: JSON.stringify({ ...cuerpo as object, token }) })
 }
 
 describe('intake HTTP U5b', () => {
@@ -55,25 +59,27 @@ describe('intake HTTP U5b', () => {
     await new Promise((resolve) => setTimeout(resolve, Number(process.env.INTAKE_TIEMPO_MINIMO_MS ?? 200) + 50))
     const [a, b] = await Promise.all([enviar(listo.token, listo.cookie), enviar(listo.token, listo.cookie)])
     expect([a.status, b.status]).toEqual([201, 201])
-    const form = await fetch(`${BASE}/api/intake`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: ORIGEN, cookie: listo.cookie, 'x-poc-ip-sintetica': '203.0.113.20' }, body: new URLSearchParams({ ...datos, token: listo.token }) })
+    const form = await fetch(`${BASE}/api/intake`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: ORIGEN, cookie: listo.cookie, 'x-poc-ip-sintetica': ipPrueba() }, body: new URLSearchParams({ ...datos, token: listo.token }) })
     expect(form.status).toBe(303)
   })
 
   it('permite cinco inválidos y un envío válido desde la misma IP', async () => {
     const listo = await preparar()
+    const ip = ipPrueba()
     for (let intento = 0; intento < 5; intento += 1) {
-      const respuesta = await enviar(listo.token, listo.cookie, { origin: 'https://evil.example', 'x-poc-ip-sintetica': '203.0.113.51' })
+      const respuesta = await enviar(listo.token, listo.cookie, { origin: 'https://evil.example', 'x-poc-ip-sintetica': ip })
       expect(respuesta.status).toBe(403)
     }
     await new Promise((resolve) => setTimeout(resolve, Number(process.env.INTAKE_TIEMPO_MINIMO_MS ?? 200) + 50))
-    const valido = await enviar(listo.token, listo.cookie, { 'x-poc-ip-sintetica': '203.0.113.51' })
+    const valido = await enviar(listo.token, listo.cookie, { 'x-poc-ip-sintetica': ip })
     expect(valido.status).toBe(201)
   })
 
   it('serializa diez creaciones paralelas de una IP en cinco éxitos y cinco límites', async () => {
     const preparados = await Promise.all(Array.from({ length: 10 }, preparar))
+    const ip = ipPrueba()
     await new Promise((resolve) => setTimeout(resolve, Number(process.env.INTAKE_TIEMPO_MINIMO_MS ?? 200) + 50))
-    const respuestas = await Promise.all(preparados.map(({ token, cookie }) => enviar(token, cookie, { 'x-poc-ip-sintetica': '203.0.113.52' })))
+    const respuestas = await Promise.all(preparados.map(({ token, cookie }) => enviar(token, cookie, { 'x-poc-ip-sintetica': ip })))
     expect(respuestas.filter((respuesta) => respuesta.status === 201)).toHaveLength(5)
     expect(respuestas.filter((respuesta) => respuesta.status === 429)).toHaveLength(5)
     await expect(Promise.all(respuestas.filter((respuesta) => respuesta.status === 429).map((respuesta) => respuesta.json()))).resolves.toEqual(Array.from({ length: 5 }, () => ({ error: 'limite_creaciones' })))
@@ -82,12 +88,13 @@ describe('intake HTTP U5b', () => {
   it('reenvío duplicado tras llenar cupo retorna 201 sin consumir creación', async () => {
     const preparados = await Promise.all(Array.from({ length: 5 }, preparar))
     await new Promise((resolve) => setTimeout(resolve, Number(process.env.INTAKE_TIEMPO_MINIMO_MS ?? 200) + 50))
-    for (const listo of preparados) expect((await enviar(listo.token, listo.cookie, { 'x-poc-ip-sintetica': '203.0.113.54' })).status).toBe(201)
-    expect((await enviar(preparados[0].token, preparados[0].cookie, { 'x-poc-ip-sintetica': '203.0.113.54' })).status).toBe(201)
+    const ip = ipPrueba()
+    for (const listo of preparados) expect((await enviar(listo.token, listo.cookie, { 'x-poc-ip-sintetica': ip })).status).toBe(201)
+    expect((await enviar(preparados[0].token, preparados[0].cookie, { 'x-poc-ip-sintetica': ip })).status).toBe(201)
   })
 
   it('rechaza el intento trigésimo primero antes de leer 40 KiB', async () => {
-    const headers = { 'content-type': 'application/json', origin: ORIGEN, 'x-poc-ip-sintetica': '203.0.113.53' }
+    const headers = { 'content-type': 'application/json', origin: ORIGEN, 'x-poc-ip-sintetica': ipPrueba() }
     for (let intento = 0; intento < 30; intento += 1) {
       const respuesta = await fetch(`${BASE}/api/intake`, { method: 'POST', headers, body: '{}' })
       expect(respuesta.status).not.toBe(429)
