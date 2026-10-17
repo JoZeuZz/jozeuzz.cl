@@ -67,6 +67,17 @@ POC_BASE_URL=https://127.0.0.1:3444 node --test test/docker/logs-intake.test.mjs
 .jz/bin/jz-run node --test poc1a/test/build/
 ```
 
+## POC-3 U8 — accesibilidad, sin JavaScript y E2E
+
+`/solicitar` usa HTML semántico sin scripts (`html.ts`; CSP sin `script-src`). `e2e/intake.spec.ts` cubre teclado, envío vacío y válido, el mismo flujo con `javaScriptEnabled: false`, dos pestañas (mensaje de csrf) y los atributos de la cookie `__Host-intake`. `e2e/intake-axe.spec.ts` audita con axe (`wcag2a`, `wcag2aa`) pero requiere `@axe-core/playwright@4.13.0`, que aún no está instalado: el spec se omite si falta el paquete y está excluido en `tsconfig.json` (`exclude`) para que `tsc` no falle por el import ausente. Pasos humanos, desde `poc1a/`:
+
+```sh
+./poc.sh deps npm install --save-dev --save-exact @axe-core/playwright@4.13.0
+# después: quitar "e2e/intake-axe.spec.ts" de "exclude" en tsconfig.json y confirmar package.json y package-lock.json
+./poc.sh e2e-en poc3_intake
+./poc.sh e2e-prod-en poc3_intake
+```
+
 ## Comandos históricos POC-1a
 
 La reproducción histórica de POC-1a quedó en `4b4b806`; resultados y mediciones permanecen en `EVIDENCIA.md`. No use esos comandos contra esta POC-1b.

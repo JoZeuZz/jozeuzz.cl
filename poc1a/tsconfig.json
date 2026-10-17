@@ -42,6 +42,7 @@
     ".next-prod/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "e2e/intake-axe.spec.ts"
   ]
 }
