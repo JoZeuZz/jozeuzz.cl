@@ -27,4 +27,15 @@ describe('reglas estáticas del intake', () => {
   it('manejador llama persistirIntake con dos argumentos', () => {
     expect(leer('src/lib/intake/manejador.ts')).toMatch(/persistirIntake\(payload,\s*\{[\s\S]*?\}\)/)
   })
+
+  it('declara las tres suites de cobertura U5b', () => {
+    for (const ruta of ['test/http/intake.test.ts', 'test/integracion/intake-persistir.int.test.ts', 'test/docker/ip-produccion.test.mjs']) expect(fs.existsSync(path.join(raiz, ruta))).toBe(true)
+  })
+
+  it('carga configuración una vez y no registra errores crudos', () => {
+    const manejador = leer('src/lib/intake/manejador.ts')
+    expect(manejador.match(/cargarConfigIntake\(/g)).toHaveLength(1)
+    expect(manejador).not.toMatch(/logger\.(?:info|error)\(error\)/)
+    expect(manejador).not.toMatch(/logger\.(?:info|error)\(\{[^}]*\berror\b/)
+  })
 })

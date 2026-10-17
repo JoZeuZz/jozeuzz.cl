@@ -38,6 +38,16 @@ function respuestaJson(status: number, cuerpo: object, correlacion: string): Res
   return new Response(JSON.stringify(cuerpo), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-correlacion': correlacion } })
 }
 
+function metadatosError(error: unknown): { err_name?: string; pg_code?: string } {
+  const objeto = error && typeof error === 'object' ? error as { constructor?: { name?: unknown }; code?: unknown; cause?: { code?: unknown } } : undefined
+  const nombre = objeto?.constructor?.name
+  const pg = objeto?.cause?.code ?? objeto?.code
+  return {
+    ...(typeof nombre === 'string' && /^[A-Za-z]{1,40}$/.test(nombre) ? { err_name: nombre } : {}),
+    ...(typeof pg === 'string' && /^[0-9A-Z]{5}$/.test(pg) ? { pg_code: pg } : {}),
+  }
+}
+
 async function respuestaError(codigo: CodigoIntake, campos: string[] | undefined, tipo: 'application/json' | 'application/x-www-form-urlencoded', correlacion: string, config: ReturnType<typeof cargarConfigIntake>): Promise<Response> {
   const http = estado(codigo)
   if (tipo === 'application/x-www-form-urlencoded') {
@@ -52,14 +62,17 @@ async function respuestaError(codigo: CodigoIntake, campos: string[] | undefined
 export async function manejarIntake(request: Request): Promise<Response> {
   const inicio = Date.now()
   const correlacion = crypto.randomUUID()
-  let codigo: CodigoIntake = 'interno'
+  let codigo: CodigoIntake | 'creada' | 'duplicada' | 'limite' = 'interno'
   let payload: Awaited<ReturnType<typeof getPayload>> | undefined
+  let config: ReturnType<typeof cargarConfigIntake> | undefined
+  let metadatos: { err_name?: string; pg_code?: string } = {}
   try {
+    config = cargarConfigIntake(process.env)
+    payload = await getPayload({ config: configPayload })
     const ip = normalizarIp(request.headers.get('x-real-ip'))
     if (!ip) throw new ErrorIntake('ip_invalida', 400)
     const tipo = request.headers.get('content-type')
     if (tipo !== 'application/json' && tipo !== 'application/x-www-form-urlencoded') throw new ErrorIntake('tipo_no_soportado', 415)
-    const config = cargarConfigIntake(process.env)
     if (!origenValido(request.headers, config.origenPublico)) throw new ErrorIntake('origen_invalido', 403)
     let cuerpo: Record<string, unknown>
     try { cuerpo = await leerCuerpoIntake(request, tipo) } catch (error) {
@@ -74,17 +87,18 @@ export async function manejarIntake(request: Request): Promise<Response> {
     if (!validacion.ok) throw new ErrorIntake(validacion.codigo, estado(validacion.codigo), 'campos' in validacion ? validacion.campos : undefined)
     const servicio = validacion.datos.servicio === undefined ? undefined : await resolverServicioActivo(validacion.datos.servicio)
     if (validacion.datos.servicio !== undefined && servicio === null) throw new ErrorIntake('datos_invalidos', 400, ['servicio'])
-    payload = await getPayload({ config: configPayload })
     const resultado = await persistirIntake(payload, { datos: { ...validacion.datos, servicio: servicio ?? undefined }, claveEnvio: claveEnvio(derivarClaves(config.secretoHex), token.n), claveIp: claveIp(derivarClaves(config.secretoHex), ip) })
-    codigo = resultado.tipo as CodigoIntake
+    codigo = resultado.tipo
     if (tipo === 'application/x-www-form-urlencoded') return new Response(null, { status: 303, headers: { location: '/solicitar?estado=recibida', 'cache-control': 'no-store', 'x-correlacion': correlacion } })
     return respuestaJson(201, { ok: true }, correlacion)
   } catch (error) {
     const intake = error instanceof ErrorIntake ? error : new ErrorIntake('interno', 500)
     codigo = intake.codigo
+    metadatos = metadatosError(error)
     const tipo = request.headers.get('content-type') === 'application/x-www-form-urlencoded' ? 'application/x-www-form-urlencoded' : 'application/json'
-    return respuestaError(intake.codigo, intake.campos, tipo, correlacion, cargarConfigIntake(process.env))
+    if (!config) return respuestaJson(500, { error: 'interno' }, correlacion)
+    return respuestaError(intake.codigo, intake.campos, tipo, correlacion, config)
   } finally {
-    if (payload) payload.logger[codigo === 'interno' ? 'error' : 'info']({ evento: 'intake', codigo, duracion_ms: Date.now() - inicio, correlacion })
+    if (payload) payload.logger[codigo === 'interno' ? 'error' : 'info']({ evento: 'intake', codigo, duracion_ms: Date.now() - inicio, correlacion, ...metadatos })
   }
 }
