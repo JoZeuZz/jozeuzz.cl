@@ -6,13 +6,24 @@ import { expect, it } from 'vitest'
 const src = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src')
 
 it('declara tablas intake equivalentes en schema runtime y migración de producción', async () => {
-  const [esquema, migracion, indice] = await Promise.all([
+  const [esquema, migracion, indice, config] = await Promise.all([
     readFile(path.join(src, 'lib/intake/esquema.ts'), 'utf8'),
     readFile(path.join(src, 'migrations/20261017_120000_poc3_intake.ts'), 'utf8'),
     readFile(path.join(src, 'migrations/index.ts'), 'utf8'),
+    readFile(path.join(src, 'payload.config.ts'), 'utf8'),
   ])
 
   expect(esquema).toContain('export const extenderEsquemaIntake: PostgresSchemaHook')
+  expect(config).toContain("import { extenderEsquemaIntake } from './lib/intake/esquema'")
+  expect(config).toContain('afterSchemaInit: [extenderEsquemaIntake]')
+  expect(esquema).toContain('...schema')
+  expect(esquema).toContain('tables: {\n      ...schema.tables,')
+  const guard = esquema.indexOf("const pgSchema = Reflect.get(schemaAdapter, 'pgSchema')")
+  const firstTable = esquema.indexOf('adapter.pgSchema.table')
+  expect(guard).toBeGreaterThan(-1)
+  expect(esquema).toContain("typeof pgSchema.table !== 'function'")
+  expect(esquema).toContain("throw new Error('intake_schema_adapter_invalido')")
+  expect(guard).toBeLessThan(firstTable)
   expect(esquema).toContain('adapter.pgSchema.table')
   expect(esquema).toContain('intake_envio')
   expect(esquema).toContain('clave')
@@ -33,6 +44,10 @@ it('declara tablas intake equivalentes en schema runtime y migración de producc
   expect(migracion).toContain('"n" integer NOT NULL CHECK ("n" >= 1)')
   expect(migracion).toContain('PRIMARY KEY ("clave_hmac", "tipo", "ventana")')
   expect(migracion).toContain('CREATE INDEX "intake_limite_ventana_idx"')
+  expect(esquema).toContain("sql`${table.clave} ~ '^[0-9a-f]{64}$'`")
+  expect(esquema).toContain("sql`${table.claveHmac} ~ '^[0-9a-f]{64}$'`")
+  expect(esquema).toContain("sql`${table.tipo} IN ('intento', 'creacion')`")
+  expect(esquema).toContain('sql`${table.n} >= 1`')
 
   const down = migracion.slice(migracion.indexOf('export async function down'))
   expect(down).toContain('DROP TABLE "poc_prod"."intake_limite"')

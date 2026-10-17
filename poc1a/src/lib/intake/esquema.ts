@@ -3,6 +3,16 @@ import { check, index, integer, primaryKey, text, timestamp } from 'drizzle-orm/
 import { sql } from 'drizzle-orm'
 
 export const extenderEsquemaIntake: PostgresSchemaHook = ({ adapter: schemaAdapter, schema }) => {
+  const pgSchema = Reflect.get(schemaAdapter, 'pgSchema')
+  if (
+    !pgSchema
+    || typeof pgSchema !== 'object'
+    || !('table' in pgSchema)
+    || typeof pgSchema.table !== 'function'
+  ) {
+    throw new Error('intake_schema_adapter_invalido')
+  }
+
   const adapter = schemaAdapter as typeof schemaAdapter & Pick<BasePostgresAdapter, 'pgSchema'>
   const intakeEnvio = schema.tables.intake_envio ?? adapter.pgSchema.table(
     'intake_envio',
