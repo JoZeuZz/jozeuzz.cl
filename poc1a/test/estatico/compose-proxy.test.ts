@@ -17,6 +17,17 @@ async function leerCompose(nombre: string): Promise<Compose> {
 }
 
 describe('topología TLS aislada', () => {
+  it('limita override de pruebas al reemplazo IP y enlace directo diseñado', async () => {
+    const override = await leerCompose('compose.pruebas.yaml')
+
+    expect(Object.keys(override)).toEqual(['services'])
+    expect(Object.keys(override.services)).toEqual(['proxy', 'app'])
+    expect(override.services.proxy).toEqual({
+      volumes: ['./proxy/ip-cliente.pruebas.conf:/etc/nginx/poc/ip-cliente.conf:ro'],
+    })
+    expect(override.services.app).toEqual({ networks: ['proxy_prod'] })
+  })
+
   it('expone sólo proxy y separa clientes, apps y bases por red', async () => {
     const compose = await leerCompose('compose.yaml')
     const { app, 'app-prod': appProd, proxy, e2e, deps } = compose.services
@@ -55,11 +66,10 @@ describe('topología TLS aislada', () => {
   })
 
   it('mantiene proxy sin bypass de IP ni cabeceras locales', async () => {
-    const [nginx, produccion, pruebas, override] = await Promise.all([
+    const [nginx, produccion, pruebas] = await Promise.all([
       readFile(path.join(raiz, 'proxy/nginx.conf'), 'utf8'),
       readFile(path.join(raiz, 'proxy/ip-cliente.produccion.conf'), 'utf8'),
       readFile(path.join(raiz, 'proxy/ip-cliente.pruebas.conf'), 'utf8'),
-      readFile(path.join(raiz, 'compose.pruebas.yaml'), 'utf8'),
     ])
     expect(nginx).toContain('ssl_protocols TLSv1.3;')
     expect(nginx).toContain('access_log off;')
@@ -75,8 +85,6 @@ describe('topología TLS aislada', () => {
     expect(pruebas).toContain('203\\.0\\.113')
     expect(pruebas).toContain('2001:db8:')
     expect(pruebas).toContain('proxy_set_header X-Poc-Fallo $http_x_poc_fallo;')
-    expect(override).toContain('ip-cliente.pruebas.conf:/etc/nginx/poc/ip-cliente.conf:ro')
-    expect(override).toContain('proxy_prod')
     for (const bloque of nginx.match(/server \{[\s\S]*?\n  \}/g) ?? []) expect(bloque).not.toContain('proxy_set_header')
   })
 })
