@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { ipSintetica } from './driver/ip-sintetica.mjs';
 import { exigirEventoIntake } from './driver/logs-intake.mjs';
+import { servicioDeSolicitud } from './driver/servicio-solicitud.mjs';
 
 const aqui = path.dirname(fileURLToPath(import.meta.url));
 const BASE_POC1B = process.env.POC_TARGET_DATABASE;
@@ -211,7 +212,7 @@ export default async function crearDriver() {
     contacto: d.contacto,
     tipo_equipo: d.tipo_equipo,
     descripcion: d.descripcion,
-    servicio: d.servicio == null ? null : String(typeof d.servicio === 'object' ? d.servicio.slug ?? d.servicio.id : Object.entries(estado.idPorSlug).find(([, id]) => id === d.servicio)?.[0].split(':')[1] ?? d.servicio),
+    servicio: servicioDeSolicitud(d, estado.idPorSlug),
     estado: d.estado,
     motivo_cierre: d.motivo_cierre ?? null,
     observaciones_internas: d.observaciones_internas ?? '',
@@ -339,6 +340,8 @@ export default async function crearDriver() {
     },
     admin,
     async logs() {
+      // Margen para que Docker vuelque a disco las últimas líneas del contenedor antes de leerlas.
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       const r = spawnSync('./poc.sh', ['logs-since', estado.t0], { cwd: aqui, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
       if (r.status !== 0) throw new Error(`logs-since falló (${r.status})`);
       const lineas = `${r.stdout ?? ''}${r.stderr ?? ''}`.split('\n').filter(Boolean);

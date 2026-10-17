@@ -100,7 +100,9 @@ describe('guardas de bases aisladas y datos sintéticos', () => {
     expect(dominios.every((dominio) => dominio === 'example.invalid')).toBe(true)
     expect(direccionesIp(fixture)).toEqual([])
     expect(direccionesIp(util)).toEqual([])
-    expect(driver).toMatch(/POC_BASE_URL \?\? 'http:\/\/127\.0\.0\.1:3101'/)
+    // El driver real sólo acepta TLS local: su comprobación de POC_BASE_URL es la que ejecuta el código.
+    expect(driver).toMatch(/process\.env\.POC_BASE_URL \?\? ''/)
+    expect(driver).toMatch(/\^https:\\\/\\\/127\\\.0\\\.0\\\.1:\\d\+\$/)
     for (const texto of Object.values(archivos)) {
       expect(direccionesIp(texto).every(esIpSinteticaPermitida)).toBe(true)
     }

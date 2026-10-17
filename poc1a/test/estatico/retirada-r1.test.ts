@@ -107,5 +107,8 @@ describe('logs() del driver no pasa en vacío (IN-12)', () => {
     expect(driver).toMatch(/enviosDesdeReset\s*=\s*0/)
     expect(driver).toMatch(/enviosDesdeReset\s*\+=\s*1|enviosDesdeReset\+\+/)
     expect(driver).toMatch(/exigirEventoIntake\(\s*lineas\s*,\s*enviosDesdeReset\s*\)/)
+    expect(driver).toMatch(/import \{ servicioDeSolicitud \} from '\.\/driver\/servicio-solicitud\.mjs'/)
+    expect(driver).toContain('servicioDeSolicitud(d, estado.idPorSlug)')
+    expect(driver).toMatch(/setTimeout\(resolve, 1500\)[\s\S]*?\['logs-since', estado\.t0\]/)
   })
 })
