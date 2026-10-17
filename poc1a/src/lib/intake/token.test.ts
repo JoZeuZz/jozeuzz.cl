@@ -1,6 +1,19 @@
 import { createHmac } from 'node:crypto'
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+const { timingSafeEqualSpy } = vi.hoisted(() => ({ timingSafeEqualSpy: vi.fn() }))
+
+vi.mock('node:crypto', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:crypto')>()
+  return {
+    ...real,
+    timingSafeEqual: (...args: Parameters<typeof real.timingSafeEqual>) => {
+      timingSafeEqualSpy(...args)
+      return real.timingSafeEqual(...args)
+    },
+  }
+})
 
 import { derivarClaves } from './claves'
 import { cargarConfigIntake } from './config'
@@ -46,6 +59,19 @@ describe('token CSRF', () => {
     const [cuerpo, firma] = emitirToken(config, ahora).split('.')
 
     expect(verificarToken(config, `${cuerpo}.${firmaNoCanonica(firma)}`, ahora)).toBeNull()
+  })
+
+  it('compara firma de igual largo y evita timingSafeEqual para largo distinto canónico', () => {
+    const token = emitirToken(config, ahora)
+
+    timingSafeEqualSpy.mockClear()
+    expect(verificarToken(config, token, ahora)).not.toBeNull()
+    expect(timingSafeEqualSpy).toHaveBeenCalledOnce()
+
+    const [cuerpo] = token.split('.')
+    timingSafeEqualSpy.mockClear()
+    expect(verificarToken(config, `${cuerpo}.${Buffer.alloc(31).toString('base64url')}`, ahora)).toBeNull()
+    expect(timingSafeEqualSpy).not.toHaveBeenCalled()
   })
 
   it.each([

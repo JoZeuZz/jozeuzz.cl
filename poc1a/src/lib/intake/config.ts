@@ -12,8 +12,10 @@ export type ConfigIntake = {
 }
 
 export function cargarConfigIntake(env: Record<string, string | undefined>): ConfigIntake {
-  const secretoHex = env.INTAKE_SECRETO
-  if (!secretoHex || !/^[0-9a-fA-F]{64,}$/.test(secretoHex) || secretoHex.length % 2 !== 0 || secretoHex === env.PAYLOAD_SECRET) throw new ErrorConfigIntake('secreto_invalido')
+  const secretoEntrada = env.INTAKE_SECRETO
+  if (!secretoEntrada || !/^[0-9a-fA-F]{64,}$/.test(secretoEntrada) || secretoEntrada.length % 2 !== 0) throw new ErrorConfigIntake('secreto_invalido')
+  const secretoHex = secretoEntrada.toLowerCase()
+  if (secretoHex === env.PAYLOAD_SECRET?.toLowerCase()) throw new ErrorConfigIntake('secreto_invalido')
 
   const origenPublico = env.INTAKE_ORIGEN_PUBLICO
   let url: URL

@@ -29,4 +29,11 @@ describe('cargarConfigIntake', () => {
   it('acepta mínimo cero fuera de producción', () => {
     expect(cargarConfigIntake({ ...base, INTAKE_TIEMPO_MINIMO_MS: '0', NODE_ENV: 'test' }).tiempoMinimoMs).toBe(0)
   })
+
+  it('normaliza secreto hex y rechaza PAYLOAD_SECRET equivalente con distinto casing', () => {
+    const secretoMayusculas = 'AB'.repeat(32)
+
+    expect(cargarConfigIntake({ ...base, INTAKE_SECRETO: secretoMayusculas }).secretoHex).toBe(secretoMayusculas.toLowerCase())
+    expect(() => cargarConfigIntake({ ...base, INTAKE_SECRETO: secretoMayusculas, PAYLOAD_SECRET: secretoMayusculas.toLowerCase() })).toThrow(ErrorConfigIntake)
+  })
 })
