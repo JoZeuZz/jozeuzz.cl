@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { ipSintetica } from './driver/ip-sintetica.mjs';
+import { exigirEventoIntake } from './driver/logs-intake.mjs';
 
 const aqui = path.dirname(fileURLToPath(import.meta.url));
 const BASE_POC1B = process.env.POC_TARGET_DATABASE;
@@ -71,6 +72,8 @@ const SIN_CANAL = () => ({ status: 404, body: '' });
 
 export default async function crearDriver() {
   let estado = { refs: {}, ids: {}, password: '', t0: '', idPorSlug: {}, tipoMedio: {} };
+  // Envíos al intake desde el último reset: logs() exige entonces ver el registro `"evento":"intake"` (IN-12 no pasa en vacío).
+  let enviosDesdeReset = 0;
   const sesionAnonima = { token: null };
   const sesionInvalida = { token: jwtFalsificado() };
 
@@ -295,6 +298,7 @@ export default async function crearDriver() {
         if (['proyecto', 'servicio', 'solicitud'].includes(tipo)) idPorSlug[`${tipo}:${ref}`] = ids[clave];
       }
       estado = { refs, ids, password, email, t0: new Date(Date.now() - 1000).toISOString(), idPorSlug };
+      enviosDesdeReset = 0;
       return refs;
     },
     canalesPublicos: [
@@ -319,7 +323,6 @@ export default async function crearDriver() {
     intake: {
       limite: { max: 5 },
       async preparar(payload) {
-        if (process.env.POC_INTAKE_SINTETICO === '1') return payload;
         const r = await fetch(`${BASE}/solicitar`, { headers: { connection: 'close' } });
         const html = await r.text();
         const token = /<input[^>]+name="token"[^>]+value="([^"]+)"/.exec(html)?.[1];
@@ -328,11 +331,7 @@ export default async function crearDriver() {
         return { payload, token, cookie, listoEn: Date.now() + Number(process.env.POC_INTAKE_TIEMPO_MINIMO_MS ?? 200) + 50 };
       },
       async enviar(envio, { origen }) {
-        if (process.env.POC_INTAKE_SINTETICO === '1') {
-          const b64 = Buffer.from(JSON.stringify(envio)).toString('base64')
-          const r = spawnSync('./poc.sh', ['exec-en', BASE_POC1B, 'env', 'POC_INTAKE_SINTETICO=1', 'POC_TEST_RUN=1', `POC_TARGET_DATABASE=${BASE_POC1B}`, 'npx', 'tsx', 'scripts/solicitud-sintetica.ts', b64], { cwd: aqui, encoding: 'utf8' })
-          return { status: r.status === 0 ? 201 : 400 }
-        }
+        enviosDesdeReset += 1;
         await new Promise((resolve) => setTimeout(resolve, Math.max(0, envio.listoEn - Date.now())));
         const r = await fetch(`${BASE}/api/intake`, { method: 'POST', headers: { connection: 'close', 'content-type': 'application/json', origin: BASE, cookie: envio.cookie, 'x-poc-ip-sintetica': ipSintetica(origen) }, body: JSON.stringify({ ...envio.payload, token: envio.token }) });
         return { status: r.status, body: await r.text() };
@@ -342,7 +341,8 @@ export default async function crearDriver() {
     async logs() {
       const r = spawnSync('./poc.sh', ['logs-since', estado.t0], { cwd: aqui, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
       if (r.status !== 0) throw new Error(`logs-since falló (${r.status})`);
-      return `${r.stdout ?? ''}${r.stderr ?? ''}`.split('\n').filter(Boolean);
+      const lineas = `${r.stdout ?? ''}${r.stderr ?? ''}`.split('\n').filter(Boolean);
+      return exigirEventoIntake(lineas, enviosDesdeReset);
     },
   };
 }

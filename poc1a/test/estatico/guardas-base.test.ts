@@ -44,11 +44,10 @@ describe('guardas de bases aisladas y datos sintéticos', () => {
   })
 
   it('activa guardas reales antes de operaciones externas', async () => {
-    const [pocSh, driver, verificarDb, solicitudSintetica] = await Promise.all([
+    const [pocSh, driver, verificarDb] = await Promise.all([
       readFile(path.join(raiz, 'poc.sh'), 'utf8'),
       readFile(path.join(raiz, 'contrato-driver.mjs'), 'utf8'),
       readFile(path.join(raiz, 'scripts/verificar-db.ts'), 'utf8'),
-      readFile(path.join(raiz, 'scripts/solicitud-sintetica.ts'), 'utf8'),
     ])
 
     expect(pocSh).toMatch(/poc1b_\?\*\|poc3_\?\*/)
@@ -58,7 +57,7 @@ describe('guardas de bases aisladas y datos sintéticos', () => {
       expect(`${resultado.stdout}${resultado.stderr}`).toContain('base POC aislada inválida')
     }
 
-    for (const [texto, operacion] of [[driver, 'spawnSync'], [verificarDb, 'getPayload'], [solicitudSintetica, 'getPayload']] as const) {
+    for (const [texto, operacion] of [[driver, 'spawnSync'], [verificarDb, 'getPayload']] as const) {
       const regex = regexReal(texto)
       expect(casosAceptados.every((base) => regex.test(base))).toBe(true)
       expect(casosRechazados.every((base) => !regex.test(base))).toBe(true)
@@ -74,11 +73,6 @@ describe('guardas de bases aisladas y datos sintéticos', () => {
     const verificacionInvalida = ejecutar(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'scripts/verificar-db.ts', 'poc3_x;rm'])
     expect(verificacionInvalida.status).not.toBe(0)
     expect(`${verificacionInvalida.stdout}${verificacionInvalida.stderr}`).toContain('base POC aislada explícita requerida')
-    const solicitudInvalida = ejecutar(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'scripts/solicitud-sintetica.ts'], {
-      POC_INTAKE_SINTETICO: '1', POC_TEST_RUN: '1', POC_TARGET_DATABASE: 'poc3_x;rm',
-    })
-    expect(solicitudInvalida.status).not.toBe(0)
-    expect(`${solicitudInvalida.stdout}${solicitudInvalida.stderr}`).toContain('intake sintético no autorizado')
   })
 
   it('mantiene datos de cliente y payload sintéticos reservados', async () => {
