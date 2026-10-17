@@ -5,6 +5,7 @@ import { buildConfig } from 'payload'
 import { fileURLToPath } from 'url'
 import sharp from 'sharp'
 
+import { extenderEsquemaIntake } from './lib/intake/esquema'
 import { MediosPrivados, MediosPublicos } from './collections/Medios'
 import { Proyectos } from './collections/Proyectos'
 import { Servicios } from './collections/Servicios'
@@ -38,6 +39,7 @@ export default buildConfig({
   upload: { limits: { fileSize: 5_000_000 } },
   db: postgresAdapter({
     pool: { connectionString: process.env.DATABASE_URL || '' },
+    afterSchemaInit: [extenderEsquemaIntake],
     // Los scripts de reset no sincronizan el schema (lo hace el servidor de desarrollo): arranque más rápido.
     push: process.env.POC_NO_PUSH !== '1',
     // Drizzle rechaza «public» como schemaName: sólo se fija un schema propio (pruebas: poc_test).
