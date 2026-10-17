@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { NoImplementado } from '../contrato/errores.mjs';
+import { ipSintetica } from './driver/ip-sintetica.mjs';
 
 const aqui = path.dirname(fileURLToPath(import.meta.url));
 const BASE_POC1B = process.env.POC_TARGET_DATABASE;
@@ -208,7 +208,7 @@ export default async function crearDriver() {
     contacto: d.contacto,
     tipo_equipo: d.tipo_equipo,
     descripcion: d.descripcion,
-    servicio: d.servicio == null ? null : String(typeof d.servicio === 'object' ? d.servicio.slug ?? d.servicio.id : d.servicio),
+    servicio: d.servicio == null ? null : String(typeof d.servicio === 'object' ? d.servicio.slug ?? d.servicio.id : Object.entries(estado.idPorSlug).find(([, id]) => id === d.servicio)?.[0].split(':')[1] ?? d.servicio),
     estado: d.estado,
     motivo_cierre: d.motivo_cierre ?? null,
     observaciones_internas: d.observaciones_internas ?? '',
@@ -316,18 +316,26 @@ export default async function crearDriver() {
     },
     sesionAnonima,
     sesionInvalida,
-    // POC-1a no incluye el intake: la forma exige max > 0 y el resto lanza NoImplementado.
     intake: {
-      limite: { max: 1 },
-      async preparar() {
-        if (process.env.POC_INTAKE_SINTETICO !== '1') throw new NoImplementado('POC-3: intake público');
-        return arguments[0]
+      limite: { max: 5 },
+      async preparar(payload) {
+        if (process.env.POC_INTAKE_SINTETICO === '1') return payload;
+        const r = await fetch(`${BASE}/solicitar`, { headers: { connection: 'close' } });
+        const html = await r.text();
+        const token = /<input[^>]+name="token"[^>]+value="([^"]+)"/.exec(html)?.[1];
+        const cookie = r.headers.get('set-cookie')?.match(/__Host-intake=[^;]+/)?.[0];
+        if (r.status !== 200 || !token || !cookie) throw new Error('GET /solicitar no entregó token y cookie');
+        return { payload, token, cookie, listoEn: Date.now() + Number(process.env.POC_INTAKE_TIEMPO_MINIMO_MS ?? 200) + 50 };
       },
-      async enviar() {
-        if (process.env.POC_INTAKE_SINTETICO !== '1') throw new NoImplementado('POC-3: intake público');
-        const b64 = Buffer.from(JSON.stringify(arguments[0])).toString('base64')
-        const r = spawnSync('./poc.sh', ['exec-en', BASE_POC1B, 'env', 'POC_INTAKE_SINTETICO=1', 'POC_TEST_RUN=1', `POC_TARGET_DATABASE=${BASE_POC1B}`, 'npx', 'tsx', 'scripts/solicitud-sintetica.ts', b64], { cwd: aqui, encoding: 'utf8' })
-        return { status: r.status === 0 ? 201 : 400 }
+      async enviar(envio, { origen }) {
+        if (process.env.POC_INTAKE_SINTETICO === '1') {
+          const b64 = Buffer.from(JSON.stringify(envio)).toString('base64')
+          const r = spawnSync('./poc.sh', ['exec-en', BASE_POC1B, 'env', 'POC_INTAKE_SINTETICO=1', 'POC_TEST_RUN=1', `POC_TARGET_DATABASE=${BASE_POC1B}`, 'npx', 'tsx', 'scripts/solicitud-sintetica.ts', b64], { cwd: aqui, encoding: 'utf8' })
+          return { status: r.status === 0 ? 201 : 400 }
+        }
+        await new Promise((resolve) => setTimeout(resolve, Math.max(0, envio.listoEn - Date.now())));
+        const r = await fetch(`${BASE}/api/intake`, { method: 'POST', headers: { connection: 'close', 'content-type': 'application/json', origin: BASE, cookie: envio.cookie, 'x-poc-ip-sintetica': ipSintetica(origen) }, body: JSON.stringify({ ...envio.payload, token: envio.token }) });
+        return { status: r.status, body: await r.text() };
       },
     },
     admin,

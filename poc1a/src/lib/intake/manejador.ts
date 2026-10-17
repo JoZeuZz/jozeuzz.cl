@@ -1,0 +1,90 @@
+import { timingSafeEqual } from 'node:crypto'
+
+import configPayload from '@payload-config'
+import { getPayload } from 'payload'
+
+import { resolverServicioActivo } from '@/lib/publico'
+import { validarSolicitudPublica } from '@/lib/solicitudes'
+
+import { claveEnvio, claveIp, derivarClaves } from './claves'
+import { leerCuerpoIntake, ErrorCuerpoIntake } from './cuerpo'
+import { cargarConfigIntake } from './config'
+import { ErrorIntake, type CodigoIntake } from './errores'
+import { respuestaFormulario } from './formulario'
+import { normalizarIp } from './ip'
+import { origenValido } from './origen'
+import { persistirIntake } from './persistir'
+import { verificarToken } from './token'
+
+const camposPermitidos = new Set(['nombre', 'contacto', 'tipo_equipo', 'descripcion', 'servicio'])
+const estado = (codigo: CodigoIntake) => ({ ip_invalida: 400, tipo_no_soportado: 415, origen_invalido: 403, cuerpo_demasiado_grande: 413, cuerpo_invalido: 400, csrf_invalido: 403, envio_rechazado: 400, campos_no_permitidos: 400, datos_invalidos: 400, interno: 500 })[codigo]
+
+function cookieToken(headers: Headers): string | null {
+  const encontrados = (headers.get('cookie') ?? '').split(';').map((parte) => parte.trim()).filter((parte) => parte.startsWith('__Host-intake='))
+  if (encontrados.length !== 1) return null
+  const valor = encontrados[0].slice('__Host-intake='.length)
+  return valor && !valor.includes('=') ? valor : null
+}
+
+function csrfValido(cuerpo: Record<string, unknown>, cookie: string | null, config: ReturnType<typeof cargarConfigIntake>): { n: string; e: number } | null {
+  if (typeof cuerpo.token !== 'string' || !cookie || cuerpo.token.length !== cookie.length) return null
+  const izquierda = Buffer.from(cuerpo.token)
+  const derecha = Buffer.from(cookie)
+  if (!timingSafeEqual(izquierda, derecha)) return null
+  return verificarToken(config, cuerpo.token, Date.now())
+}
+
+function respuestaJson(status: number, cuerpo: object, correlacion: string): Response {
+  return new Response(JSON.stringify(cuerpo), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-correlacion': correlacion } })
+}
+
+async function respuestaError(codigo: CodigoIntake, campos: string[] | undefined, tipo: 'application/json' | 'application/x-www-form-urlencoded', correlacion: string, config: ReturnType<typeof cargarConfigIntake>): Promise<Response> {
+  const http = estado(codigo)
+  if (tipo === 'application/x-www-form-urlencoded') {
+    const formulario = await respuestaFormulario(config, { codigo, campos })
+    const headers = new Headers(formulario.headers)
+    headers.set('x-correlacion', correlacion)
+    return new Response(formulario.body, { status: http, headers })
+  }
+  return respuestaJson(http, codigo === 'datos_invalidos' ? { error: codigo, campos: (campos ?? []).filter((campo) => camposPermitidos.has(campo)) } : { error: codigo }, correlacion)
+}
+
+export async function manejarIntake(request: Request): Promise<Response> {
+  const inicio = Date.now()
+  const correlacion = crypto.randomUUID()
+  let codigo: CodigoIntake = 'interno'
+  let payload: Awaited<ReturnType<typeof getPayload>> | undefined
+  try {
+    const ip = normalizarIp(request.headers.get('x-real-ip'))
+    if (!ip) throw new ErrorIntake('ip_invalida', 400)
+    const tipo = request.headers.get('content-type')
+    if (tipo !== 'application/json' && tipo !== 'application/x-www-form-urlencoded') throw new ErrorIntake('tipo_no_soportado', 415)
+    const config = cargarConfigIntake(process.env)
+    if (!origenValido(request.headers, config.origenPublico)) throw new ErrorIntake('origen_invalido', 403)
+    let cuerpo: Record<string, unknown>
+    try { cuerpo = await leerCuerpoIntake(request, tipo) } catch (error) {
+      if (error instanceof ErrorCuerpoIntake) throw new ErrorIntake(error.codigo, estado(error.codigo))
+      throw error
+    }
+    const token = csrfValido(cuerpo, cookieToken(request.headers), config)
+    if (!token) throw new ErrorIntake('csrf_invalido', 403)
+    if (cuerpo.sitio_web !== undefined && cuerpo.sitio_web !== '') throw new ErrorIntake('envio_rechazado', 400)
+    if (Date.now() - token.e < config.tiempoMinimoMs) throw new ErrorIntake('envio_rechazado', 400)
+    const validacion = validarSolicitudPublica(cuerpo)
+    if (!validacion.ok) throw new ErrorIntake(validacion.codigo, estado(validacion.codigo), 'campos' in validacion ? validacion.campos : undefined)
+    const servicio = validacion.datos.servicio === undefined ? undefined : await resolverServicioActivo(validacion.datos.servicio)
+    if (validacion.datos.servicio !== undefined && servicio === null) throw new ErrorIntake('datos_invalidos', 400, ['servicio'])
+    payload = await getPayload({ config: configPayload })
+    const resultado = await persistirIntake(payload, { datos: { ...validacion.datos, servicio: servicio ?? undefined }, claveEnvio: claveEnvio(derivarClaves(config.secretoHex), token.n), claveIp: claveIp(derivarClaves(config.secretoHex), ip) })
+    codigo = resultado.tipo as CodigoIntake
+    if (tipo === 'application/x-www-form-urlencoded') return new Response(null, { status: 303, headers: { location: '/solicitar?estado=recibida', 'cache-control': 'no-store', 'x-correlacion': correlacion } })
+    return respuestaJson(201, { ok: true }, correlacion)
+  } catch (error) {
+    const intake = error instanceof ErrorIntake ? error : new ErrorIntake('interno', 500)
+    codigo = intake.codigo
+    const tipo = request.headers.get('content-type') === 'application/x-www-form-urlencoded' ? 'application/x-www-form-urlencoded' : 'application/json'
+    return respuestaError(intake.codigo, intake.campos, tipo, correlacion, cargarConfigIntake(process.env))
+  } finally {
+    if (payload) payload.logger[codigo === 'interno' ? 'error' : 'info']({ evento: 'intake', codigo, duracion_ms: Date.now() - inicio, correlacion })
+  }
+}
