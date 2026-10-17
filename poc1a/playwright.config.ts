@@ -1,10 +1,11 @@
 import { defineConfig, devices } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 
-// El servicio e2e comparte la red de `app` (network_mode: service:app). El navegador pide
-// http://127.0.0.1:3101 —el origen configurado en serverURL/csrf— y Chromium lo redirige a :3000 dentro
-// del contenedor: así las cookies Secure y la comprobación de Origin se ejercen sin tocar la configuración.
-const ORIGEN = process.env.POC_E2E_ORIGEN ?? 'http://127.0.0.1:3101'
-const DESTINO = process.env.POC_E2E_DESTINO ?? '127.0.0.1:3000'
+const ORIGEN = process.env.POC_E2E_ORIGEN ?? 'https://127.0.0.1:3443'
+const DESTINO = process.env.POC_E2E_DESTINO
+if (!DESTINO) throw new Error('POC_E2E_DESTINO es obligatorio')
+const SPKI = readFileSync('.tls/spki.txt', 'utf8').trim()
+if (!SPKI) throw new Error('.tls/spki.txt es obligatorio')
 const [, puertoOrigen] = new URL(ORIGEN).host.split(':')
 
 export default defineConfig({
@@ -17,7 +18,7 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: ORIGEN,
-    launchOptions: { args: [`--host-resolver-rules=MAP 127.0.0.1:${puertoOrigen} ${DESTINO}`] },
+    launchOptions: { args: [`--host-resolver-rules=MAP 127.0.0.1:${puertoOrigen} ${DESTINO}`, `--ignore-certificate-errors-spki-list=${SPKI}`] },
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 })

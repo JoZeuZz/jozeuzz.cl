@@ -21,15 +21,14 @@ services:
       POSTGRES_PASSWORD: ${POC_DB_PASSWORD:?ejecuta ./poc.sh init}
     volumes:
       - db:/var/lib/postgresql
-    networks: [interna]
+    networks: [db_app, db_prod]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U poc -d poc"]
       interval: 2s
       timeout: 3s
       retries: 30
 
-  # Instalador puntual: el que descarga paquetes. No es la única pieza con salida a Internet: `app`, `app-prod`
-  # (y `e2e`, que comparte la red de `app`) están también en la red `externa` para poder publicar puertos.
+  # Instalador puntual: única pieza de desarrollo con salida a Internet.
   deps:
     <<: *node
     profiles: [deps]
@@ -42,18 +41,19 @@ services:
       NEXT_TELEMETRY_DISABLED: "1"
       DATABASE_URL: postgres://poc:${POC_DB_PASSWORD:?ejecuta ./poc.sh init}@db:5432/${POC_DATABASE_NAME:-poc}
       PAYLOAD_SECRET: ${PAYLOAD_SECRET:?ejecuta ./poc.sh init}
-      POC_SERVER_URL: http://127.0.0.1:3101
+      POC_SERVER_URL: https://127.0.0.1:3443
+      INTAKE_ORIGEN_PUBLICO: https://127.0.0.1:3443
+      INTAKE_SECRETO: ${INTAKE_SECRETO:?ejecuta ./poc.sh init}
+      INTAKE_TIEMPO_MINIMO_MS: "200"
+      NODE_EXTRA_CA_CERTS: /app/.tls/ca.crt
       POC_FALLOS_INYECTABLES: ${POC_FALLOS_INYECTABLES:-0}
     command: ["npm", "run", "dev"]
-    ports:
-      - "127.0.0.1:3101:3000"
-    networks: [interna, externa]
+    networks: [db_app, proxy_app]
     depends_on:
       db:
         condition: service_healthy
 
   # Producción local (perfil prod): misma imagen Node, build + next start, schema y medios propios.
-  # Migraciones Payload (sin push). Sólo 127.0.0.1:3102.
   app-prod:
     <<: *node
     profiles: [prod]
@@ -61,18 +61,31 @@ services:
       NEXT_TELEMETRY_DISABLED: "1"
       DATABASE_URL: postgres://poc:${POC_DB_PASSWORD:?ejecuta ./poc.sh init}@db:5432/${POC_DATABASE_NAME:-poc}
       PAYLOAD_SECRET: ${PAYLOAD_SECRET:?ejecuta ./poc.sh init}
-      POC_SERVER_URL: http://127.0.0.1:3102
+      POC_SERVER_URL: https://127.0.0.1:3444
+      INTAKE_ORIGEN_PUBLICO: https://127.0.0.1:3444
+      INTAKE_SECRETO: ${INTAKE_SECRETO:?ejecuta ./poc.sh init}
+      INTAKE_TIEMPO_MINIMO_MS: "200"
+      NODE_EXTRA_CA_CERTS: /app/.tls/ca.crt
       POC_DB_SCHEMA: poc_prod
       POC_MEDIA_DIR: /app/media-store-prod
       POC_DIST_DIR: .next-prod
       POC_NO_PUSH: "1"
     command: ["npm", "run", "start"]
-    ports:
-      - "127.0.0.1:3102:3000"
-    networks: [interna, externa]
+    networks: [db_prod, proxy_prod]
     depends_on:
       db:
         condition: service_healthy
+
+  proxy:
+    image: nginx:1.30.6-alpine@sha256:970364228b1e4f932abc22d321932816782cca8a20b85a77552a7cfe9acfb3b5
+    ports:
+      - "127.0.0.1:3443:3443"
+      - "127.0.0.1:3444:3444"
+    volumes:
+      - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./proxy/ip-cliente.produccion.conf:/etc/nginx/poc/ip-cliente.conf:ro
+      - ./.tls:/etc/nginx/tls:ro
+    networks: [entrada, proxy_app, proxy_prod, e2e]
 
   e2e:
     image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf
@@ -81,18 +94,26 @@ services:
     working_dir: /app
     volumes:
       - ./:/app
-    # Comparte la red de `app`: sin red propia ni puertos. El navegador pide el origen configurado
-    # (127.0.0.1:3101) y Chromium lo redirige a localhost:3000 (ver playwright.config.ts).
-    network_mode: "service:app"
+    networks: [e2e]
     environment:
       HOME: /tmp
-      POC_BASE_URL: http://127.0.0.1:3101
+      POC_BASE_URL: https://127.0.0.1:3443
+      NODE_EXTRA_CA_CERTS: /app/.tls/ca.crt
       E2E_RESET: ${E2E_RESET:-}
 
 volumes:
   db:
 
 networks:
-  interna:
-    internal: true
+  entrada: {}
   externa: {}
+  db_app:
+    internal: true
+  db_prod:
+    internal: true
+  proxy_app:
+    internal: true
+  proxy_prod:
+    internal: true
+  e2e:
+    internal: true

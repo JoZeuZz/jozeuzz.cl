@@ -1,17 +1,48 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { expect, it } from 'vitest'
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
-describe('harness POC-1b aislado', () => {
-  it('e2e-en exige base POC-1b y propaga target a app y runner', async () => {
-    const script = await readFile(path.join(raiz, 'poc.sh'), 'utf8')
+it('regenera CA efímera y limita override de pruebas a órdenes explícitas', async () => {
+  const [script, compose, driver, playwright, medicion, ignore, sonda] = await Promise.all([
+    readFile(path.join(raiz, 'poc.sh'), 'utf8'),
+    readFile(path.join(raiz, 'compose.yaml'), 'utf8'),
+    readFile(path.join(raiz, 'contrato-driver.mjs'), 'utf8'),
+    readFile(path.join(raiz, 'playwright.config.ts'), 'utf8'),
+    readFile(path.join(raiz, 'playwright.medicion.config.ts'), 'utf8'),
+    readFile(path.join(raiz, '..', '.gitignore'), 'utf8'),
+    readFile(path.join(raiz, 'scripts/sonda-red.mjs'), 'utf8'),
+  ])
 
-    expect(script).toMatch(/e2e-en\)/)
-    expect(script).toMatch(/base="\$\{1:\?uso: e2e-en <base-poc1b>\}"; nombre_poc1b "\$base"/)
-    expect(script).toMatch(/POC_DATABASE_NAME="\$base" \$C up -d db app/)
-    expect(script).toMatch(/POC_DATABASE_NAME="\$base" \$C --profile e2e run --rm -e POC_DATABASE_NAME -e E2E_RESET e2e/)
-  })
+  for (const orden of ['up-en', 'up-pruebas-en', 'up-fallos-en', 'up-prod-en', 'up-prod-pruebas-en', 'e2e-en', 'e2e-prod-en', 'medir-web']) expect(script).toContain(`${orden})`)
+  expect(script).toContain('tls_efimera()')
+  expect(script).toContain('prime256v1')
+  expect(script).toContain('subjectAltName=IP:127.0.0.1,DNS:proxy')
+  expect(script).toContain('extendedKeyUsage=serverAuth')
+  expect(script).toContain('rm -f .tls/ca.key')
+  expect(script).toContain('--force-recreate proxy')
+  expect(script).toContain('POC_DATABASE_NAME="$base"')
+  expect(script).toContain('logs --no-color --since "$t" proxy app app-prod db')
+  expect(script).toContain('sonda-red)')
+  expect(script).toContain('compose.pruebas.yaml')
+  expect([...script.matchAll(/\$CP/g)].length).toBeGreaterThanOrEqual(5)
+  expect(ignore).toContain('.tls/')
+  expect(script).toContain("grep -q '^INTAKE_SECRETO=' .env")
+  expect(script).toContain("printf 'INTAKE_SECRETO=%s\\n' \"$(openssl rand -hex 32)\" >> .env")
+  expect(compose).toContain('${INTAKE_SECRETO:?ejecuta ./poc.sh init}')
+  expect(driver).toContain("https://127.0.0.1:<puerto>")
+  expect(driver).toContain("/.tls/ca.crt")
+  expect(driver).toContain("NODE_TLS_REJECT_UNAUTHORIZED === '0'")
+  expect(driver).toContain("['logs-since', estado.t0]")
+  for (const config of [playwright, medicion]) {
+    expect(config).toContain('https://127.0.0.1:')
+    expect(config).toContain('POC_E2E_DESTINO')
+    expect(config).toContain('ignore-certificate-errors-spki-list')
+    expect(config).not.toContain('ignoreHTTPSErrors')
+  }
+  expect(sonda).toContain('http://app:3000/')
+  expect(sonda).toContain('http://app-prod:3000/')
+  expect(sonda).toContain('https://proxy:3443/solicitar')
 })

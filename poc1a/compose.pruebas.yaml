@@ -1,0 +1,7 @@
+services:
+  proxy:
+    volumes:
+      - ./proxy/ip-cliente.pruebas.conf:/etc/nginx/poc/ip-cliente.conf:ro
+  app:
+    networks:
+      - proxy_prod

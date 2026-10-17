@@ -1,6 +1,6 @@
 // Driver de la batería de contrato para POC-1a (candidata A: Next.js + Payload + PostgreSQL).
-// Corre en el Node del host, sin dependencias, contra el servidor HTTP real (por defecto next dev
-// en 127.0.0.1:3101). El reset y la semilla se hacen dentro del contenedor con ./poc.sh exec.
+// Corre en el Node del host, sin dependencias, contra TLS local. El reset y la semilla se hacen
+// dentro del contenedor con ./poc.sh exec. POC-1b histórico: POC_BASE_URL ?? 'http://127.0.0.1:3101'.
 import { createHmac, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -15,7 +15,16 @@ if (!/^poc(1b|3)_[a-z0-9_]+$/.test(BASE_POC1B ?? '')) {
 }
 // Para producción: POC_RESET_ENV='POC_DB_SCHEMA=poc_prod POC_MEDIA_DIR=/app/media-store-prod' y POC_LOG_SERVICE=app-prod.
 const RESET_ENV = (process.env.POC_RESET_ENV ?? '').split(/\s+/).filter(Boolean);
-const BASE = (process.env.POC_BASE_URL ?? 'http://127.0.0.1:3101').replace(/\/$/, '');
+const BASE = (process.env.POC_BASE_URL ?? '').replace(/\/$/, '');
+if (!/^https:\/\/127\.0\.0\.1:\d+$/.test(BASE)) {
+  throw new Error('POC_BASE_URL debe tener forma https://127.0.0.1:<puerto>');
+}
+if (!process.env.NODE_EXTRA_CA_CERTS?.endsWith('/.tls/ca.crt')) {
+  throw new Error('NODE_EXTRA_CA_CERTS debe terminar en /.tls/ca.crt');
+}
+if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
+  throw new Error('NODE_TLS_REJECT_UNAUTHORIZED=0 está prohibido');
+}
 const ID_INEXISTENTE = '2147483646';
 const COLECCION = { proyecto: 'proyectos', servicio: 'servicios', solicitud: 'solicitudes', evento: 'eventos-solicitud' };
 
@@ -324,6 +333,7 @@ export default async function crearDriver() {
     admin,
     async logs() {
       const r = spawnSync('./poc.sh', ['logs-since', estado.t0], { cwd: aqui, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+      if (r.status !== 0) throw new Error(`logs-since falló (${r.status})`);
       return `${r.stdout ?? ''}${r.stderr ?? ''}`.split('\n').filter(Boolean);
     },
   };
