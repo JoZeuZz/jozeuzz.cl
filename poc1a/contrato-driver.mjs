@@ -17,6 +17,11 @@ if (!/^poc(1b|3)_[a-z0-9_]+$/.test(BASE_POC1B ?? '')) {
 }
 // Para producción: POC_RESET_ENV='POC_DB_SCHEMA=poc_prod POC_MEDIA_DIR=/app/media-store-prod' y POC_LOG_SERVICE=app-prod.
 const RESET_ENV = (process.env.POC_RESET_ENV ?? '').split(/\s+/).filter(Boolean);
+for (const asignacion of RESET_ENV) {
+  if (!/^[A-Z_][A-Z0-9_]*=\S*$/.test(asignacion)) {
+    throw new Error('POC_RESET_ENV debe contener sólo asignaciones NOMBRE=valor sin espacios');
+  }
+}
 const BASE = (process.env.POC_BASE_URL ?? '').replace(/\/$/, '');
 if (!/^https:\/\/127\.0\.0\.1:\d+$/.test(BASE)) {
   throw new Error('POC_BASE_URL debe tener forma https://127.0.0.1:<puerto>');
@@ -290,7 +295,7 @@ export default async function crearDriver() {
       });
       const linea = (r.stdout ?? '').split('\n').find((l) => l.startsWith('RESULTADO:'));
       if (r.status !== 0 || !linea) {
-        throw new Error(`reset falló (código ${r.status}): ${(r.stderr || r.stdout || '').slice(-400)}`);
+        throw new Error(`reset falló (código ${r.status}): ${(r.stderr || '(stderr vacío)').slice(-400)}`);
       }
       const { refs, ids, password, email } = JSON.parse(linea.slice('RESULTADO:'.length));
       const idPorSlug = {};
