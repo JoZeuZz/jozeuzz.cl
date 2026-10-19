@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-const BASE = (process.env.POC_HTTP_BASE ?? 'https://127.0.0.1:3443').replace(/\/$/, '')
+// Corre dentro del contenedor `app`: el proxy se alcanza por su nombre de servicio (SAN DNS:proxy de la CA efímera;
+// NODE_EXTRA_CA_CERTS de app apunta a ella). 127.0.0.1:3443 sólo existe en el host. ORIGEN sale de INTAKE_ORIGEN_PUBLICO de app.
+const BASE = (process.env.POC_HTTP_BASE ?? 'https://proxy:3443').replace(/\/$/, '')
 const ORIGEN = process.env.INTAKE_ORIGEN_PUBLICO ?? BASE
 const datos = { nombre: 'HTTP sintético', contacto: 'http@example.invalid', tipo_equipo: 'pc', descripcion: 'Prueba sintética', sitio_web: '' }
 
@@ -40,8 +42,9 @@ describe('intake HTTP U5b', () => {
       ['csrf cookie distinta', {}, datos, 403, 'csrf_invalido'],
       ['honeypot', {}, { ...datos, sitio_web: 'https://spam.invalid' }, 400, 'envio_rechazado'],
     ]
-    for (const [, headers, cuerpo, status, codigo] of casos) {
-      const r = await enviar(listo.token, headers.origin === undefined ? 'otra-cookie' : listo.cookie, headers, cuerpo)
+    for (const [nombre, headers, cuerpo, status, codigo] of casos) {
+      // Sólo el caso de CSRF usa cookie ajena; el resto (incluida la trampa honeypot) lleva token y cookie válidos.
+      const r = await enviar(listo.token, nombre === 'csrf cookie distinta' ? 'otra-cookie' : listo.cookie, headers, cuerpo)
       expect(r.status).toBe(status)
       expect(await r.json()).toEqual({ error: codigo })
     }
