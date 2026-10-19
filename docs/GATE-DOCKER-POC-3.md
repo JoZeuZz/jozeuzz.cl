@@ -1,12 +1,12 @@
 # Gate Docker de POC-3 (U2–U9): procedimiento para ejecución humana
 
 - **Estado:** procedimiento para ejecución humana. **No se ha ejecutado.** Lo redactó jz-architect el 2026-10-19 leyendo el código y lo revisó en dos ciclos (ver «Historial de revisiones»). Ningún resultado esperado de este documento está verificado en ejecución: son deducciones del código, con su cita.
-- **HEAD de referencia del código:** `c8bbf0f` (rama `poc/candidata-a-3`), último commit de código y pruebas. Los commits posteriores sólo tocan `docs/`. Se acepta como HEAD de ejecución el commit que confirme este documento y `docs/adr/0001-stack.md`, o uno posterior que sólo cambie `docs/` (A1 lo comprueba). Si se hace el paso A4 (instalación de axe), la referencia pasa a ser el commit que deja A4. Ese HEAD se anota en cada fila de evidencia.
+- **HEAD de referencia del código:** `69e1883` (rama `poc/candidata-a-3`), último commit de código y pruebas. Sustituye a `c8bbf0f`: sólo cambia `poc1a/contrato-driver.mjs` (el error de reset ya no vuelca stdout y `POC_RESET_ENV` se valida con `/^[A-Z_][A-Z0-9_]*=\S*$/`, `contrato-driver.mjs:19-24`). Los commits posteriores sólo tocan `docs/`. Se acepta como HEAD de ejecución el commit que confirme este documento y `docs/adr/0001-stack.md`, o uno posterior que sólo cambie `docs/` (A1 lo comprueba). Si se hace el paso A4 (instalación de axe), la referencia pasa a ser el commit que deja A4. Ese HEAD se anota en cada fila de evidencia.
 - **Quién lo ejecuta:** el responsable del proyecto, como root en el host de la POC, con Docker y Compose v2 y con Node ≥ 20 en el host (`poc1a/README.md:34-36`). Los agentes no tienen Docker (`docs/PLAN-POC-3.md:157`, P3-07 `:199`). Mientras dure el gate, ningún agente escribe en este worktree.
 - **Duración:** no está medida. La estimación orientativa del ciclo 1 era de 1,5 a 3 h sin contar descargas de imágenes, y **puede quedarse corta**:
   - Referencias: una batería de 56 casos tardó 232 s en POC-1a (`poc1a/EVIDENCIA.md:20`), aunque sólo tenía 13 activos; el build tardó 16 s (`poc1a/EVIDENCIA.md:152`).
   - Este gate ejecuta unos 167 casos activos en cinco baterías (D13, D16, D17, D26 y D27), dos tandas E2E y 150 envíos de medición.
-  - **Coste nuevo:** ahora `exec-en` ejecuta `scripts/verificar-db.ts` antes de cada orden (`poc.sh:83`), y eso arranca Payload completo (`verificar-db.ts:11`). El driver llama a `exec-en` una vez por caso para el reset (`contrato-driver.mjs:286`; `contrato/runner.mjs:22-27`). Cada caso suma, por tanto, un arranque de Payload a los del reset. Esto puede alargar notablemente las baterías. No hay medición de cuánto.
+  - **Coste nuevo:** ahora `exec-en` ejecuta `scripts/verificar-db.ts` antes de cada orden (`poc.sh:83`), y eso arranca Payload completo (`verificar-db.ts:11`). El driver llama a `exec-en` una vez por caso para el reset (`contrato-driver.mjs:291`; `contrato/runner.mjs:22-27`). Cada caso suma, por tanto, un arranque de Payload a los del reset. Esto puede alargar notablemente las baterías. No hay medición de cuánto.
 - **Desbloquea:** U10, la revisión del hito por jz-security y jz-qa (`docs/PLAN-POC-3.md:172`).
 
 ## Advertencia de seguridad (leer antes de nada)
@@ -61,8 +61,9 @@ El humano lee este documento desde Git (`g show HEAD:docs/GATE-DOCKER-POC-3.md`)
 ```sh
 BLOB=<blob anotado por el humano tras leer el documento>
 g branch --show-current                               # poc/candidata-a-3
-g rev-parse --short HEAD                              # c8bbf0f, el commit que confirma este documento y docs/adr/0001-stack.md, o posterior
-g diff --name-only c8bbf0f..HEAD                      # vacío o sólo rutas bajo docs/
+g rev-parse --short HEAD                              # 69e1883 o un commit posterior que sólo cambie docs/
+g diff --name-only 69e1883..HEAD                      # vacío o sólo rutas bajo docs/
+g diff --name-only 69e1883..HEAD | grep -v '^docs/'   # vacío (rc=1 es lo esperado)
 g status --short                                      # vacío
 test "$(g rev-parse HEAD:docs/GATE-DOCKER-POC-3.md)" = "$BLOB" && echo blob-ok
 ```
@@ -70,7 +71,7 @@ test "$(g rev-parse HEAD:docs/GATE-DOCKER-POC-3.md)" = "$BLOB" && echo blob-ok
 Es **parada dura** en cualquiera de estos casos:
 
 - la rama no coincide;
-- entre `c8bbf0f` y HEAD cambia algo fuera de `docs/`;
+- entre `69e1883` y HEAD cambia algo fuera de `docs/` (el `grep -v '^docs/'` imprime alguna ruta);
 - el árbol no está limpio, por ejemplo porque `docs/adr/` sigue sin confirmar;
 - no sale `blob-ok`, es decir, el documento cambió después de que el humano lo leyera.
 
@@ -458,7 +459,7 @@ r D18 ./poc.sh e2e-en poc3_intake && tls_ok && export NODE_EXTRA_CA_CERTS="$PWD/
   - Con A4: `13 passed`, que son f1, f3, acciones, 7 de `intake.spec.ts` y 3 de axe.
   - Sin A4: `10 passed` y `3 skipped`.
 - Recrea `app` y `proxy` **sin** el override, verifica la base y lanza Playwright (`poc.sh:89-97`).
-- El log no debe contener la contraseña del admin: `E2E_RESET` viaja por entorno (`poc.sh:96-97`). Si el reset falla, el mensaje del driver puede incluir el final de la salida del reset (`contrato-driver.mjs:292-293`). Hay que revisarlo con K2 antes de compartirlo.
+- El log no debe contener la contraseña del admin: `E2E_RESET` viaja por entorno (`poc.sh:96-97`). Si el reset falla, el mensaje del driver puede incluir el final de stderr del reset, 400 caracteres (`contrato-driver.mjs:298`). Hay que revisarlo con K2 antes de compartirlo.
 - Parada: fallo registrable.
 
 ## H. `app-prod` (3444): U7 producción, NV-8, gate U9 parte 2 y U8 en producción
@@ -517,7 +518,7 @@ r D23 ./poc.sh up-prod-pruebas-en poc3_intake && tls_ok && export NODE_EXTRA_CA_
 ```
 
 - Esperado: rc=0 (`poc.sh:139-143`) y `TLS_OK`. Recrea `app-prod` con el secreto real de `.env`, porque cambia su configuración.
-- `app` sigue levantado desde D18, y debe seguir así: el reset del driver se ejecuta dentro de `app` mediante `exec-en` (`contrato-driver.mjs:286`; `poc.sh:79-84`).
+- `app` sigue levantado desde D18, y debe seguir así: el reset del driver se ejecuta dentro de `app` mediante `exec-en` (`contrato-driver.mjs:291`; `poc.sh:79-84`).
 - Esperar a `Ready` de `app-prod` en `./poc.sh logs-since <instante>`.
 - Parada: dura.
 
@@ -766,4 +767,5 @@ Los arreglos de H-1 a H-5, H-10 y S-1 son trabajo de jz-implementer, y su priori
 |---|---|---|
 | Redacción inicial | jz-architect | Procedimiento A–K a partir de la lectura del código. Correcciones C-1 a C-3. Huecos H-1 a H-9 |
 | 1 | jz-qa y jz-architect | Precondiciones de proxy en D09 y D29. `--solo` en D13 y D27 (C-2). NV-8 detrás del build (C-3). Predicción de fallo de H-1/H-2 en D11. Corrección de `README.md` y de código en `b09d7ea`/`c8bbf0f`, pendientes de verificación Docker |
-| 2 (último) | jz-qa y jz-security | **QA:** D11 pasa a verificar H-1/H-2 (corregidos en `c8bbf0f`) y `D11-diag` queda obsoleta; citas de `poc.sh` actualizadas (`exec-en` 79-84, `e2e-en` 89-97, `E2E_RESET` 96 y 107, proxy de `e2e-prod-en` 102-103, `build_ms` 123, `up-prod-pruebas-en` 139-143, `down-prod` 144, `stats` 145-148, `destroy` 149); duración con el coste de `verificar-db.ts` por caso. **Seguridad:** S1, montaje escribible, con la comprobación A3f, la guarda `ARBOL ALTERADO` en `r()`, `tls_ok` y el hallazgo S-1; S2, revisión A2 obligatoria y ampliada, y blob del documento en A1; S3, A4 con `--ignore-scripts`, revisión del lockfile, versión de `axe-core` y `npm audit signatures`; S4, `config --no-interpolate` en A2c; S5, validación de `.env` en B1v; S6, búsqueda de fugas por valor y por URL de Postgres en K2; S7, carpeta 700, `SHA256SUMS` incremental y hash fuera del host; S8, comprobación de `git config` y la función `g` en A0. Regla de no pasar secretos en línea a `r()`. Añadidos propios: `.npmrc` en `GUARDA`, rechazo de identificadores repetidos en `r()`, `source:` en el `grep` de A2c, la observación H-10 y la reordenación de la limpieza (J) antes del cierre (K) |
+| 2 | jz-qa y jz-security | **QA:** D11 pasa a verificar H-1/H-2 (corregidos en `c8bbf0f`) y `D11-diag` queda obsoleta; citas de `poc.sh` actualizadas (`exec-en` 79-84, `e2e-en` 89-97, `E2E_RESET` 96 y 107, proxy de `e2e-prod-en` 102-103, `build_ms` 123, `up-prod-pruebas-en` 139-143, `down-prod` 144, `stats` 145-148, `destroy` 149); duración con el coste de `verificar-db.ts` por caso. **Seguridad:** S1, montaje escribible, con la comprobación A3f, la guarda `ARBOL ALTERADO` en `r()`, `tls_ok` y el hallazgo S-1; S2, revisión A2 obligatoria y ampliada, y blob del documento en A1; S3, A4 con `--ignore-scripts`, revisión del lockfile, versión de `axe-core` y `npm audit signatures`; S4, `config --no-interpolate` en A2c; S5, validación de `.env` en B1v; S6, búsqueda de fugas por valor y por URL de Postgres en K2; S7, carpeta 700, `SHA256SUMS` incremental y hash fuera del host; S8, comprobación de `git config` y la función `g` en A0. Regla de no pasar secretos en línea a `r()`. Añadidos propios: `.npmrc` en `GUARDA`, rechazo de identificadores repetidos en `r()`, `source:` en el `grep` de A2c, la observación H-10 y la reordenación de la limpieza (J) antes del cierre (K) |
+| `69e1883` | jz-architect | El HEAD de referencia del código pasa de `c8bbf0f` a `69e1883`, que sólo cambia `poc1a/contrato-driver.mjs` (el error de reset no vuelca stdout; validación de `POC_RESET_ENV`). Cabecera y A1 actualizadas: A1 acepta commits posteriores que sólo toquen `docs/` |
