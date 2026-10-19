@@ -1,0 +1,548 @@
+diff --git a/.jz/policy/policy.mjs b/.jz/policy/policy.mjs
+--- a/.jz/policy/policy.mjs
++++ b/.jz/policy/policy.mjs
+@@ -4,6 +4,7 @@
+ // de OpenCode (.opencode/plugins/jz-guard.js). No depende del modelo ni del modo de permisos:
+ // devuelve "allow" para el trabajo ordinario dentro del alcance (sin preguntar) y "deny" para
+ // lo demás. Las reglas nativas de cada motor son la primera barrera; ésta es la segunda.
++import { spawnSync } from 'node:child_process';
+ import fs from 'node:fs';
+ import os from 'node:os';
+ import path from 'node:path';
+@@ -62,6 +63,13 @@
+   return /\.(pem|key|p12|pfx)$/.test(base) || /^id_(rsa|ed25519|ecdsa|dsa)/.test(base);
+ }
+
++// Plano de control, salvo las notas de handoff. `abs` es una ruta absoluta dentro del worktree.
++function isControlPlane(abs, wt) {
++  if (inside(abs, path.join(wt, NOTES_DIR))) return false;
++  const rel = path.relative(wt, abs);
++  return CONTROL_PLANE.some((c) => rel === c || rel.startsWith(c + '/'));
++}
++
+ function readRoots(wt) {
+   const home = os.homedir();
+   const project = wt.replace(/[^A-Za-z0-9]/g, '-');
+@@ -213,13 +221,93 @@
+   return allow('filtro de salida');
+ }
+
+ const GIT_READ = new Set(['status', 'diff', 'log', 'show', 'rev-parse', 'ls-files', 'blame', 'merge-base',
+   'describe', 'rev-list']);
+-const GIT_WRITE = new Set(['add', 'commit', 'rm', 'mv', 'restore']);
+ const BRANCH_READ = new Set(['--show-current', '--list', '-l', '-a', '--all', '-r', '--remotes', '-v', '-vv',
+   '--verbose', '--contains', '--merged', '--no-merged', '--no-color', '--format']);
++
++// Escrituras locales del implementador. `flags`: opciones admitidas (lista blanca); `values`: opciones
++// cuyo valor va en el argumento siguiente. Lo demás, y todo lo que sigue a `--`, son rutas.
++const GIT_WRITE = {
++  add: { flags: ['-A', '--all', '-u', '--update', '-n', '--dry-run', '-v', '--verbose', '-N', '--intent-to-add'] },
++  commit: { flags: ['-q', '--quiet', '-s', '--signoff', '--allow-empty'], values: ['-m', '--message'] },
++  rm: { flags: ['-r', '--cached', '-q', '--quiet', '-n', '--dry-run', '--ignore-unmatch'] },
++  mv: { flags: ['-k', '-n', '--dry-run', '-v', '--verbose'] },
++  restore: { flags: ['--staged', '-S', '-q', '--quiet'] },
++};
++const HISTORY_FLAGS = ['--amend', '-F', '--file', '-t', '--template', '-C', '-c', '--reuse-message',
++  '--reedit-message'];
++
++// Una ruta de git se trata como una escritura: dentro del worktree, sin el plano de control (salvo notas)
++// ni secretos, y sin pathspec mágico ni comodines, que git expandiría por su cuenta.
++function checkGitPath(p, ctx, cwd) {
++  if (p.startsWith(':')) return deny(`pathspec mágico no permitido: ${p}`);
++  if (/[*?[\]\\]/.test(p)) return deny(`comodines en rutas de git no permitidos: ${p} (nombra las rutas)`);
++  for (const abs of [path.resolve(cwd, p), realResolve(p, cwd)]) {
++    if (!inside(abs, ctx.wt)) return deny(`ruta de git fuera del worktree: ${p}`);
++    if (abs === ctx.wt) return deny(`git sobre la raíz del worktree abarca el plano de control: nombra las rutas (${p})`);
++    const rel = path.relative(ctx.wt, abs);
++    if (isSecret(rel)) return deny(`secreto en una orden git: ${rel}`);
++    if (isControlPlane(abs, ctx.wt)) return deny(`plano de control protegido: ${rel} (lo modifica el humano)`);
++  }
++  return allow('ruta de git dentro del alcance');
++}
++
++// `git add <directorio>` añade también los archivos sin seguimiento no ignorados: ninguno puede ser un secreto.
++function checkUntracked(dirs, ctx) {
++  if (dirs.length === 0) return allow('sin directorios');
++  const r = spawnSync('git', ['--literal-pathspecs', '-c', 'core.fsmonitor=false', '-C', ctx.wt, 'ls-files', '-o',
++    '--exclude-standard', '-z', '--', ...dirs.map((d) => path.relative(ctx.wt, d))], { encoding: 'utf8', timeout: 5000 });
++  if (r.status !== 0) return deny('no se pudo comprobar qué añadiría git add; se deniega por seguridad');
++  const bad = r.stdout.split('\0').find((f) => f && isSecret(f));
++  return bad ? deny(`git add incluiría un secreto sin seguimiento: ${bad}`) : allow('sin secretos sin seguimiento');
++}
++
++function checkGitWrite(sub, args, ctx, cwd) {
++  const spec = GIT_WRITE[sub];
++  const values = spec.values ?? [];
++  const flags = [];
++  const paths = [];
++  for (let k = 0; k < args.length; k++) {
++    const a = args[k];
++    if (a === '--') {
++      paths.push(...args.slice(k + 1));
++      break;
++    }
++    if (a.startsWith('-') && a !== '-') {
++      flags.push(a.split('=')[0]);
++      if (values.includes(a)) k++; // p. ej. -m "mensaje": el valor no es una ruta
++      continue;
++    }
++    paths.push(a);
++  }
++  const has = (...names) => flags.find((f) => names.includes(f));
++  const history = sub === 'commit' && has(...HISTORY_FLAGS);
++  if (history) return deny(`git commit ${history} no permitido (historial sólo se amplía)`);
++  if (sub === 'commit' && has('-a', '--all')) return deny('git commit -a incluiría cambios sin revisar: usa git add <rutas>');
++  if ((sub === 'rm' || sub === 'mv') && has('-f', '--force')) {
++    return deny(`git ${sub} --force descartaría cambios no confirmados`);
++  }
++  if (sub === 'add' && has('-f', '--force')) return deny('git add --force versionaría archivos ignorados (p. ej. secretos)');
++  if (sub === 'restore' && (!has('--staged', '-S') || has('--worktree', '-W'))) {
++    return deny('git restore sólo con --staged (no descarta cambios del árbol de trabajo)');
++  }
++  const unknown = flags.find((f) => !spec.flags.includes(f) && !values.includes(f));
++  if (unknown) return deny(`opción no admitida en git ${sub}: ${unknown}`);
++  if (sub === 'add' && paths.length === 0 && has('-A', '--all', '-u', '--update')) {
++    return deny('git add -A/-u sin rutas abarca todo el árbol (plano de control y secretos): nombra las rutas');
++  }
++  for (const p of paths) {
++    const r = checkGitPath(p, ctx, cwd);
++    if (r.decision !== 'allow') return r;
++  }
++  if (sub !== 'add') return allow(`git ${sub} local`);
++  const dirs = paths.map((p) => realResolve(p, cwd)).filter((abs) => fs.statSync(abs, { throwIfNoEntry: false })?.isDirectory());
++  const r = checkUntracked(dirs, ctx);
++  return r.decision === 'allow' ? allow('git add local') : r;
++}
+
+-function checkGit(argv, role) {
++function checkGit(argv, role, ctx, cwd) {
+   let i = 1;
+   while (argv[i] === '--no-pager') i++;
+   const sub = argv[i];
+@@ -244,22 +332,7 @@
+   }
+   if (sub === 'worktree' && args[0] === 'list') return allow('git worktree list');
+   if (sub === 'remote' && args.every((a) => a === '-v' || a === '--verbose')) return allow('git remote (lectura)');
+-  if (role === 'implementer' && GIT_WRITE.has(sub)) {
+-    const flags = args.map((a) => a.split('=')[0]);
+-    if (sub === 'commit') {
+-      const bad = flags.find((f) => ['--amend', '-F', '--file', '-t', '--template', '-C', '-c',
+-        '--reuse-message', '--reedit-message'].includes(f));
+-      return bad ? deny(`git commit ${bad} no permitido (historial sólo se amplía)`) : allow('commit local');
+-    }
+-    if ((sub === 'rm' || sub === 'mv') && flags.some((f) => ['-f', '--force'].includes(f))) {
+-      return deny(`git ${sub} --force descartaría cambios no confirmados`);
+-    }
+-    if (sub === 'restore' && (!flags.includes('--staged') && !flags.includes('-S')
+-      || flags.includes('--worktree') || flags.includes('-W'))) {
+-      return deny('git restore sólo con --staged (no descarta cambios del árbol de trabajo)');
+-    }
+-    return allow(`git ${sub} local`);
+-  }
++  if (role === 'implementer' && Object.hasOwn(GIT_WRITE, sub)) return checkGitWrite(sub, args, ctx, cwd);
+   return deny(`git ${sub} no está permitido para este rol (push, merge, reset, checkout, stash, clean, config, `
+     + 'rebase y similares requieren al humano)');
+ }
+@@ -283,7 +356,7 @@
+   }
+   if (argv.some((a) => a.includes('$?')) && exe !== 'echo') return deny('$? sólo se admite en echo');
+   if (exe === 'echo') return allow('echo');
+-  if (exe === 'git') return checkGit(argv, bashRole);
++  if (exe === 'git') return checkGit(argv, bashRole, ctx, cwd);
+   if (exe === 'pwd') return argv.length === 1 ? allow('pwd') : deny('pwd sin argumentos');
+   if (exe === 'ls') {
+     for (const a of argv.slice(1)) {
+diff --git a/.jz/policy/validacion.json b/.jz/policy/validacion.json
+new file mode 100644
+--- /dev/null
++++ b/.jz/policy/validacion.json
+@@ -0,0 +1,17 @@
++{
++  "descripcion": "Comandos de jz-run que cuentan como validación del árbol en jz-state y jz-checkpoint: el comando empieza por 'prefijo' y no lleva ninguna opción de 'prohibidos' (se compara el nombre antes de '='). Lo mantiene el humano.",
++  "validaciones": [
++    {
++      "prefijo": ["node", "node_modules/vitest/vitest.mjs", "run"],
++      "prohibidos": ["-h", "--help", "-v", "--version", "--passWithNoTests", "-t", "--testNamePattern", "--changed", "--related", "--standalone", "-w", "--watch"]
++    },
++    {
++      "prefijo": ["node", "node_modules/typescript/bin/tsc"],
++      "prohibidos": ["-h", "--help", "-v", "--version", "--all", "--init", "--showConfig", "--listFilesOnly", "--noCheck", "-b", "--build", "-w", "--watch"]
++    },
++    {
++      "prefijo": ["node", "--test"],
++      "prohibidos": ["-h", "--help", "-v", "--version", "-e", "--eval", "-p", "--print", "--test-only", "--test-name-pattern", "--test-skip-pattern", "--watch"]
++    }
++  ]
++}
+diff --git a/.jz/bin/jz-state b/.jz/bin/jz-state
+--- a/.jz/bin/jz-state
++++ b/.jz/bin/jz-state
+@@ -10,6 +10,27 @@
+ STATE=$WT/.jz-state
+ N=${1:-5}
+ blockers=()
++warnings=()
++
++# Validaciones reconocidas (.jz/policy/validacion.json, plano de control): sólo cuenta como «en verde» una
++# ejecución de jz-run con rc=0 sobre la huella actual cuyo comando empieza por un prefijo de la lista y no
++# lleva ninguna opción prohibida. Si la lista falta o no es válida, nada cuenta como validación.
++valid_json=$(jq -ce 'select((.validaciones | type) == "array")' "$WT/.jz/policy/validacion.json" 2>/dev/null) || {
++  valid_json='{"validaciones":[]}'
++  warnings+=("lista de validación ausente o inválida (.jz/policy/validacion.json): ninguna ejecución cuenta como validación")
++}
++JQ_VALIDA='def valida($v): . as $r | ($r.cmd // []) as $c | any($v.validaciones[];
++  (.prefijo | length) as $n | $n > 0 and $c[0:$n] == .prefijo
++  and ((.prohibidos // []) as $x | all($c[$n:][]; (split("=")[0]) as $a | all($x[]; . != $a)))); '
++last_valid() { # <huella> → "<ts> `<comando>`" de la última validación reconocida en verde, o vacío
++  [[ -s $STATE/runs.jsonl ]] || return 0
++  jq -r --arg fp "$1" --argjson v "$valid_json" "$JQ_VALIDA"'select(.tree == $fp and .rc == 0 and valida($v))
++    | "\(.ts) `\(.cmd | join(" "))`"' "$STATE/runs.jsonl" 2>/dev/null | tail -n 1 || true
++}
++if [[ ${1:-} == --verde ]]; then # uso interno de jz-checkpoint: .jz/bin/jz-state --verde [huella]
++  last_valid "${2:-$("$WT/.jz/bin/jz-run" --fingerprint)}"
++  exit 0
++fi
+
+ ancestors=" $$ "
+ pid=$$
+@@ -88,16 +109,44 @@
+   ;; esac
+ done
+ [[ $found -eq 1 ]] || echo "Ninguno (aparte de la sesión que consulta)."
+
+ echo
++echo "## Ejecuciones de jz-run vivas en este worktree"
++# Se reconocen por la línea de órdenes: la etapa externa («bash <ruta de jz-run>», resuelta desde su cwd) y
++# unshare (lleva la ruta absoluta de este jz-run). No cuentan las consultas de huella ni un visor o editor
++# que abra el archivo. Un proceso de otro espacio de nombres de PID no se ve (limitación).
++run_bin=$WT/.jz/bin/jz-run
++live_runs=0
++for d in /proc/[0-9]*; do
++  p=${d#/proc/}
++  [[ $ancestors == *" $p "* ]] && continue
++  argv=()
++  mapfile -d '' -t argv 2>/dev/null < "$d/cmdline" || continue
++  [[ ${#argv[@]} -ge 2 ]] || continue
++  hit=0
++  case ${argv[0]##*/} in
++    unshare) for a in "${argv[@]}"; do if [[ $a == "$run_bin" ]]; then hit=1; fi; done ;;
++    bash)
++      cand=${argv[1]}
++      if [[ $cand != /* ]]; then cand="$(readlink "$d/cwd" 2>/dev/null || true)/$cand"; fi
++      if [[ $(readlink -f -- "$cand" 2>/dev/null || true) == "$run_bin" ]]; then hit=1; fi ;;
++  esac
++  [[ $hit -eq 1 && ${argv[2]:-} != --fingerprint ]] || continue
++  echo "- pid $p: $(printf '%s ' "${argv[@]}" | cut -c1-200)"
++  live_runs=1
++  blockers+=("ejecución de jz-run viva en el worktree (pid $p)")
++done
++[[ $live_runs -eq 1 ]] || echo "Ninguna."
++
++echo
+ echo "## Últimas ejecuciones de jz-run"
+ if [[ -s $STATE/runs.jsonl ]]; then
+-  tail -n "$N" "$STATE/runs.jsonl" | jq -r --arg fp "$fp" \
+-    '"- \(.ts) rc=\(.rc) [\(.engine)] `\(.cmd | join(" "))` head=\(.head) \(if .tree != $fp then "(otro árbol)" elif .rc == 0 then "(árbol actual, en verde)" else "(árbol actual, falló)" end) — \(.log)"'
+-  last_ok=$(jq -r --arg fp "$fp" 'select(.tree == $fp and .rc == 0) | .ts' "$STATE/runs.jsonl" | tail -n 1)
++  tail -n "$N" "$STATE/runs.jsonl" | jq -r --arg fp "$fp" --argjson v "$valid_json" "$JQ_VALIDA"'
++    "- \(.ts) rc=\(.rc) [\(.engine)] `\(.cmd | join(" "))` head=\(.head) \(if .tree != $fp then "(otro árbol)" elif .rc != 0 then "(árbol actual, falló)" elif valida($v) then "(árbol actual, validación en verde)" else "(árbol actual, rc=0, no es validación reconocida)" end) — \(.log)"'
++  last_ok=$(last_valid "$fp")
+   echo
+-  if [[ -n $last_ok ]]; then echo "Árbol actual con ejecución en verde: sí ($last_ok)."
+-  else echo "Árbol actual con ejecución en verde: NO. Los cambios actuales no están validados."; fi
++  if [[ -n $last_ok ]]; then echo "Árbol actual con validación en verde: sí ($last_ok)."
++  else echo "Árbol actual con validación en verde: NO. Los cambios actuales no están validados (sólo cuentan los comandos de .jz/policy/validacion.json)."; fi
+ else
+   echo "Sin ejecuciones registradas."
+ fi
+@@ -119,8 +168,17 @@
+ fi
+
+ echo
++if [[ ${#warnings[@]} -gt 0 ]]; then
++  echo "## Avisos"
++  printf -- '- %s\n' "${warnings[@]}"
++  echo
++fi
+ if [[ ${#blockers[@]} -eq 0 ]]; then
+-  echo "## Veredicto: REANUDABLE"
++  if [[ -n $changes ]]; then
++    echo "## Veredicto: REANUDABLE CON CAMBIOS SIN CONFIRMAR: revisar diff antes de continuar"
++  else
++    echo "## Veredicto: REANUDABLE"
++  fi
+   echo "Antes de continuar: leer .jz-state/LATEST.md y las notas, revisar el diff y no repetir a ciegas la última tarea."
+   exit 0
+ fi
+diff --git a/.jz/bin/jz-checkpoint b/.jz/bin/jz-checkpoint
+--- a/.jz/bin/jz-checkpoint
++++ b/.jz/bin/jz-checkpoint
+@@ -2,6 +2,6 @@
+ # jz-checkpoint — registra un punto de recuperación en .jz-state/checkpoints/ y .jz-state/LATEST.md.
+ # Combina lo que declara el agente (unidad, estado, problemas, siguiente paso) con el estado real
+-# que calcula jz-state. Si se declara "validado" sin una ejecución de jz-run en verde sobre el árbol
+-# actual, lo registra como "incompleto" y lo advierte.
++# que calcula jz-state. Si se declara "validado" sin una validación reconocida (.jz/policy/validacion.json)
++# en verde sobre el árbol actual, lo registra como "incompleto" y lo advierte.
+ #
+ # Uso: .jz/bin/jz-checkpoint --unit "<unidad funcional>" --state validado|incompleto|bloqueado|cuota \
+@@ -35,13 +35,12 @@
+   esac
+ fi
+
+ fp=$("$WT/.jz/bin/jz-run" --fingerprint)
+-green=''
+-[[ -s $STATE/runs.jsonl ]] && green=$(jq -r --arg fp "$fp" 'select(.tree == $fp and .rc == 0) | .ts' "$STATE/runs.jsonl" | tail -n 1)
++green=$("$WT/.jz/bin/jz-state" --verde "$fp" || true)
+ warning=''
+ if [[ $state == validado && -z $green ]]; then
+   state=incompleto
+-  warning='AVISO: se declaró "validado", pero no hay ejecución de jz-run en verde sobre el árbol actual; se registra como incompleto.'
++  warning='AVISO: se declaró "validado", pero no hay una validación reconocida (.jz/policy/validacion.json) en verde sobre el árbol actual; se registra como incompleto.'
+ fi
+
+ mkdir -p "$STATE/checkpoints"
+@@ -55,12 +54,19 @@
+   echo "- Motor: $engine"
+   echo "- Unidad: $unit"
+   echo "- Estado declarado: $state"
+-  echo "- Validación del árbol actual: ${green:-ninguna ejecución en verde}"
++  echo "- Huella del árbol: $fp (HEAD $(git -C "$WT" rev-parse --short HEAD 2>/dev/null || echo none))"
++  echo "- Validación del árbol actual: ${green:-ninguna validación reconocida en verde}"
+   echo "- Siguiente paso: ${next:-(no indicado)}"
+   [[ -n $warning ]] && echo "- $warning"
+   echo
+   echo "## Problemas abiertos"
+   if [[ ${#issues[@]} -eq 0 ]]; then echo "Ninguno declarado."; else printf -- '- %s\n' "${issues[@]}"; fi
++  echo
++  echo "## Cambios respecto a HEAD (git diff --stat)"
++  echo '```'
++  git -C "$WT" diff HEAD --stat --no-ext-diff --no-textconv --no-color 2>/dev/null || echo '(sin HEAD)'
++  echo "Archivos sin seguimiento: $(git -C "$WT" ls-files -o --exclude-standard | wc -l)"
++  echo '```'
+   if [[ -n $note ]]; then
+     echo
+     echo "## Notas ($note)"
+diff --git a/.jz/hooks/claude-policy.mjs b/.jz/hooks/claude-policy.mjs
+--- a/.jz/hooks/claude-policy.mjs
++++ b/.jz/hooks/claude-policy.mjs
+@@ -82,7 +82,8 @@
+     // El turno terminó por un error de la API (cuota, límite, servicio): no reintentar, dejar checkpoint.
+     releaseWriter(wt, { session: input.session_id });
+     const detail = JSON.stringify(input.error ?? input.error_details ?? input).slice(0, 300);
+-    const quota = /rate.?limit|usage|quota|billing|credit|overloaded/i.test(detail);
++    // Sobrecarga del servicio (overloaded, 529): no es cuota; queda "incompleto" y se reanuda más tarde.
++    const quota = /rate.?limit|usage|quota|billing|credit/i.test(detail);
+     spawnSync(path.join(wt, '.jz/bin/jz-checkpoint'), [
+       '--unit', `sesión Claude Code interrumpida (${input.agent_type ?? 'principal'})`,
+       '--state', quota ? 'cuota' : 'incompleto', '--issue', `error de API: ${detail}`,
+diff --git a/.jz/tests/policy.test.mjs b/.jz/tests/policy.test.mjs
+--- a/.jz/tests/policy.test.mjs
++++ b/.jz/tests/policy.test.mjs
+@@ -3,16 +3,17 @@
+ import { test } from 'node:test';
+ import assert from 'node:assert/strict';
++import { execFileSync } from 'node:child_process';
+ import fs from 'node:fs';
+ import os from 'node:os';
+ import path from 'node:path';
+ import {
+-  checkBash, checkWrite, checkRead, checkDelegate, acquireWriter, releaseWriter, readLock, tokenize,
++  checkBash, checkWrite, checkRead, checkDelegate, acquireWriter, releaseWriter, readLock, tokenize, ROLES,
+ } from '../policy/policy.mjs';
+
+ const wt = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'jz-policy-')));
+ for (const d of ['src', 'docs', '.jz/bin', '.claude', '.opencode/agents', '.jz-state/notes']) {
+   fs.mkdirSync(path.join(wt, d), { recursive: true });
+ }
+-fs.writeFileSync(path.join(wt, '.git'), 'gitdir: /nowhere\n');
++execFileSync('git', ['init', '-q', '-b', 'main', wt]); // repositorio real: git add <directorio> consulta git ls-files
+ fs.symlinkSync('/etc/hostname', path.join(wt, 'src', 'fuera'));
+ const ctx = { wt, cwd: wt };
+@@ -47,6 +48,6 @@
+ test('implementer: git local permitido, historial y árbol protegidos', () => {
+   for (const cmd of ['git status --short', 'git diff --stat', 'git log --oneline -5', 'git add src/a.ts',
+-    'git add -A', 'git commit -m "feat: algo"', 'git restore --staged src/a.ts', 'git mv src/a src/b',
++    'git add -A src', 'git commit -m "feat: algo"', 'git restore --staged src/a.ts', 'git mv src/a src/b',
+     'git rm src/viejo.ts', 'git branch --show-current', 'git worktree list', 'git --no-pager diff', 'git remote -v']) {
+     ok(checkBash(cmd, 'jz-implementer', ctx), cmd);
+   }
+@@ -136,3 +137,37 @@
+ test('tokenize conserva argumentos con comillas', () => {
+   assert.deepEqual(tokenize(`git commit -m 'a "b"' -m "c 'd'"`), ['git', 'commit', '-m', 'a "b"', '-m', "c 'd'"]);
+ });
++
++test('implementer: las rutas de git add, commit, rm, mv y restore se comprueban como escrituras', () => {
++  fs.mkdirSync(path.join(wt, 'poc1a/src'), { recursive: true });
++  fs.mkdirSync(path.join(wt, 'cfg'), { recursive: true });
++  fs.writeFileSync(path.join(wt, 'cfg/.env.local'), 'X=1\n'); // secreto sin seguimiento y no ignorado
++  fs.symlinkSync('../.jz', path.join(wt, 'src', 'ctl')); // enlace interno hacia el plano de control
++  for (const cmd of ['git add poc1a/src/x.ts', 'git add -A poc1a', 'git add -- poc1a/src/x.ts',
++    'git rm --cached poc1a/src/x.ts', 'git rm -r --cached poc1a/src', 'git mv poc1a/src/x.ts poc1a/src/y.ts',
++    'git restore --staged poc1a/src/x.ts', 'git commit -m x -- poc1a/src/x.ts', 'git commit -m "-- .jz/bin/jz-run"',
++    'git add .jz-state/notes/n.md', 'cd poc1a && git add src', 'git add .env.example']) {
++    ok(checkBash(cmd, 'jz-implementer', ctx), cmd);
++  }
++  for (const cmd of ['git rm .jz/policy/policy.mjs', 'git rm --cached .jz/policy/policy.mjs', 'git add -f poc1a/.env',
++    'git add --force poc1a/src/x.ts', 'git add poc1a/.env', 'git mv AGENTS.md x', 'git mv poc1a/src/x.ts .claude/x',
++    'git restore --staged .claude/settings.json', 'git commit -m x -- .jz/bin/jz-run', 'git commit -m x .jz/bin/jz-run',
++    'git commit -a -m x', 'git commit -am x', 'git add -A', 'git add -u', 'git add .', 'git add poc1a/..',
++    'git rm -r --cached .', 'git add :/', "git add ':(top).jz'", "git add ':!poc1a'", 'git add .jz*',
++    "git rm --cached '.jz?policy'", 'git add .git/config', 'git add .jz-state/runs.jsonl', 'git add ../otro/x',
++    'git add /etc/passwd', 'git add src/fuera', 'git add src/ctl', 'git add src/ctl/bin/jz-run', 'git add cfg',
++    'git add -p poc1a', 'git add -e poc1a/src/x.ts', 'git add --chmod=+x poc1a/src/x.ts',
++    'git commit --author=x -m y', 'git restore --staged --source=HEAD~1 poc1a/src/x.ts',
++    'cd poc1a && git add ../.jz', 'git commit -m x --pathspec-from-file=f']) {
++    no(checkBash(cmd, 'jz-implementer', ctx), cmd);
++  }
++});
++
++test('push denegado a todos los roles; jz-backup fuera del alcance de los agentes', () => {
++  for (const role of Object.keys(ROLES)) {
++    for (const cmd of ['git push', 'git push origin HEAD:refs/heads/backup/x', 'git push --force origin x',
++      '.jz/bin/jz-backup poc/candidata-a-3', `${wt}/.jz/bin/jz-backup x`]) {
++      no(checkBash(cmd, role, ctx), `${role}: ${cmd}`);
++    }
++  }
++});
+diff --git a/.jz/tests/recovery.test.mjs b/.jz/tests/recovery.test.mjs
+--- a/.jz/tests/recovery.test.mjs
++++ b/.jz/tests/recovery.test.mjs
+@@ -188,4 +188,107 @@
+   const out = { env: {} };
+   await hooks['shell.env']({ cwd: repo, sessionID: 'imp', callID: 'b1' }, out);
+   assert.deepEqual(out.env, { JZ_ENGINE: 'opencode', JZ_SESSION: 'imp', JZ_AGENT: 'jz-implementer' });
+ });
++
++test('Claude Code: StopFailure por sobrecarga (overloaded) queda como "incompleto", no como "cuota"', () => {
++  const repo = fixture();
++  const r = spawnSync('node', [path.join(repo, '.jz/hooks/claude-policy.mjs')], {
++    cwd: repo, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: repo },
++    input: JSON.stringify({ hook_event_name: 'StopFailure', session_id: 'so',
++      error: { type: 'overloaded_error', message: 'Overloaded' } }),
++  });
++  assert.equal(r.status, 0, r.stderr);
++  assert.match(latest(repo), /- Estado declarado: incompleto/);
++});
++
++// Validación reconocida (.jz/policy/validacion.json). Se simulan registros de jz-run sobre la huella real del
++// árbol, porque dentro del sandbox no se puede anidar jz-run.
++const fingerprint = (repo) => execFileSync(path.join(repo, '.jz/bin/jz-run'), ['--fingerprint'],
++  { cwd: repo, encoding: 'utf8' }).trim();
++const addRun = (repo, cmd, rc = 0, tree = fingerprint(repo)) => {
++  fs.mkdirSync(path.join(repo, '.jz-state'), { recursive: true });
++  fs.appendFileSync(path.join(repo, '.jz-state/runs.jsonl'), JSON.stringify({ ts: '20261019T000000Z',
++    engine: 'test', head: 'x', tree, cwd: '.', cmd, rc, secs: 0, log: '.jz-state/runs/x.log' }) + '\n');
++};
++const checkpoint = (repo, state) => spawnSync(path.join(repo, '.jz/bin/jz-checkpoint'),
++  ['--unit', 'u', '--state', state], { cwd: repo, encoding: 'utf8', env: { ...process.env, JZ_ENGINE: 'test' } });
++
++test('jz-checkpoint: "validado" exige una validación reconocida en verde sobre el árbol actual', () => {
++  const repo = fixture();
++  for (const cmd of [['true'], ['grep', '-r', 'x', '.'], ['node', 'node_modules/typescript/bin/tsc', '--version'],
++    ['node', '--test', '-e', '1'], ['node', 'node_modules/vitest/vitest.mjs', 'run', '--passWithNoTests']]) {
++    addRun(repo, cmd);
++  }
++  addRun(repo, ['node', '--test', 'src/'], 0, '0000000000000000'); // otro árbol
++  addRun(repo, ['node', '--test', 'src/'], 1); // falló
++  let r = checkpoint(repo, 'validado');
++  assert.equal(r.status, 0, r.stderr);
++  assert.match(r.stderr, /AVISO: se declaró "validado"/);
++  assert.match(latest(repo), /- Estado declarado: incompleto/);
++  addRun(repo, ['node', '--test', 'src/']);
++  r = checkpoint(repo, 'validado');
++  assert.equal(r.status, 0, r.stderr);
++  assert.match(latest(repo), /- Estado declarado: validado/);
++  assert.match(latest(repo), /- Validación del árbol actual: 20261019T000000Z `node --test src\/`/);
++  assert.match(latest(repo), new RegExp(`- Huella del árbol: ${fingerprint(repo)} `));
++  assert.match(latest(repo), /## Cambios respecto a HEAD \(git diff --stat\)/);
++});
++
++test('jz-state y jz-checkpoint: sin lista de validación válida nada cuenta como verde', () => {
++  const repo = fixture();
++  fs.rmSync(path.join(repo, '.jz/policy/validacion.json'));
++  addRun(repo, ['node', '--test', 'src/']);
++  const s = jzState(repo);
++  assert.match(s.out, /lista de validación ausente o inválida/);
++  assert.match(s.out, /Árbol actual con validación en verde: NO/);
++  assert.match(checkpoint(repo, 'validado').stderr, /AVISO: se declaró "validado"/);
++  assert.match(latest(repo), /- Estado declarado: incompleto/);
++});
++
++test('jz-state: el rc=0 de un comando no reconocido no valida; aviso con cambios sin confirmar', () => {
++  const repo = fixture();
++  addRun(repo, ['true']);
++  let s = jzState(repo);
++  assert.equal(s.rc, 0, s.out);
++  assert.match(s.out, /\(árbol actual, rc=0, no es validación reconocida\)/);
++  assert.match(s.out, /Árbol actual con validación en verde: NO/);
++  assert.match(s.out, /## Veredicto: REANUDABLE\n/);
++  fs.writeFileSync(path.join(repo, 'nuevo.txt'), 'x\n');
++  s = jzState(repo);
++  assert.equal(s.rc, 0, s.out);
++  assert.match(s.out, /## Veredicto: REANUDABLE CON CAMBIOS SIN CONFIRMAR: revisar diff antes de continuar/);
++});
++
++const waitFor = async (cond, ms = 3000) => {
++  const end = Date.now() + ms;
++  while (Date.now() < end) {
++    try {
++      if (cond()) return;
++    } catch {
++      // El proceso todavía no existe o no ha hecho exec.
++    }
++    await new Promise((r) => setTimeout(r, 50));
++  }
++  throw new Error('condición no alcanzada');
++};
++
++test('jz-state: una ejecución de jz-run viva del worktree bloquea; un visor del archivo, no', async () => {
++  const repo = fixture();
++  const bin = path.join(repo, '.jz/bin/jz-run');
++  const viewer = spawn('tail', ['-f', bin]);
++  const run = spawn('bash', ['-c', 'exec -a unshare tail -f "$0"', bin]); // como el proceso unshare de jz-run
++  try {
++    await waitFor(() => fs.readFileSync(`/proc/${run.pid}/cmdline`, 'utf8').startsWith('unshare\0'));
++    const busy = jzState(repo);
++    assert.equal(busy.rc, 3, busy.out);
++    assert.match(busy.out, new RegExp(`ejecución de jz-run viva en el worktree \\(pid ${run.pid}\\)`));
++    assert.doesNotMatch(busy.out, new RegExp(`- pid ${viewer.pid}:`));
++  } finally {
++    for (const p of [viewer, run]) {
++      p.kill();
++      await once(p, 'exit');
++    }
++  }
++  const free = jzState(repo);
++  assert.equal(free.rc, 0, free.out);
++});
+diff --git a/docs/AUTONOMIA-JZ.md b/docs/AUTONOMIA-JZ.md
+--- a/docs/AUTONOMIA-JZ.md
++++ b/docs/AUTONOMIA-JZ.md
+@@ -61,7 +61,7 @@
+ - La investigación en lectura (explorer, security y qa) puede ir en paralelo. Los escritores (`jz-implementer*` y `jz-architect`) van de uno en uno y en primer plano; el bloqueo lo impone el sistema.
+ - No hay cadenas: los subagentes no tienen la herramienta de delegación en Claude Code y tienen `task: deny` y bloqueo en la política en OpenCode. La delegación nunca sube de privilegios: el orquestador, sin escritura, sólo puede delegar en roles ya definidos y acotados.
+ - Como máximo dos ciclos de corrección por unidad; después, se detiene y lo informa.
+-- La verificación no se apoya en lo que diga el implementador. `jz-state` debe mostrar «Árbol actual con ejecución en verde: sí», que se calcula a partir de la huella que registró el propio `jz-run` y que ningún agente puede escribir.
++- La verificación no se apoya en lo que diga el implementador. `jz-state` debe mostrar «Árbol actual con validación en verde: sí», que se calcula a partir de la huella que registró el propio `jz-run` y que ningún agente puede escribir. Sólo cuentan los comandos de `.jz/policy/validacion.json` (vitest `run`, `tsc` y `node --test`, sin opciones que eviten la comprobación): el `rc=0` de cualquier otro comando no valida.
+
+ Cada especialista termina su respuesta con este bloque:
+
+@@ -107,7 +107,7 @@
+ | `notes/*.md` | implementer o architect | Notas libres del handoff. |
+ | `quarantine/` | `jz-run` | Rutas de control o enlaces hacia fuera creados por un comando. |
+
+-`jz-checkpoint --state validado` sólo queda como validado si existe una ejecución en verde sobre el árbol actual. En caso contrario se registra como `incompleto` y se avisa. Así se distingue el código validado de los cambios a medias sin depender de la palabra del agente.
++`jz-checkpoint --state validado` sólo queda como validado si existe una validación reconocida (`.jz/policy/validacion.json`) en verde sobre el árbol actual. En caso contrario se registra como `incompleto` y se avisa. El checkpoint registra además la huella del árbol, el HEAD y `git diff --stat`. Así se distingue el código validado de los cambios a medias sin depender de la palabra del agente.
+
+ **Cuando se agota la cuota:**
+
+@@ -120,7 +120,7 @@
+
+ **Al reanudar con cualquier motor:**
+
+-1. Ejecuta `.jz/bin/jz-state`. Debe dar `REANUDABLE`: sin procesos `claude` u `opencode` vivos en el worktree, sin un bloqueo de escritor vivo de otro proceso o de otra sesión (o de una sesión que no pueda verificarse) y sin cuarentena pendiente.
++1. Ejecuta `.jz/bin/jz-state`. Debe dar `REANUDABLE`: sin procesos `claude` u `opencode` vivos en el worktree, sin ejecuciones de `jz-run` vivas, sin un bloqueo de escritor vivo de otro proceso o de otra sesión (o de una sesión que no pueda verificarse) y sin cuarentena pendiente. `REANUDABLE CON CAMBIOS SIN CONFIRMAR` no bloquea, pero obliga a revisar el diff antes de continuar.
+ 2. Lee `.jz-state/LATEST.md` y las notas, y revisa `git diff` y `git log`.
+ 3. Pide al orquestador que continúe desde el «siguiente paso» del checkpoint, verificando primero el estado. Nunca hay que repetir la última tarea ni descartar los cambios pendientes: ningún agente tiene `reset`, `checkout`, `stash` ni `clean`.
+
