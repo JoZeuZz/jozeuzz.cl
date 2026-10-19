@@ -5,6 +5,9 @@ services:
   app:
     networks:
       - proxy_prod
+    # Sólo pruebas: `./poc.sh up-fallos-en` la exporta como 1; sin ella queda en 0. Nunca en compose.yaml.
+    environment:
+      POC_FALLOS_INYECTABLES: ${POC_FALLOS_INYECTABLES:-0}
   # Sólo pruebas: habilita la inyección en app-prod para demostrar que NODE_ENV=production la anula. Nunca en compose.yaml.
   app-prod:
     environment:

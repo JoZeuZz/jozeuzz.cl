@@ -48,7 +48,6 @@ services:
       INTAKE_SECRETO: ${INTAKE_SECRETO:?ejecuta ./poc.sh init}
       INTAKE_TIEMPO_MINIMO_MS: "200"
       NODE_EXTRA_CA_CERTS: /app/.tls/ca.crt
-      POC_FALLOS_INYECTABLES: ${POC_FALLOS_INYECTABLES:-0}
     command: ["npm", "run", "dev"]
     networks: [db_app, proxy_app]
     depends_on:

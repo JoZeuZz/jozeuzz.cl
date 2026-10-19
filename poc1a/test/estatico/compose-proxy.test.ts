@@ -25,8 +25,18 @@ describe('topología TLS aislada', () => {
     expect(override.services.proxy).toEqual({
       volumes: ['./proxy/ip-cliente.pruebas.conf:/etc/nginx/poc/ip-cliente.conf:ro'],
     })
-    expect(override.services.app).toEqual({ networks: ['proxy_prod'] })
+    expect(override.services.app).toEqual({ networks: ['proxy_prod'], environment: { POC_FALLOS_INYECTABLES: '${POC_FALLOS_INYECTABLES:-0}' } })
     expect(override.services['app-prod']).toEqual({ environment: { POC_FALLOS_INYECTABLES: '1' } })
+  })
+
+  it('compose.yaml no define POC_FALLOS_INYECTABLES en ningún servicio; up-fallos-en la activa vía el override (SEG M-1)', async () => {
+    const texto = await readFile(path.join(raiz, 'compose.yaml'), 'utf8')
+    const compose = await leerCompose('compose.yaml')
+    expect(texto).not.toContain('POC_FALLOS_INYECTABLES')
+    for (const servicio of Object.values(compose.services)) expect(servicio.environment ?? {}).not.toHaveProperty('POC_FALLOS_INYECTABLES')
+    const poc = await readFile(path.join(raiz, 'poc.sh'), 'utf8')
+    const orden = /up-fallos-en\)[\s\S]*?;;/.exec(poc)?.[0] ?? ''
+    expect(orden).toContain('POC_FALLOS_INYECTABLES=1 $CP up -d --force-recreate db app proxy')
   })
 
   it('POC_FALLOS_INYECTABLES llega a app-prod sólo con el override de pruebas, que usa up-prod-pruebas-en', async () => {
@@ -93,7 +103,8 @@ describe('topología TLS aislada', () => {
     ])
     expect(nginx).toContain('ssl_protocols TLSv1.3;')
     expect(nginx).toContain('access_log off;')
-    expect(nginx).toContain('error_log stderr crit;')
+    expect(nginx).toContain('error_log stderr alert;')
+    expect(nginx).not.toContain('error_log stderr crit;')
     expect(nginx).toContain('client_max_body_size 1m;')
     expect(nginx).toContain('client_body_buffer_size 1m;')
     expect(nginx).toContain('resolver 127.0.0.11 valid=10s ipv6=off;')

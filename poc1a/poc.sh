@@ -23,7 +23,9 @@ EOF
   ca="$(openssl x509 -in .tls/ca.crt -pubkey -noout | openssl pkey -pubin -outform DER | openssl dgst -sha256 -binary | openssl base64 -A)"
   printf '%s,%s\n' "$servidor" "$ca" > .tls/spki.txt
   rm -f .tls/ca.key .tls/servidor.csr .tls/ca.srl
-  chmod 700 .tls
+  # Los contenedores node/playwright (uid 1000) leen ca.crt y spki.txt; nginx (root) lee la clave. ca.key ya no existe.
+  chmod 644 .tls/ca.crt .tls/spki.txt
+  chmod 755 .tls
   chmod 600 .tls/servidor.key
 }
 nombre_poc1b() {
@@ -78,11 +80,10 @@ case "$cmd" in
     base="${1:?uso: exec-en <base-poc1b> [comando]}"; nombre_poc1b "$base"
     shift
     POC_DATABASE_NAME="$base" $C exec -T app "$@" ;;
-  # Reset + semilla en el host (poc.sh exec) y E2E en el contenedor con la red de `app`. El resultado del reset
-  # (incluida la contraseña aleatoria del admin sintético) viaja sólo por entorno, no se escribe en disco.
+  # Orden heredada retirada: el driver exige base aislada, URL y CA, que sólo proveen e2e-en y e2e-prod-en.
+  # El resultado del reset (incluida la contraseña aleatoria del admin sintético) viaja sólo por entorno.
   e2e)
-    E2E_RESET="$(node scripts/reset-e2e.mjs)"; export E2E_RESET
-    $C --profile e2e run --rm -e E2E_RESET e2e npx playwright test "$@" ;;
+    echo "e2e está retirada: usa './poc.sh e2e-en <base>' o './poc.sh e2e-prod-en <base>'" >&2; exit 2 ;;
   e2e-en)
     base="${1:?uso: e2e-en <base-poc1b>}"; nombre_poc1b "$base"
     shift
@@ -90,7 +91,7 @@ case "$cmd" in
     POC_DATABASE_NAME="$base" $C up -d db app
     POC_DATABASE_NAME="$base" $C up -d --force-recreate proxy
     POC_DATABASE_NAME="$base" $C exec -T app npx tsx scripts/verificar-db.ts "$base"
-    E2E_RESET="$(POC_TARGET_DATABASE="$base" node scripts/reset-e2e.mjs)"; export E2E_RESET
+    E2E_RESET="$(POC_TARGET_DATABASE="$base" POC_BASE_URL=https://127.0.0.1:3443 NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt" node scripts/reset-e2e.mjs)"; export E2E_RESET
     POC_DATABASE_NAME="$base" $C --profile e2e run --rm -e POC_DATABASE_NAME -e E2E_RESET e2e sh -c 'POC_E2E_DESTINO="$(getent hosts proxy | cut -d" " -f1):3443"; export POC_E2E_DESTINO; npx playwright test "$@"' sh "$@" ;;
   e2e-prod-en)
     base="${1:?uso: e2e-prod-en <base-poc1b>}"; nombre_poc1b "$base"
@@ -98,7 +99,7 @@ case "$cmd" in
     tls_efimera
     POC_DATABASE_NAME="$base" POC_DB_SCHEMA=poc_prod POC_NO_PUSH=1 $C --profile prod up -d db app-prod
     POC_DATABASE_NAME="$base" $C --profile prod up -d --force-recreate proxy
-    E2E_RESET="$(POC_TARGET_DATABASE="$base" POC_DB_SCHEMA=poc_prod POC_MEDIA_DIR=/app/media-store-prod node scripts/reset-e2e.mjs)"; export E2E_RESET
+    E2E_RESET="$(POC_TARGET_DATABASE="$base" POC_BASE_URL=https://127.0.0.1:3444 NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt" POC_RESET_ENV='POC_DB_SCHEMA=poc_prod POC_MEDIA_DIR=/app/media-store-prod' node scripts/reset-e2e.mjs)"; export E2E_RESET
     POC_DATABASE_NAME="$base" POC_E2E_ORIGEN=https://127.0.0.1:3444 $C --profile e2e run --rm -e POC_DATABASE_NAME -e E2E_RESET -e POC_E2E_ORIGEN e2e sh -c 'POC_E2E_DESTINO="$(getent hosts proxy | cut -d" " -f1):3444"; export POC_E2E_DESTINO; npx playwright test "$@"' sh "$@" ;;
   sonda-red) $C --profile e2e run --rm e2e node scripts/sonda-red.mjs ;;
   # Medición aproximada de LCP/CLS/TBT contra app-prod (debe estar levantado con up-prod).

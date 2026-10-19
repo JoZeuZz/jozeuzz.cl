@@ -12,6 +12,55 @@ function ramaCase(script: string, orden: string): string {
   return encontrada![1]
 }
 
+it('reset-e2e recibe URL del driver, CA efímera y entorno de producción (B-2/B-3)', async () => {
+  const script = await readFile(path.join(raiz, 'poc.sh'), 'utf8')
+  const lineaReset = (orden: string) => ramaCase(script, orden).split('\n').find((l) => l.includes('scripts/reset-e2e.mjs')) ?? ''
+  const dev = lineaReset('e2e-en')
+  expect(dev).toContain('POC_BASE_URL=https://127.0.0.1:3443')
+  expect(dev).toContain('NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"')
+  expect(dev).toContain('POC_TARGET_DATABASE="$base"')
+  const prod = lineaReset('e2e-prod-en')
+  expect(prod).toContain('POC_BASE_URL=https://127.0.0.1:3444')
+  expect(prod).toContain('NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"')
+  expect(prod).toContain("POC_RESET_ENV='POC_DB_SCHEMA=poc_prod POC_MEDIA_DIR=/app/media-store-prod'")
+  // El driver sólo lee POC_RESET_ENV: variables sueltas de schema/medios se ignorarían y reiniciarían el schema equivocado.
+  expect(prod.replace(/POC_RESET_ENV='[^']*'/, '')).not.toMatch(/\bPOC_(DB_SCHEMA|MEDIA_DIR)=/)
+})
+
+it('la orden heredada e2e no ejecuta nada: falla indicando e2e-en o e2e-prod-en', async () => {
+  const script = await readFile(path.join(raiz, 'poc.sh'), 'utf8')
+  const rama = ramaCase(script, 'e2e')
+  expect(rama).not.toContain('reset-e2e.mjs')
+  expect(rama).not.toContain('playwright')
+  expect(rama).not.toContain('$C ')
+  expect(rama).toMatch(/>&2/)
+  expect(rama).toContain('e2e-en <base>')
+  expect(rama).toContain('e2e-prod-en <base>')
+  expect(rama).toMatch(/exit [1-9]/)
+  // Ninguna invocación de reset-e2e.mjs omite la URL y la CA que exige el driver (contrato-driver.mjs).
+  const invocaciones = script.split('\n').filter((l) => l.includes('node scripts/reset-e2e.mjs'))
+  expect(invocaciones.length).toBeGreaterThan(0)
+  for (const linea of invocaciones) {
+    expect(linea).toContain('POC_BASE_URL=')
+    expect(linea).toContain('NODE_EXTRA_CA_CERTS=')
+  }
+})
+
+it('tls_efimera deja permisos legibles para los contenedores y la clave sólo para nginx (I-7)', async () => {
+  const script = await readFile(path.join(raiz, 'poc.sh'), 'utf8')
+  const funcion = /tls_efimera\(\) \{[\s\S]*?\n\}/.exec(script)?.[0] ?? ''
+  expect(funcion).toContain('chmod 755 .tls')
+  expect(funcion).not.toContain('chmod 700 .tls')
+  expect(funcion).toMatch(/chmod 644 \.tls\/ca\.crt \.tls\/spki\.txt/)
+  expect(funcion).toContain('chmod 600 .tls/servidor.key')
+  expect(funcion).toContain('rm -f .tls/ca.key')
+  // Nada más se hace legible: ningún chmod abre la clave del servidor ni otros archivos.
+  const modos = [...funcion.matchAll(/chmod (\d+) (.+)/g)].map((m) => `${m[1]} ${m[2].trim()}`)
+  expect(modos).toEqual(['644 .tls/ca.crt .tls/spki.txt', '755 .tls', '600 .tls/servidor.key'])
+  expect(funcion).toContain('umask 077')
+  expect(funcion.indexOf('chmod 755 .tls')).toBeGreaterThan(funcion.indexOf('rm -f .tls/ca.key'))
+})
+
 it('regenera CA efímera y limita override de pruebas a órdenes explícitas', async () => {
   const [script, compose, driver, playwright, medicion, ignore, sonda] = await Promise.all([
     readFile(path.join(raiz, 'poc.sh'), 'utf8'),

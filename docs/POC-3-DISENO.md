@@ -36,7 +36,7 @@ Proxy: `image` con el digest de §0; volúmenes `./proxy/nginx.conf:/etc/nginx/n
 
 `nginx.conf` (todas las `proxy_set_header` en el bloque `http`; ninguna en `server`/`location`, porque nginx no hereda si el nivel inferior define alguna):
 ```
-worker_processes 1; pid /tmp/nginx.pid; error_log stderr crit;
+worker_processes 1; pid /tmp/nginx.pid; error_log stderr alert;
 events { worker_connections 256; }
 http {
   access_log off; server_tokens off; resolver 127.0.0.11 valid=10s ipv6=off;
@@ -55,11 +55,11 @@ http {
 
 `ip-cliente.pruebas.conf`: un `map $http_x_poc_ip_sintetica $poc_ip_cliente` con `default $remote_addr;` y sólo dos patrones aceptados, `"~^203\.0\.113\.([1-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-4])$"` y `"~^2001:db8:[0-9a-f]{1,4}:[0-9a-f]{1,4}::1$"`, que copian la cabecera; después `proxy_set_header X-Real-IP $poc_ip_cliente;` · `X-Forwarded-For ""` · `X-Poc-Ip-Sintetica ""`. `X-Poc-Fallo` pasa (§5.4).
 
-Sin log de acceso y `error_log` en `crit`: el proxy no escribe IPs (T-09). El tope de 1 MiB es mayor que el de la app (32 KiB): el 413 de IN-07 y de T-08 lo produce la app con su cuerpo JSON.
+Sin log de acceso y `error_log` en `alert` (por encima de `crit`; antes `crit`): el proxy no escribe IPs (T-09). Motivo del cambio de `crit` a `alert`: no verificado en ejecución; los archivos de U7 (`logs-intake*.mjs`, `driver/logs-intake.mjs`) no lo documentan. Hipótesis sin confirmar: nginx registra en `crit` errores de handshake TLS con `client: <IP>`, que contaminarían las sondas de logs sin PII. El tope de 1 MiB es mayor que el de la app (32 KiB): el 413 de IN-07 y de T-08 lo produce la app con su cuerpo JSON.
 
 ### 1.3 CA efímera (P3-10)
 
-`poc.sh` define `tls_efimera()` (openssl del host, como `init`): borra y recrea `.tls/` (modo 700); genera una CA P-256 de 1 día (`CN=jozeuzz-poc-a CA efimera`, `basicConstraints=critical,CA:TRUE`), una clave de servidor P-256 y su certificado con `subjectAltName=IP:127.0.0.1,DNS:proxy` y `extendedKeyUsage=serverAuth`; escribe `ca.crt`, `servidor.key`, `cadena.crt` (servidor + CA) y `spki.txt` (hash SHA-256 base64 del SPKI del servidor y de la CA, separados por coma); **borra `ca.key`** al terminar (no se pueden emitir más certificados). `.tls/` se añade a `.gitignore`. Toda orden que crea o recrea el proxy llama antes a `tls_efimera` y recrea el proxy con `--force-recreate`.
+`poc.sh` define `tls_efimera()` (openssl del host, como `init`): borra y recrea `.tls/` (modo 755; `ca.crt` y `spki.txt` 644 para los contenedores uid 1000, `servidor.key` 600 para nginx); genera una CA P-256 de 1 día (`CN=jozeuzz-poc-a CA efimera`, `basicConstraints=critical,CA:TRUE`), una clave de servidor P-256 y su certificado con `subjectAltName=IP:127.0.0.1,DNS:proxy` y `extendedKeyUsage=serverAuth`; escribe `ca.crt`, `servidor.key`, `cadena.crt` (servidor + CA) y `spki.txt` (hash SHA-256 base64 del SPKI del servidor y de la CA, separados por coma); **borra `ca.key`** al terminar (no se pueden emitir más certificados). `.tls/` se añade a `.gitignore`. Toda orden que crea o recrea el proxy llama antes a `tls_efimera` y recrea el proxy con `--force-recreate`.
 
 Confianza: Node (driver en el host y vitest en `app`) con `NODE_EXTRA_CA_CERTS` (NV-1); Chromium con `--ignore-certificate-errors-spki-list=<spki.txt>` (NV-2). Prohibido `NODE_TLS_REJECT_UNAUTHORIZED=0` e `ignoreHTTPSErrors`.
 
