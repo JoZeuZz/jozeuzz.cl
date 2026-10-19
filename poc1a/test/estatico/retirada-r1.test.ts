@@ -57,8 +57,13 @@ describe('README: gate de la unidad 9', () => {
     const readme = await readFile(path.join(raiz, 'README.md'), 'utf8')
     const seccion = readme.slice(readme.indexOf('## POC-3 U9'))
     expect(seccion.startsWith('## POC-3 U9')).toBe(true)
-    const lineas = seccion.split('\n').filter((l) => l.includes('contrato/run.mjs') && l.includes('--solo '))
+    const todas = seccion.split('\n').filter((l) => l.includes('contrato/run.mjs') && l.includes('--solo '))
+    const lineas = todas.filter((l) => !l.includes('--alcance'))
     expect(lineas).toHaveLength(2)
+    // C-2: `--alcance poc-3` sin `--solo` ejecuta los 56 casos (EV-04 falla en 3444): siempre acotado a IN-01..IN-12.
+    const lineasIn = todas.filter((l) => l.includes('--alcance poc-3'))
+    expect(lineasIn).toHaveLength(2)
+    for (const l of lineasIn) expect(idsDe(l.split(' --alcance')[0])).toEqual(Array.from({ length: 12 }, (_, i) => `IN-${String(i + 1).padStart(2, '0')}`))
     const [enApp, enProd] = lineas.map(idsDe)
     expect(enApp).toHaveLength(44)
     expect(new Set(enApp).size).toBe(44)
@@ -75,6 +80,8 @@ describe('README: gate de la unidad 9', () => {
     expect(seccion).toContain('P-U1-01')
     expect(seccion).toContain('up-fallos-en poc3_intake')
     expect(seccion).toContain('up-prod-pruebas-en poc3_intake')
+    // C-1: e2e-prod-en recrea el proxy sin override; la medición exige repetir up-prod-pruebas-en después.
+    expect(seccion.lastIndexOf('./poc.sh up-prod-pruebas-en poc3_intake')).toBeGreaterThan(seccion.indexOf('./poc.sh e2e-prod-en poc3_intake'))
   })
 })
 

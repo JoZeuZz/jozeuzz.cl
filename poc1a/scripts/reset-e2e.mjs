@@ -1,5 +1,5 @@
 // Reset + semilla para las E2E (Node del host, sin dependencias). Imprime el JSON del reset por stdout;
-// poc.sh e2e lo pasa al contenedor por entorno. La contraseña del admin es aleatoria y no se escribe en disco.
+// poc.sh e2e-en / e2e-prod-en lo pasan al contenedor por entorno. La contraseña del admin es aleatoria y no se escribe en disco.
 import { SEMILLA } from '../../contrato/fixture.mjs';
 import crearDriver from '../contrato-driver.mjs';
 

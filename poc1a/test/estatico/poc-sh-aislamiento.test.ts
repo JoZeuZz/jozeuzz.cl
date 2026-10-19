@@ -46,6 +46,32 @@ it('la orden heredada e2e no ejecuta nada: falla indicando e2e-en o e2e-prod-en'
   }
 })
 
+it('e2e-prod-en levanta app (dev) en la base destino y la verifica antes del reset', async () => {
+  const script = await readFile(path.join(raiz, 'poc.sh'), 'utf8')
+  const rama = ramaCase(script, 'e2e-prod-en')
+  // El reset corre con `exec-en` dentro del servicio app (dev): debe existir y apuntar a $base.
+  const levanta = rama.indexOf('POC_DATABASE_NAME="$base" $C up -d db app\n')
+  const verifica = rama.indexOf('$C exec -T app npx tsx scripts/verificar-db.ts "$base"')
+  const reset = rama.indexOf('scripts/reset-e2e.mjs')
+  expect(levanta).toBeGreaterThan(-1)
+  expect(verifica).toBeGreaterThan(levanta)
+  expect(reset).toBeGreaterThan(verifica)
+})
+
+it('exec-en comprueba que app está conectado a la base pedida antes de ejecutar', async () => {
+  const script = await readFile(path.join(raiz, 'poc.sh'), 'utf8')
+  const rama = ramaCase(script, 'exec-en')
+  const verifica = rama.indexOf('scripts/verificar-db.ts "$base"')
+  const ejecuta = rama.indexOf('$C exec -T app "$@"')
+  expect(verifica).toBeGreaterThan(-1)
+  expect(ejecuta).toBeGreaterThan(verifica)
+})
+
+it('el mensaje de uso no anuncia la orden e2e retirada', async () => {
+  const script = await readFile(path.join(raiz, 'poc.sh'), 'utf8')
+  expect(script).not.toMatch(/\|e2e \[args\]/)
+})
+
 it('tls_efimera deja permisos legibles para los contenedores y la clave sólo para nginx (I-7)', async () => {
   const script = await readFile(path.join(raiz, 'poc.sh'), 'utf8')
   const funcion = /tls_efimera\(\) \{[\s\S]*?\n\}/.exec(script)?.[0] ?? ''

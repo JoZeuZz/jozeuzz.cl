@@ -79,6 +79,8 @@ case "$cmd" in
   exec-en)
     base="${1:?uso: exec-en <base-poc1b> [comando]}"; nombre_poc1b "$base"
     shift
+    # `exec` no cambia el entorno del contenedor: sólo se ejecuta si app ya está conectado a $base.
+    POC_DATABASE_NAME="$base" $C exec -T app npx tsx scripts/verificar-db.ts "$base" >&2
     POC_DATABASE_NAME="$base" $C exec -T app "$@" ;;
   # Orden heredada retirada: el driver exige base aislada, URL y CA, que sólo proveen e2e-en y e2e-prod-en.
   # El resultado del reset (incluida la contraseña aleatoria del admin sintético) viaja sólo por entorno.
@@ -99,6 +101,9 @@ case "$cmd" in
     tls_efimera
     POC_DATABASE_NAME="$base" POC_DB_SCHEMA=poc_prod POC_NO_PUSH=1 $C --profile prod up -d db app-prod
     POC_DATABASE_NAME="$base" $C --profile prod up -d --force-recreate proxy
+    # El reset corre en el servicio app (dev, exec-en): debe existir y estar conectado a $base.
+    POC_DATABASE_NAME="$base" $C up -d db app
+    POC_DATABASE_NAME="$base" $C exec -T app npx tsx scripts/verificar-db.ts "$base"
     E2E_RESET="$(POC_TARGET_DATABASE="$base" POC_BASE_URL=https://127.0.0.1:3444 NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt" POC_RESET_ENV='POC_DB_SCHEMA=poc_prod POC_MEDIA_DIR=/app/media-store-prod' node scripts/reset-e2e.mjs)"; export E2E_RESET
     POC_DATABASE_NAME="$base" POC_E2E_ORIGEN=https://127.0.0.1:3444 $C --profile e2e run --rm -e POC_DATABASE_NAME -e E2E_RESET -e POC_E2E_ORIGEN e2e sh -c 'POC_E2E_DESTINO="$(getent hosts proxy | cut -d" " -f1):3444"; export POC_E2E_DESTINO; npx playwright test "$@"' sh "$@" ;;
   sonda-red) $C --profile e2e run --rm e2e node scripts/sonda-red.mjs ;;
@@ -142,5 +147,5 @@ case "$cmd" in
     if [ -z "$ids" ]; then echo "sin contenedores del proyecto jozeuzz-poc-a; nada que medir" >&2; exit 1; fi
     docker stats --no-stream $ids ;;
   destroy) $C down -v --remove-orphans ;;
-  *) echo "uso: ./poc.sh init|deps [cmd]|up|db-up|up-en <base>|up-pruebas-en <base>|up-fallos-en <base>|up-prod-en <base>|up-prod-pruebas-en <base>|e2e-en <base> [args]|e2e-prod-en <base> [args]|sonda-red|medir-web <base> [args]|comprobar-en <base>|down|build|build-en <base>|migrate-create|migrate|migrate-en <base>|psql-en <base> [args]|up-prod|down-prod|ps|logs [n]|logs-since <t>|restart|psql [args]|resetdb|exec <cmd>|exec-en <base> <cmd>|e2e [args]|stats|destroy" >&2; exit 2 ;;
+  *) echo "uso: ./poc.sh init|deps [cmd]|up|db-up|up-en <base>|up-pruebas-en <base>|up-fallos-en <base>|up-prod-en <base>|up-prod-pruebas-en <base>|e2e-en <base> [args]|e2e-prod-en <base> [args]|sonda-red|medir-web <base> [args]|comprobar-en <base>|down|build|build-en <base>|migrate-create|migrate|migrate-en <base>|psql-en <base> [args]|up-prod|down-prod|ps|logs [n]|logs-since <t>|restart|psql [args]|resetdb|exec <cmd>|exec-en <base> <cmd>|stats|destroy" >&2; exit 2 ;;
 esac

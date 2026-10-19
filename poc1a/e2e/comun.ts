@@ -2,10 +2,10 @@ import { expect, type Browser, type BrowserContext } from '@playwright/test'
 
 export type Reset = { refs: Record<string, string>; ids: Record<string, string>; password: string; email: string }
 
-/** El reset lo hace ./poc.sh e2e (en el host) y lo entrega por entorno: no hay ruta HTTP de semilla. */
+/** El reset lo hace ./poc.sh e2e-en o e2e-prod-en (en el host) y lo entrega por entorno: no hay ruta HTTP de semilla. */
 export function reset(): Reset {
   const crudo = process.env.E2E_RESET
-  if (!crudo) throw new Error('falta E2E_RESET: ejecuta las E2E con ./poc.sh e2e')
+  if (!crudo) throw new Error('falta E2E_RESET: ejecuta las E2E con ./poc.sh e2e-en <base> o e2e-prod-en <base>')
   return JSON.parse(crudo)
 }
 

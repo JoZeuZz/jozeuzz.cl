@@ -13,7 +13,7 @@ H0A-02/03/04 se validan en servidor. El intake sintético interno de esta fase (
 ./poc.sh exec-en poc1b_migraciones npx vitest run
 ./poc.sh exec-en poc1b_migraciones npx tsc --noEmit
 node --test ../contrato/test/
-POC_TARGET_DATABASE=poc1b_migraciones node ../contrato/run.mjs --driver contrato-driver.mjs --alcance poc-1a
+POC_TARGET_DATABASE=poc1b_migraciones POC_BASE_URL=https://127.0.0.1:3443 NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt" node ../contrato/run.mjs --driver contrato-driver.mjs --alcance poc-1a
 ./poc.sh up-fallos-en poc1b_migraciones
 # la batería de 44 ya no usa intake sintético: ver «POC-3 U9» (intake real por el proxy)
 ./poc.sh e2e-en poc1b_migraciones # último: apaga gate EV-04
@@ -85,6 +85,8 @@ La lógica de la prueba de build (`test/build/comprobar-build.mjs`) tiene su pro
 
 ## POC-3 U9 — gate: regresión contra el intake real, mediciones y antiabuso en papel
 
+Procedimiento canónico del gate Docker: [`docs/GATE-DOCKER-POC-3.md`](../docs/GATE-DOCKER-POC-3.md). Lo que sigue es un resumen.
+
 R-1 (el intake sintético de POC-1b) ya no existe: `scripts/` no lo contiene y el driver sólo habla con `GET /solicitar` y `POST /api/intake` por el proxy, con una IP sintética distinta por origen (`driver/ip-sintetica.mjs`; `x-poc-ip-sintetica` sólo lo acepta el proxy de pruebas). `intake.limite.max` es 5. `POC_INTAKE_TIEMPO_MINIMO_MS` (por defecto 200) debe coincidir con `INTAKE_TIEMPO_MINIMO_MS` de Compose. `logs()` lanza si el driver ya envió al intake y ningún log trae `"evento":"intake"`, de modo que IN-12 no pasa en vacío.
 
 Casos de los 44 que pasan por el intake real (23): ES-03 a ES-11, EV-01 a EV-06, MO-01 a MO-05, PR-01, PR-05 y PR-06. PR-02 sólo lee logs. Los IN-* (12) son el alcance `poc-3`.
@@ -101,7 +103,7 @@ Comandos Docker pendientes de ejecución humana, desde `poc1a/` (Docker no se ej
 ./poc.sh up-fallos-en poc3_intake
 export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
 POC_TARGET_DATABASE=poc3_intake POC_BASE_URL=https://127.0.0.1:3443 node ../contrato/run.mjs --driver contrato-driver.mjs --solo AU-05,AU-06,AU-07,PR-04,PR-07,CO-01,CO-02,CO-03,CO-04,CO-05,CO-06,CO-07,CA-02,ES-01,ES-02,ES-03,ES-04,ES-05,ES-06,ES-07,ES-08,ES-09,ES-10,ES-11,MO-01,MO-02,MO-03,MO-04,MO-05,AU-01,AU-02,AU-03,AU-04,PR-01,PR-02,PR-03,PR-05,PR-06,EV-01,EV-02,EV-03,EV-04,EV-05,EV-06
-POC_TARGET_DATABASE=poc3_intake POC_BASE_URL=https://127.0.0.1:3443 node ../contrato/run.mjs --driver contrato-driver.mjs --alcance poc-3
+POC_TARGET_DATABASE=poc3_intake POC_BASE_URL=https://127.0.0.1:3443 node ../contrato/run.mjs --driver contrato-driver.mjs --solo IN-01,IN-02,IN-03,IN-04,IN-05,IN-06,IN-07,IN-08,IN-09,IN-10,IN-11,IN-12 --alcance poc-3
 ./poc.sh e2e-en poc3_intake
 # 2) app-prod (3444): 43 casos (sin EV-04, P-U1-01) y 12 IN-*
 ./poc.sh build-en poc3_intake
@@ -109,9 +111,11 @@ POC_TARGET_DATABASE=poc3_intake POC_BASE_URL=https://127.0.0.1:3443 node ../cont
 ./poc.sh up-prod-pruebas-en poc3_intake
 export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
 POC_TARGET_DATABASE=poc3_intake POC_BASE_URL=https://127.0.0.1:3444 POC_RESET_ENV='POC_DB_SCHEMA=poc_prod POC_MEDIA_DIR=/app/media-store-prod' node ../contrato/run.mjs --driver contrato-driver.mjs --solo AU-05,AU-06,AU-07,PR-04,PR-07,CO-01,CO-02,CO-03,CO-04,CO-05,CO-06,CO-07,CA-02,ES-01,ES-02,ES-03,ES-04,ES-05,ES-06,ES-07,ES-08,ES-09,ES-10,ES-11,MO-01,MO-02,MO-03,MO-04,MO-05,AU-01,AU-02,AU-03,AU-04,PR-01,PR-02,PR-03,PR-05,PR-06,EV-01,EV-02,EV-03,EV-05,EV-06
-POC_TARGET_DATABASE=poc3_intake POC_BASE_URL=https://127.0.0.1:3444 POC_RESET_ENV='POC_DB_SCHEMA=poc_prod POC_MEDIA_DIR=/app/media-store-prod' node ../contrato/run.mjs --driver contrato-driver.mjs --alcance poc-3
+POC_TARGET_DATABASE=poc3_intake POC_BASE_URL=https://127.0.0.1:3444 POC_RESET_ENV='POC_DB_SCHEMA=poc_prod POC_MEDIA_DIR=/app/media-store-prod' node ../contrato/run.mjs --driver contrato-driver.mjs --solo IN-01,IN-02,IN-03,IN-04,IN-05,IN-06,IN-07,IN-08,IN-09,IN-10,IN-11,IN-12 --alcance poc-3
 ./poc.sh e2e-prod-en poc3_intake
-# 3) medición (al final: crea 150 solicitudes en poc_prod); app-prod sigue arriba con el proxy de pruebas
+# 3) medición (al final: crea 150 solicitudes en poc_prod). e2e-prod-en recrea el proxy SIN el override de pruebas:
+#    repita up-prod-pruebas-en antes de medir (si no, el proxy no acepta la IP sintética) y reexporte la CA.
+./poc.sh up-prod-pruebas-en poc3_intake
 export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
 POC_BASE_URL=https://127.0.0.1:3444 node medicion/intake-latencia.mjs
 ```
