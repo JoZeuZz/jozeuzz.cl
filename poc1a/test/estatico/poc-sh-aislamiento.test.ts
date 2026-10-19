@@ -81,7 +81,7 @@ it('tls_efimera deja permisos legibles para los contenedores y la clave sólo pa
   expect(funcion).toContain('chmod 600 .tls/servidor.key')
   expect(funcion).toContain('rm -f .tls/ca.key')
   // Nada más se hace legible: ningún chmod abre la clave del servidor ni otros archivos.
-  const modos = [...funcion.matchAll(/chmod (\d+) (.+)/g)].map((m) => `${m[1]} ${m[2].trim()}`)
+  const modos = [...funcion.matchAll(/^\s*chmod (\d+) (.+)/gm)].map((m) => `${m[1]} ${m[2].trim()}`)
   expect(modos).toEqual(['644 .tls/ca.crt .tls/spki.txt', '755 .tls', '600 .tls/servidor.key'])
   expect(funcion).toContain('umask 077')
   expect(funcion.indexOf('chmod 755 .tls')).toBeGreaterThan(funcion.indexOf('rm -f .tls/ca.key'))
@@ -122,6 +122,7 @@ it('regenera CA efímera y limita override de pruebas a órdenes explícitas', a
   expect(driver).toContain("/.tls/ca.crt")
   expect(driver).toContain("NODE_TLS_REJECT_UNAUTHORIZED === '0'")
   expect(driver).toContain("['logs-since', estado.t0]")
+  expect(driver).toContain('servicioDeSolicitud(')
   for (const config of [playwright, medicion]) {
     expect(config).toContain('https://127.0.0.1:')
     expect(config).toContain('POC_E2E_DESTINO')
