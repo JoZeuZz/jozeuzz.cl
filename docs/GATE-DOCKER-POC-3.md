@@ -1,79 +1,155 @@
 # Gate Docker de POC-3 (U2–U9): procedimiento para ejecución humana
 
-- **Estado:** procedimiento para ejecución humana. **No se ha ejecutado.** Lo redactó jz-architect el 2026-10-19 leyendo el código. Ningún resultado esperado de este documento está verificado en ejecución: son deducciones del código, con su cita.
-- **HEAD de referencia:** `c8bbf0f` (rama `poc/candidata-a-3`), último commit de código y pruebas del ciclo de corrección 1. Los commits posteriores sólo tocan `docs/` (compruébelo en A1). Si se hace el paso A4 (instalación de axe), la referencia pasa a ser el commit que deja A4. Ese HEAD se anota en cada fila de evidencia.
+- **Estado:** procedimiento para ejecución humana. **No se ha ejecutado.** Lo redactó jz-architect el 2026-10-19 leyendo el código y lo revisó en dos ciclos (ver «Historial de revisiones»). Ningún resultado esperado de este documento está verificado en ejecución: son deducciones del código, con su cita.
+- **HEAD de referencia del código:** `c8bbf0f` (rama `poc/candidata-a-3`), último commit de código y pruebas. Los commits posteriores sólo tocan `docs/`. Se acepta como HEAD de ejecución el commit que confirme este documento y `docs/adr/0001-stack.md`, o uno posterior que sólo cambie `docs/` (A1 lo comprueba). Si se hace el paso A4 (instalación de axe), la referencia pasa a ser el commit que deja A4. Ese HEAD se anota en cada fila de evidencia.
 - **Quién lo ejecuta:** el responsable del proyecto, como root en el host de la POC, con Docker y Compose v2 y con Node ≥ 20 en el host (`poc1a/README.md:34-36`). Los agentes no tienen Docker (`docs/PLAN-POC-3.md:157`, P3-07 `:199`). Mientras dure el gate, ningún agente escribe en este worktree.
-- **Duración:** no está medida. Una estimación orientativa es de 1,5 a 3 h, sin contar descargas de imágenes. Referencias: una batería de 56 casos tardó 232 s en POC-1a (`poc1a/EVIDENCIA.md:20`), aunque sólo tenía 13 activos; el build tardó 16 s (`poc1a/EVIDENCIA.md:152`). Este gate ejecuta unos 167 casos activos en cinco baterías, dos tandas E2E y 150 envíos de medición.
+- **Duración:** no está medida. La estimación orientativa del ciclo 1 era de 1,5 a 3 h sin contar descargas de imágenes, y **puede quedarse corta**:
+  - Referencias: una batería de 56 casos tardó 232 s en POC-1a (`poc1a/EVIDENCIA.md:20`), aunque sólo tenía 13 activos; el build tardó 16 s (`poc1a/EVIDENCIA.md:152`).
+  - Este gate ejecuta unos 167 casos activos en cinco baterías (D13, D16, D17, D26 y D27), dos tandas E2E y 150 envíos de medición.
+  - **Coste nuevo:** ahora `exec-en` ejecuta `scripts/verificar-db.ts` antes de cada orden (`poc.sh:83`), y eso arranca Payload completo (`verificar-db.ts:11`). El driver llama a `exec-en` una vez por caso para el reset (`contrato-driver.mjs:286`; `contrato/runner.mjs:22-27`). Cada caso suma, por tanto, un arranque de Payload a los del reset. Esto puede alargar notablemente las baterías. No hay medición de cuánto.
 - **Desbloquea:** U10, la revisión del hito por jz-security y jz-qa (`docs/PLAN-POC-3.md:172`).
 
 ## Advertencia de seguridad (leer antes de nada)
 
-1. `poc1a/poc.sh` y los scripts Node del host (driver, batería, pruebas `test/docker`, `test/build` y `medicion`) se ejecutan **como root con acceso a `docker.sock`**. Su contenido lo editaron agentes. **Antes de ejecutar nada**, el humano revisa el diff del paso A2.
-2. Sólo se usan bases `poc3_*`: `poc3_intake` y `poc3_migraciones` (`docs/POC-3-DISENO.md:8`). La guarda de `poc.sh:31-39` y la del driver (`poc1a/contrato-driver.mjs:15`) rechazan cualquier otra base.
-3. **No usar la base `poc` (contaminada).** Quedan prohibidas las órdenes heredadas que la usan: `up`, `up-prod`, `migrate`, `migrate-create`, `build`, `exec`, `resetdb` (hace `DROP SCHEMA` de `poc`, `poc.sh:77`), `e2e` y `destroy` (`poc1a/README.md:8`). `./poc.sh psql` se conecta a `poc` (`poc.sh:74`); aquí sólo se usa para listar y crear bases (`poc1a/README.md:10,99`).
-4. No tocar otros servicios del host. Todas las órdenes Docker pasan por `./poc.sh`, que fija el proyecto Compose `jozeuzz-poc-a` (`poc.sh:2-6`). Hay una única excepción documentada, de sólo lectura: `docker image inspect` en D05 (`docs/POC-3-DISENO.md:264`). Prohibidos: `docker system prune`, `docker volume rm`, `./poc.sh destroy` (borra el volumen `db` con todas las bases, `poc.sh:144`) y cualquier `docker stop` fuera del proyecto.
-5. No exportar `POC_BASE_URL`, `POC_TARGET_DATABASE`, `POC_RESET_ENV`, `INTAKE_SECRETO` ni `E2E_RESET`: se pasan siempre en línea. La única variable exportada es `NODE_EXTRA_CA_CERTS`.
-6. No imprimir `.env`, no usar `sh -x` con `poc.sh` (expondría `E2E_RESET`, que lleva la contraseña del admin sintético, `poc.sh:94,102`) y no usar `NODE_TLS_REJECT_UNAUTHORIZED=0` (`docs/POC-3-DISENO.md:64`).
+1. `poc1a/poc.sh` y los scripts Node del host (driver, batería, pruebas `test/docker`, `test/build` y `medicion`) se ejecutan **como root con acceso a `docker.sock`**. Su contenido lo editaron agentes. **Antes de ejecutar nada**, el humano revisa el diff del paso A2, que es obligatorio.
+2. **Los contenedores pueden escribir en `poc1a/`.** Los servicios `app`, `app-prod`, `deps` y `e2e` montan `./` (`poc1a/`) en `/app` en modo escritura, con uid 1000 (`compose.yaml:7-10,94-97`). Si los permisos del árbol lo permiten (lo mide A3f), un contenedor podría reemplazar archivos que el host ejecuta después como root. Por eso `r()` comprueba la integridad del árbol antes de cada orden (A3) y se comprueba `.tls` tras cada orden que lo regenera. `../contrato` no se monta en ningún contenedor (deducción de `compose.yaml`). Los scripts Node del host sólo importan módulos `node:` (deducción por lectura de sus `import`), así que no cargan `node_modules`. Queda un riesgo residual entre la comprobación y la ejecución: la corrección de fondo es el hallazgo S-1.
+3. Sólo se usan bases `poc3_*`: `poc3_intake` y `poc3_migraciones` (`docs/POC-3-DISENO.md:8`). La guarda de `poc.sh:31-39` y la del driver (`poc1a/contrato-driver.mjs:15`) rechazan cualquier otra base.
+4. **No usar la base `poc` (contaminada).** Quedan prohibidas las órdenes heredadas que la usan: `up`, `up-prod`, `migrate`, `migrate-create`, `build`, `exec`, `resetdb` (hace `DROP SCHEMA` de `poc`, `poc.sh:77`), `e2e` y `destroy` (`poc1a/README.md:8`). `./poc.sh psql` se conecta a `poc` (`poc.sh:74`); aquí sólo se usa para listar y crear bases (`poc1a/README.md:10,99`).
+5. No tocar otros servicios del host. Todas las órdenes Docker pasan por `./poc.sh`, que fija el proyecto Compose `jozeuzz-poc-a` (`poc.sh:2-6`). Hay dos excepciones documentadas, ambas de sólo lectura:
+   - `docker compose -p jozeuzz-poc-a … config --no-interpolate` en A2c;
+   - `docker image inspect` en D05 (`docs/POC-3-DISENO.md:264`).
+
+   Prohibidos: `docker system prune`, `docker volume rm`, `./poc.sh destroy` (borra el volumen `db` con todas las bases, `poc.sh:149`) y cualquier `docker stop` fuera del proyecto.
+6. No exportar `POC_BASE_URL`, `POC_TARGET_DATABASE`, `POC_RESET_ENV`, `INTAKE_SECRETO` ni `E2E_RESET`: se pasan siempre en línea. La única variable exportada es `NODE_EXTRA_CA_CERTS`.
+7. **Nunca pasar un secreto real en línea a `r()`.** `r()` escribe la orden completa (`$*`) en la cabecera del log. La única excepción es el valor falso deliberado `INTAKE_SECRETO=abcd` de D22a.
+8. No imprimir `.env` (A3 y B1 lo validan sin mostrar valores). No usar `sh -x` con `poc.sh`, porque expondría `E2E_RESET`, que lleva la contraseña del admin sintético (`poc.sh:96,107`). No usar `NODE_TLS_REJECT_UNAUTHORIZED=0` (`docs/POC-3-DISENO.md:64`).
+9. **Los agentes corren como root** en este host. La protección de la carpeta de salidas (modo 700, A3) y de este documento (blob fijado en A1) es **de política**, no de permisos: un agente con root podría saltársela. Por eso el hash final de `SHA256SUMS` se guarda fuera del host (K3).
 
 ## Tipos de parada
 
-- **Parada dura:** se detiene el procedimiento, se dejan los servicios como están, se registra lo ocurrido y se avisa al orquestador. Aplica a fallos de infraestructura (`init`, `db-up`, `up-*`, base equivocada) y de seguridad (aislamiento de red, IP forjada, fugas en logs, inyección en el build, NV-8).
+- **Parada dura:** se detiene el procedimiento, se dejan los servicios como están, se registra lo ocurrido y se avisa al orquestador. Aplica en estos casos:
+  - fallos de infraestructura: `init`, `db-up`, `up-*` o base equivocada;
+  - fallos de seguridad: aislamiento de red, IP forjada, fugas en logs, inyección en el build o NV-8;
+  - fallos de integridad: `ARBOL ALTERADO` (rc=99), `TLS ALTERADO`, blob del documento distinto o configuración Git sin explicar.
 - **Fallo registrable:** se registra la salida completa y se sigue con el paso siguiente, que es independiente. El gate no se cierra mientras quede un fallo registrable. Aplica a vitest, a las baterías y a E2E.
-- Si se repite un paso, se registran **todos** los intentos (`D11`, `D11-r2`, …). No se elige el intento verde.
+- Si se repite un paso, se registran **todos** los intentos (`D11`, `D11-r2`, …) con identificadores distintos (`r()` rechaza un identificador repetido). No se elige el intento verde.
 
 ---
 
-## A. Antes de empezar (sin Docker)
+## A. Antes de empezar (sin Docker, salvo A2c)
 
-### A1 · Estado del repositorio
+### A0 · Sesión de shell y Git sin efectos laterales (S8)
+
+El procedimiento asume `bash`, por `pipefail` y la sustitución de procesos de K2.
 
 ```sh
+bash
 cd /home/proyectos/jozeuzz-poc-candidata-a
-git branch --show-current   # poc/candidata-a-3
-git rev-parse --short HEAD  # c8bbf0f o un commit posterior
-git diff --name-only c8bbf0f..HEAD  # vacío o sólo rutas bajo docs/
-git status --short          # vacío
+set -o pipefail
+umask 077
+git config --show-origin -l | grep -iE 'fsmonitor|hookspath|textconv|external|pager|sshcommand|alias'   # vacío
+g() { git -c core.fsmonitor=false -c core.hooksPath=/dev/null --no-pager "$@"; }
 ```
 
-Parada dura si la rama no coincide, si entre `c8bbf0f` y HEAD cambia algo fuera de `docs/` o si el árbol no está limpio.
+- **Esperado:** el `grep` no imprime nada.
+- **Si imprime algo:** el humano lo explica antes de seguir, y si no puede explicarlo es parada dura. En cualquier caso, todas las órdenes Git de este procedimiento usan `g`, que anula `fsmonitor`, los hooks y el paginador, y los diffs llevan `--no-ext-diff --no-textconv`.
 
-### A2 · Revisión del contenido editado por agentes
+### A1 · Estado del repositorio y blob del procedimiento
+
+El humano lee este documento desde Git (`g show HEAD:docs/GATE-DOCKER-POC-3.md`), no desde el árbol de trabajo. Tras leerlo, anota su blob con `g rev-parse HEAD:docs/GATE-DOCKER-POC-3.md`. Al ejecutar, sigue el texto de ese mismo blob; si quiere evitar cualquier cambio posterior, lo lee con `g show <rev>:docs/GATE-DOCKER-POC-3.md`.
+
+```sh
+BLOB=<blob anotado por el humano tras leer el documento>
+g branch --show-current                               # poc/candidata-a-3
+g rev-parse --short HEAD                              # c8bbf0f, el commit que confirma este documento y docs/adr/0001-stack.md, o posterior
+g diff --name-only c8bbf0f..HEAD                      # vacío o sólo rutas bajo docs/
+g status --short                                      # vacío
+test "$(g rev-parse HEAD:docs/GATE-DOCKER-POC-3.md)" = "$BLOB" && echo blob-ok
+```
+
+Es **parada dura** en cualquiera de estos casos:
+
+- la rama no coincide;
+- entre `c8bbf0f` y HEAD cambia algo fuera de `docs/`;
+- el árbol no está limpio, por ejemplo porque `docs/adr/` sigue sin confirmar;
+- no sale `blob-ok`, es decir, el documento cambió después de que el humano lo leyera.
+
+### A2 · Revisión obligatoria del contenido editado por agentes (S2, S4)
 
 `<REV>` es el último commit que el humano revisó. **PENDIENTE:** lo fija el humano, porque este documento no lo conoce.
 
+**A2a · Todo lo que el host ejecuta como root o que configura contenedores e instalación (diff completo, obligatorio):**
+
 ```sh
 REV=<último commit revisado por el humano>
-git log --format='%h %an %ad %s' --date=short "$REV"..HEAD -- poc1a contrato
-git diff "$REV"..HEAD -- poc1a/poc.sh 'poc1a/compose*.yaml' poc1a/proxy poc1a/scripts poc1a/package.json poc1a/test/docker poc1a/medicion
-# Recomendado además: también corre en el host como root (driver, batería, prueba de build) o afecta a la instalación.
-git diff "$REV"..HEAD -- contrato poc1a/contrato-driver.mjs poc1a/driver poc1a/test/build poc1a/.npmrc poc1a/playwright.config.ts poc1a/playwright.medicion.config.ts
-grep -nE 'docker\.sock|privileged|network_mode|cap_add|pid:|ipc:|ports:|127\.0\.0\.1:' poc1a/compose.yaml poc1a/compose.pruebas.yaml
-grep -n 'docker' poc1a/poc.sh
+g log --format='%h %an %ad %s' --date=short "$REV"..HEAD -- poc1a contrato .gitattributes
+g diff --no-ext-diff --no-textconv "$REV"..HEAD -- \
+  poc1a/poc.sh 'poc1a/compose*.yaml' poc1a/proxy poc1a/scripts poc1a/package.json poc1a/package-lock.json poc1a/.npmrc \
+  poc1a/test/docker poc1a/test/build poc1a/medicion poc1a/contrato-driver.mjs poc1a/driver \
+  contrato poc1a/playwright.config.ts poc1a/playwright.medicion.config.ts .gitattributes poc1a/.gitattributes
 ```
+
+- `contrato` incluye `run.mjs`, `runner.mjs`, `casos/` y `fixture.mjs`, que importa `scripts/reset-e2e.mjs` (`reset-e2e.mjs:3`).
+- En el árbol de `c8bbf0f` no existe ningún `.gitattributes` (deducción por listado). Si el diff lo muestra, es parada dura salvo explicación, porque podría declarar filtros o drivers de diff.
+- En `c8bbf0f`, `package-lock.json` tiene 557 `resolved`, todos en `https://registry.npmjs.org/`, y ninguna mención de `axe-core` (lectura del archivo).
+
+**A2b · Resto del código que corre en contenedores (al menos el resumen, obligatorio):**
+
+```sh
+g diff --no-ext-diff --stat "$REV"..HEAD -- poc1a/e2e poc1a/src poc1a/test/http poc1a/test/integracion poc1a/vitest.config.ts poc1a/tsconfig.json 'poc1a/next.config*'
+```
+
+Todo archivo del resumen que el humano no sepa explicar se abre con `g diff --no-ext-diff --no-textconv`.
+
+**A2c · Configuración efectiva de Compose:**
+
+```sh
+cd /home/proyectos/jozeuzz-poc-candidata-a/poc1a
+grep -nE 'docker\.sock|privileged|network_mode|cap_add|pid:|ipc:|ports:|127\.0\.0\.1:' compose.yaml compose.pruebas.yaml
+grep -n 'docker' poc.sh
+docker compose -p jozeuzz-poc-a -f compose.yaml -f compose.pruebas.yaml --profile prod --profile e2e --profile deps config --no-interpolate \
+  | grep -nE 'external|name:|^\s*- /|source:|user:|build:|devices|security_opt|env_file|cap_|privileged|sock'
+```
+
+- **`--no-interpolate` es obligatorio.** Sin él, `config` sustituye `${POC_DB_PASSWORD}`, `${PAYLOAD_SECRET}` e `${INTAKE_SECRETO}` desde `.env` (`compose.yaml:21,44-48,63-67`) e imprime los secretos.
+- Los perfiles `prod`, `e2e` y `deps` existen (`compose.yaml:36,60,93`).
+- Se añadió `source:` al patrón porque Compose suele normalizar los montajes al formato largo, y en ese formato `^\s*- /` no los captura. El formato exacto de la salida de Compose no está verificado.
 
 Qué hay que ver:
 
-- **`grep` de Compose:** sólo `ports:` y los dos `127.0.0.1:3443/3444` del proxy (`compose.yaml:82-84`). Nada de `docker.sock`, `privileged` ni `network_mode`.
-- **`grep` de `poc.sh`:** sólo `poc.sh:6` (`C="docker compose -p jozeuzz-poc-a …"`) y la orden `stats` (`docker stats`).
+- **Primer `grep`:** sólo `ports:` y los dos `127.0.0.1:3443/3444` del proxy (`compose.yaml:82-84`). Nada de `docker.sock`, `privileged` ni `network_mode`.
+- **`grep` de `poc.sh`:** sólo `poc.sh:6` (`C="docker compose -p jozeuzz-poc-a …"`) y `poc.sh:148` (`docker stats`).
+- **`config`:**
+  - todos los `name:` empiezan por `jozeuzz-poc-a`, sea el proyecto, las redes o el volumen `db`;
+  - los `user:` son `1000:1000`, en `deps`, `app`, `app-prod` y `e2e`;
+  - los `source:` son rutas bajo `/home/proyectos/jozeuzz-poc-candidata-a/poc1a`: `.`, `proxy/…` y `.tls`;
+  - no aparece `external`, `build:`, `devices`, `security_opt`, `env_file`, `cap_`, `privileged` ni `sock`.
 - **En el diff:** ninguna escritura fuera de `poc1a/`, ninguna descarga ejecutada (`curl | sh`), ningún `rm` fuera de `.tls` y ningún otro proyecto Compose.
 
 Parada dura ante cualquier cosa no explicada.
 
-### A3 · Sesión de shell, carpeta de salidas y listas de casos
+### A3 · Carpeta de salidas, `r()`, guardas y listas de casos (S1, S7)
 
-El procedimiento asume `bash`, por `pipefail`. Las salidas se guardan **fuera del repositorio** y en modo 077, para que ningún agente pueda alterarlas. Alternativa: `.jz-state/` está ignorada (`.gitignore:1`) y la leen los revisores, pero es zona de escritura de agentes. Si se usa para la revisión de U10, debe ser una copia con su `SHA256SUMS`.
+Las salidas se guardan **fuera del repositorio**, en una carpeta de modo 700. Recuerde la advertencia 9: esa protección es de política, no de permisos. Alternativa: `.jz-state/` está ignorada (`.gitignore:1`) y la leen los revisores, pero es zona de escritura de agentes. Si se usa para la revisión de U10, debe ser una copia con su `SHA256SUMS`.
 
 ```sh
-bash
 cd /home/proyectos/jozeuzz-poc-candidata-a/poc1a
-set -o pipefail
-umask 077
-S="/root/jz-gate-poc3/$(date -u +%Y%m%dT%H%M%SZ)"; mkdir -p "$S"
+S="/root/jz-gate-poc3/$(date -u +%Y%m%dT%H%M%SZ)"
+test ! -L /root/jz-gate-poc3 && install -d -m 700 /root/jz-gate-poc3 "$S" && echo salidas-ok
+GUARDA='poc.sh contrato-driver.mjs driver scripts test/docker test/build medicion package.json package-lock.json compose.yaml compose.pruebas.yaml proxy .npmrc ../contrato'
 r() {
   id="$1"; shift
-  { echo "# $(date -u +%Y-%m-%dT%H:%M:%SZ) HEAD=$(git rev-parse --short HEAD) :: $*"; "$@"; } 2>&1 | tee "$S/$id.log"
-  rc=$?; echo "rc=$rc" | tee -a "$S/$id.log"; return "$rc"
+  if [ -e "$S/$id.log" ]; then echo "ID REPETIDO: $id (usar $id-r2, …)" >&2; return 98; fi
+  alterado="$(g status --porcelain -- $GUARDA)"
+  if [ -n "$alterado" ]; then
+    { echo "# $(date -u +%Y-%m-%dT%H:%M:%SZ) :: $*"; echo "ARBOL ALTERADO"; printf '%s\n' "$alterado"; echo "rc=99"; } | tee "$S/$id.log"
+    sha256sum "$S/$id.log" >> "$S/SHA256SUMS"; return 99
+  fi
+  { echo "# $(date -u +%Y-%m-%dT%H:%M:%SZ) HEAD=$(g rev-parse --short HEAD) :: $*"; "$@"; } 2>&1 | tee "$S/$id.log"
+  rc=$?; echo "rc=$rc" | tee -a "$S/$id.log"
+  sha256sum "$S/$id.log" >> "$S/SHA256SUMS"; return "$rc"
 }
+tls_ok() { if test ! -L .tls && test ! -L .tls/ca.crt && [ "$(stat -c '%U' .tls)" = root ]; then echo TLS_OK; else echo "TLS ALTERADO"; return 99; fi; }
 L44='AU-05,AU-06,AU-07,PR-04,PR-07,CO-01,CO-02,CO-03,CO-04,CO-05,CO-06,CO-07,CA-02,ES-01,ES-02,ES-03,ES-04,ES-05,ES-06,ES-07,ES-08,ES-09,ES-10,ES-11,MO-01,MO-02,MO-03,MO-04,MO-05,AU-01,AU-02,AU-03,AU-04,PR-01,PR-02,PR-03,PR-05,PR-06,EV-01,EV-02,EV-03,EV-04,EV-05,EV-06'
 L43="$(printf %s "$L44" | tr ',' '\n' | grep -vx 'EV-04' | paste -sd, -)"
 LIN='IN-01,IN-02,IN-03,IN-04,IN-05,IN-06,IN-07,IN-08,IN-09,IN-10,IN-11,IN-12'
@@ -81,48 +157,93 @@ for l in "$L44" "$L43" "$LIN"; do printf %s "$l" | tr ',' '\n' | wc -l; done   #
 env | cut -d= -f1 | grep -E '^(POC_|E2E_|INTAKE_|NODE_TLS)'                     # vacío
 node --version                                                                # ≥ v20
 test -d node_modules && echo node_modules-ok
+r A3f find . -maxdepth 2 '(' -user 1000 -o -perm -0002 ')' -not -path './node_modules*' -not -path './.n*'
 ```
 
+**Guarda de integridad (S1).** Antes de ejecutar cada orden, `r()` comprueba con `git status --porcelain` las rutas de `GUARDA`, que son las que el host ejecuta o que configuran los contenedores. Si hay cambios o archivos nuevos sin seguimiento, imprime `ARBOL ALTERADO`, registra el log y devuelve 99.
+
+- Es una **parada dura**: no se restaura nada sin decisión humana.
+- `.npmrc` se añadió a la lista que propuso jz-security porque fija `ignore-scripts` para los contenedores, y `./.n*` lo excluye del listado A3f.
+- **Excepción conocida:** entre A4a y el commit de A4, `package.json` y `package-lock.json` están modificados, así que `r()` devolverá 99. Por eso A4b y A4c van **después** del commit.
+- La guarda no ve archivos ignorados por Git. Esto es aceptable porque los scripts del host no cargan `node_modules` (advertencia 2).
+
+**A3f (informativo, sin parada).** Lista lo que un contenedor con uid 1000 puede escribir directamente. Cualquier ruta de `GUARDA` que aparezca, o `.` mismo, confirma que la guarda es necesaria. Se anota en la fila de evidencia.
+
+**Guarda de `.tls` (S1).** `tls_ok` se encadena tras cada orden que regenera `.tls`. Es **parada dura** si imprime `TLS ALTERADO` (enlace simbólico o propietario distinto de root).
+
+**Listas y entorno.**
+
 - `L44` es la lista literal de `poc1a/README.md:103`. `L43` es la misma sin EV-04, igual que `README.md:111`.
-- **Parada dura** si los conteos no son 44, 43 y 12, o si hay variables `POC_*`, `E2E_*`, `INTAKE_*` o `NODE_TLS*` en el entorno.
-- Si falta `node_modules`: `./poc.sh deps` (`npm ci`, con red, `poc.sh:47`). Requiere la decisión del humano.
+- **Parada dura** si los conteos no son 44, 43 y 12, si hay variables `POC_*`, `E2E_*`, `INTAKE_*` o `NODE_TLS*` en el entorno, o si no sale `salidas-ok`.
+- Si falta `node_modules`: `r A3d ./poc.sh deps` (`npm ci`, con red, `poc.sh:47`). Requiere la decisión del humano.
 
-**`NODE_EXTRA_CA_CERTS`.** Toda orden que recrea el proxy ejecuta `tls_efimera` y regenera la CA (`poc.sh:9-30`): `up-en`, `up-pruebas-en`, `up-fallos-en`, `up-prod-en`, `up-prod-pruebas-en`, `e2e-en` y `e2e-prod-en`. El valor de la variable no cambia (`$PWD/.tls/ca.crt`). Cada proceso Node lee el archivo al arrancar, así que lo que importa es lanzarlo después de la orden. Aun así se reexporta tras cada una, como pide `poc1a/README.md:94`, y siempre desde `poc1a/`.
+**`NODE_EXTRA_CA_CERTS`.** Toda orden que recrea el proxy ejecuta `tls_efimera` y regenera la CA (`poc.sh:9-30`): `up-en`, `up-pruebas-en`, `up-fallos-en`, `up-prod-en`, `up-prod-pruebas-en`, `e2e-en` y `e2e-prod-en`. El valor de la variable no cambia (`$PWD/.tls/ca.crt`). Cada proceso Node lee el archivo al arrancar, así que lo que importa es lanzarlo después de la orden. Aun así se reexporta tras cada una, después de `tls_ok`, como pide `poc1a/README.md:94`, y siempre desde `poc1a/`.
 
-### A4 · P3-05: instalación de `@axe-core/playwright@4.13.0`
+### A4 · P3-05: instalación de `@axe-core/playwright@4.13.0` (S3)
 
 **Requiere autorización explícita del humano en el momento de ejecutarla.** Sin este paso, los 3 tests de `e2e/intake-axe.spec.ts` se omiten (`intake-axe.spec.ts:22`), U8-axe queda PENDIENTE y el criterio de cierre «E2E con auditoría» no se cumple (`docs/PLAN-POC-3.md:179`).
 
 - La opción está aprobada: P3-05 es `@axe-core/playwright` 4.13.0 (`docs/PLAN-POC-3.md:186`; `docs/POC-3-DISENO.md:7,286`).
 - La versión aparece igual en `poc1a/README.md:77,80`. Que exista en el registro y que sea compatible con `@playwright/test` 1.64.1 (`package.json:28`) **no está verificado**: lo comprueba la propia instalación.
 - Conviene hacerlo **antes** de D01, para que toda la evidencia corresponda a un único HEAD.
+- **`--ignore-scripts` no protege la ejecución posterior.** Evita los scripts de instalación, pero el código de `@axe-core/playwright` y `axe-core` se ejecuta después en E2E (D18 y D28), dentro del contenedor `e2e`, con uid 1000, en la red interna `e2e` y con `./` montado en escritura (`compose.yaml:91-98`). Por eso se revisa el lockfile antes del commit.
 
 ```sh
 cd /home/proyectos/jozeuzz-poc-candidata-a/poc1a
-cat .npmrc                                     # debe contener ignore-scripts=true (EVIDENCIA.md:167)
-r A4a ./poc.sh deps npm install --save-dev --save-exact @axe-core/playwright@4.13.0
+grep -c '^ignore-scripts=true$' .npmrc          # 1 (EVIDENCIA.md:167); no se imprime .npmrc
+r A4a ./poc.sh deps npm install --ignore-scripts --save-dev --save-exact @axe-core/playwright@4.13.0
 # Editar tsconfig.json: quitar "e2e/intake-axe.spec.ts" de "exclude" (tsconfig.json:46; README.md:81)
-git status --short                             # sólo package.json, package-lock.json, tsconfig.json
-git diff package.json                          # una línea nueva: "@axe-core/playwright": "4.13.0"
-r A4b ./poc.sh deps npm ls @axe-core/playwright @playwright/test
-git add package.json package-lock.json tsconfig.json
-git commit -m "chore(poc-3): add @axe-core/playwright 4.13.0 (P3-05)"
-git rev-parse --short HEAD                     # nuevo HEAD de referencia
+g status --short                                  # sólo package.json, package-lock.json, tsconfig.json
+g diff --no-ext-diff --no-textconv -- package.json   # una línea nueva: "@axe-core/playwright": "4.13.0"
+g diff --no-ext-diff --stat -- package-lock.json
+g diff --no-ext-diff --no-textconv -U0 -- package-lock.json | grep -E '^\+\s*"node_modules/'
+#   exactamente: "node_modules/@axe-core/playwright" y "node_modules/axe-core"
+g diff --no-ext-diff --no-textconv -U0 -- package-lock.json | grep -cE '^-\s*"(version|resolved|integrity)"'   # 0
+g diff --no-ext-diff --no-textconv -U0 -- package-lock.json | grep -cE '^\+\s*"(version|resolved|integrity)"'  # 6 (3 por paquete nuevo)
+grep -oE '"resolved": *"[^"]*"' package-lock.json | grep -vc '"https://registry.npmjs.org/'  # 0
+grep -cE '"(git\+|file:|http:)' package-lock.json                                           # 0
+node -p "require('./package-lock.json').packages['node_modules/axe-core'].version"           # anotar (transitiva)
+g add package.json package-lock.json tsconfig.json
+g commit -m "chore(poc-3): add @axe-core/playwright 4.13.0 (P3-05)"
+g rev-parse --short HEAD                          # nuevo HEAD de referencia
+r A4b ./poc.sh deps npm ls @axe-core/playwright axe-core @playwright/test
+r A4c ./poc.sh deps npm audit signatures
 ```
 
-- **Parada dura** si `npm install` falla (`E404` o `ETARGET`), si cambian otros paquetes de `package.json` o si `npm ls` informa `invalid` o `UNMET PEER`.
-- El diff de `package-lock.json` entra en la revisión A2.
+- **Lectura de los conteos:** `grep -c` devuelve rc=1 cuando cuenta 0, y eso es lo esperado. El conteo de 6 es una deducción del formato v3 del lockfile. Si difiere, se inspecciona el diff completo antes de seguir.
+- **`npm audit signatures`:** `./poc.sh deps` acepta cualquier orden y la ejecuta en el servicio `deps`, que tiene red externa (`poc.sh:47`; `compose.yaml:34-38`). El texto exacto de su salida no está verificado. Se registra completo.
+- **Parada dura**, antes del commit, si ocurre cualquiera de estas cosas:
+  - `npm install` falla: `E404`, `ETARGET` o `EACCES`. `EACCES` indicaría que `package.json` no es escribible por uid 1000; no se cambian permisos sin decisión humana;
+  - cambian otros paquetes de `package.json`;
+  - aparecen claves `node_modules/…` distintas de las dos esperadas, por ejemplo una copia anidada de `axe-core`;
+  - hay líneas `-` de `version`, `resolved` o `integrity`;
+  - algún `resolved` no está en `https://registry.npmjs.org/`.
+- **Parada dura después del commit** si `npm ls` informa `invalid` o `UNMET PEER`, o si `npm audit signatures` informa firmas inválidas. **PENDIENTE (decisión humana):** cómo deshacer el commit local de A4 en ese caso. No hay push.
+- La fila A4 registra la versión de `@axe-core/playwright` y la de `axe-core`.
 
 ## B. Prerrequisitos Docker
 
-Todos desde `poc1a/`, con el entorno de A3.
+Todos desde `poc1a/`, con el entorno de A0 y A3.
 
 | Paso | Orden | Esperado | Parada |
 |---|---|---|---|
 | B1 | `r B1 ./poc.sh init` | rc=0; sin salida. Crea `.env` si falta y añade `INTAKE_SECRETO` si no está (`poc.sh:41-46`). No abrir `.env` | dura |
+| B1v | validación de `.env` sin imprimir valores (S5), abajo | `0`, `3` y `root 600` | dura |
 | B2 | `r B2 ./poc.sh db-up` | rc=0 (`poc.sh:49`) | dura |
 | B3 | `r B3 ./poc.sh psql -Atc "SELECT datname FROM pg_database WHERE datname LIKE 'poc3%' ORDER BY 1"` | rc=0; lista las `poc3*` existentes | dura si rc≠0 |
 | B4 | `r B4a ./poc.sh psql -c 'CREATE DATABASE poc3_intake'` y `r B4b ./poc.sh psql -c 'CREATE DATABASE poc3_migraciones'`, cada una **sólo si no aparece en B3** (`README.md:99`; `POC-3-DISENO.md:276`) | rc=0, `CREATE DATABASE` | dura |
+
+**B1v · `.env` (S5).** `init` sólo crea `POC_DB_PASSWORD`, `PAYLOAD_SECRET` e `INTAKE_SECRETO`, con `openssl rand -hex` (hexadecimal en minúsculas), y con `umask 077` si el archivo no existía (`poc.sh:42-46`).
+
+```sh
+grep -cvE '^(POC_DB_PASSWORD|PAYLOAD_SECRET|INTAKE_SECRETO)=[0-9a-f]+$' .env   # 0 (rc=1 es lo esperado)
+grep -cE '^(POC_DB_PASSWORD|PAYLOAD_SECRET|INTAKE_SECRETO)=' .env             # 3
+stat -c '%U %a' .env                                                          # root 600
+```
+
+- **Parada dura** si algún resultado difiere.
+- Si hay líneas de más, se puede ver qué claves hay sin imprimir valores con `cut -d= -f1 .env`.
+- El modo 600 con propietario root impide que los contenedores, con uid 1000, lean `/app/.env` a través del montaje de `./`. Compose lee `.env` en el host sólo para interpolar.
 
 Si `poc3_migraciones` ya existe, la prueba «desde cero» de U4 no vale con ella, y borrarla está prohibido (`poc1a/README.md:20,28`). **PENDIENTE (decisión humana):** usar una base nueva con otro nombre válido para la guarda (por ejemplo `poc3_migraciones_r2`) y anotarla. D01–D03 se ejecutan sobre esa base.
 
@@ -134,7 +255,7 @@ Si `poc3_migraciones` ya existe, la prueba «desde cero» de U4 no vale con ella
 r D01 ./poc.sh migrate-en poc3_migraciones
 ```
 
-- Esperado: rc=0. Payload aplica `20261015_174323_inicial`, `20261016_055416_poc1b` y `20261017_120000_poc3_intake` (`src/migrations/`). El texto exacto de Payload 3.90.2 no está verificado.
+- Esperado: rc=0 (`poc.sh:126-128`). Payload aplica `20261015_174323_inicial`, `20261016_055416_poc1b` y `20261017_120000_poc3_intake` (`src/migrations/`). El texto exacto de Payload 3.90.2 no está verificado.
 - Parada: dura.
 - Registrar: rc y los nombres de las migraciones aplicadas.
 
@@ -164,10 +285,10 @@ r D03b ./poc.sh psql-en poc3_migraciones -Atc "SELECT conrelid::regclass, contyp
 **D04 · Levantar `app` en `poc3_intake`** (U5a)
 
 ```sh
-r D04 ./poc.sh up-en poc3_intake && export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
+r D04 ./poc.sh up-en poc3_intake && tls_ok && export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
 ```
 
-- Esperado: rc=0 (`poc.sh:50-54`).
+- Esperado: rc=0 (`poc.sh:50-54`) y `TLS_OK`.
 - La primera vez descarga imágenes fijadas por digest, lo que requiere red.
 - `next dev` tarda en estar listo: `./poc.sh logs 50` debe mostrar `Ready` (HUECO H-8).
 - Parada: dura.
@@ -187,7 +308,7 @@ r D05 docker image inspect --format '{{json .RepoDigests}}' nginx:1.30.6-alpine@
 r D06 ./poc.sh comprobar-en poc3_intake
 ```
 
-- Esperado: rc=0 y `DATABASE_OK:poc3_intake` (`scripts/verificar-db.ts:16`).
+- Esperado: rc=0 (`poc.sh:64-66`) y `DATABASE_OK:poc3_intake` (`scripts/verificar-db.ts:16`).
 - Parada: dura.
 
 **D07 · Sonda de red** (U5a; T-02, NV-3)
@@ -196,7 +317,7 @@ r D06 ./poc.sh comprobar-en poc3_intake
 r D07 ./poc.sh sonda-red
 ```
 
-- Esperado: rc=0 y tres líneas (`scripts/sonda-red.mjs:4-21`):
+- Esperado: rc=0 (`poc.sh:109`) y tres líneas (`scripts/sonda-red.mjs:4-21`):
   - `OK: inaccesible http://app:3000/`
   - `OK: inaccesible http://app-prod:3000/`
   - `OK: proxy TLS /solicitar 200`
@@ -233,14 +354,14 @@ r D09 node --test test/docker/ip-produccion.test.mjs
 **D10 · Modo pruebas**
 
 ```sh
-r D10 ./poc.sh up-pruebas-en poc3_intake && export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
+r D10 ./poc.sh up-pruebas-en poc3_intake && tls_ok && export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
 ```
 
-- Esperado: rc=0 (`poc.sh:55-59`). Recrea `app` con el override (`compose.pruebas.yaml:5-10`).
+- Esperado: rc=0 (`poc.sh:55-59`) y `TLS_OK`. Recrea `app` con el override (`compose.pruebas.yaml:5-10`).
 - Esperar a `Ready` en `./poc.sh logs 50`.
 - Parada: dura.
 
-**D11 · vitest completo dentro de `app`** (U2 hook y NV-12, U5b T-03 (i)/(ii), U6 T-03 (iii), HTTP U5b/U6, NV-7, POC-1b)
+**D11 · vitest completo dentro de `app`, con verificación de H-1 y H-2** (U2 hook y NV-12, U5b T-03 (i)/(ii), U6 T-03 (iii), HTTP U5b/U6, NV-7, POC-1b)
 
 ```sh
 r D11 ./poc.sh exec-en poc3_intake npx vitest run
@@ -251,12 +372,18 @@ r D11 ./poc.sh exec-en poc3_intake npx vitest run
   - `test/integracion/intake-persistir.int.test.ts`
   - `test/integracion/intake-limites.int.test.ts`
   - `test/http/intake.test.ts`
+- `exec-en` imprime antes `DATABASE_OK:poc3_intake` por stderr (`poc.sh:83`), y queda en el log.
 - Esperado: rc=0 y `Tests N passed (N)`. N no se puede deducir: hay que anotarlo.
-- **Previsión de fallo (estática, no ejecutada):**
-  - **H-1:** `test/http/intake.test.ts` apunta por defecto a `https://127.0.0.1:3443` (`intake.test.ts:3`), que **dentro** del contenedor `app` no escucha (`poc.sh:79-82`; `compose.yaml:52`). Se espera `fetch failed` / `ECONNREFUSED`.
-  - **H-2:** el caso «honeypot» envía `cookie: otra-cookie` (`intake.test.ts:41,44`). El manejador comprueba el CSRF antes que la trampa (`src/lib/intake/manejador.ts:91-93`), así que responde 403 `csrf_invalido` en lugar del 400 esperado.
-- Parada: fallo registrable. Hay que anotar qué archivos y qué tests fallan.
-- **Variante diagnóstica no validada.** Sólo si H-1 se confirma; su resultado no sustituye la corrección de jz-implementer: `r D11-diag ./poc.sh exec-en poc3_intake env POC_HTTP_BASE=https://proxy:3443 npx vitest run test/http/intake.test.ts`. Usa el nombre `proxy`, que está en el SAN del certificado (`poc.sh:18`), y la CA del contenedor (`compose.yaml:50`).
+- **Verificación de H-1** (*corregido en `c8bbf0f`, pendiente de esta ejecución*). `test/http/intake.test.ts` usa por defecto `https://proxy:3443` (`intake.test.ts:5`). Se espera que llegue porque:
+  - `app` comparte la red `proxy_app` con el proxy (`compose.yaml:52,89`);
+  - `proxy` está en el SAN del certificado (`poc.sh:18`);
+  - la CA llega por `NODE_EXTRA_CA_CERTS=/app/.tls/ca.crt` (`compose.yaml:50`). vitest es un proceso nuevo, así que lee la CA regenerada en D10.
+
+  Se da por verificado si los 8 tests de `intake HTTP U5b` pasan y el log no contiene `fetch failed`, `ECONNREFUSED`, `ENOTFOUND`, `UNABLE_TO_VERIFY` ni `self-signed`.
+- **Verificación de H-2** (*corregido en `c8bbf0f`, pendiente de esta ejecución*). El caso «honeypot» ya envía token y cookie válidos (`intake.test.ts:46-47`). El manejador valida el origen (`manejador.ts:85`) y el CSRF (`manejador.ts:92`) antes de la trampa (`manejador.ts:93`). Se espera que el test «rechaza tipo, origen, CSRF, trampa y mínimo sin eco» pase con 400 `envio_rechazado`. El Origin coincide porque `ORIGEN` sale de `INTAKE_ORIGEN_PUBLICO=https://127.0.0.1:3443` (`intake.test.ts:6`; `compose.yaml:47`), aunque la URL sea `proxy:3443`.
+- **Precondición: proxy de pruebas** (D10). Los tests envían `x-poc-ip-sintetica` y cuentan límites por IP sintética (`intake.test.ts:23,69-89`). Con el proxy de producción, todos los envíos compartirían IP y agotarían el cupo.
+- Parada: fallo registrable. Hay que anotar qué archivos y qué tests fallan, y si H-1 o H-2 siguen presentes.
+- *Obsoleta:* la variante `D11-diag` del ciclo 1, con `POC_HTTP_BASE=https://proxy:3443`, ya no tiene sentido, porque ese es ahora el valor por defecto. No se ejecuta.
 
 **D12 · `tsc` dentro de `app`** (criterio «vitest y tsc», `docs/PLAN-POC-3.md:178`)
 
@@ -264,7 +391,7 @@ r D11 ./poc.sh exec-en poc3_intake npx vitest run
 r D12 ./poc.sh exec-en poc3_intake npx tsc --noEmit
 ```
 
-- Esperado: rc=0, sin salida (`poc1a/README.md:14`). Con A4 hecho, cubre también `intake-axe.spec.ts`.
+- Esperado: rc=0 y ninguna salida salvo `DATABASE_OK:poc3_intake` (`poc1a/README.md:14`; `poc.sh:83`). Con A4 hecho, cubre también `intake-axe.spec.ts`.
 - Parada: fallo registrable.
 
 **D13 · IN-01..IN-12 con el proxy de pruebas** (U5b IN-01..IN-10, U6 IN-11, IN-12; NV-1, NV-3)
@@ -282,10 +409,10 @@ r D13 env POC_TARGET_DATABASE=poc3_intake POC_BASE_URL=https://127.0.0.1:3443 no
 **D14 · Modo fallos**
 
 ```sh
-r D14 ./poc.sh up-fallos-en poc3_intake && export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
+r D14 ./poc.sh up-fallos-en poc3_intake && tls_ok && export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
 ```
 
-- Esperado: rc=0 (`poc.sh:60-63`). Recrea `db`, `app` y `proxy`.
+- Esperado: rc=0 (`poc.sh:60-63`) y `TLS_OK`. Recrea `db`, `app` y `proxy`.
 - Esperar a `Ready`.
 - Parada: dura.
 
@@ -306,6 +433,7 @@ r D16 env POC_TARGET_DATABASE=poc3_intake POC_BASE_URL=https://127.0.0.1:3443 no
 ```
 
 - Esperado: rc=0 y `casos 44 · ok 44 · fail 0` (`README.md:103`).
+- Cada caso hace un reset por `exec-en`, con un arranque de Payload adicional (ver «Duración»).
 - NV-14 sólo queda cubierto si `app-prod` no se ha creado antes: las órdenes de C usan `run --rm`. Hay que anotar si existía de una sesión anterior.
 - Parada: fallo registrable.
 
@@ -323,14 +451,14 @@ r D17 env POC_TARGET_DATABASE=poc3_intake POC_BASE_URL=https://127.0.0.1:3443 no
 **D18 · E2E contra `next dev` por el proxy** (U8; NV-2, NV-13, NV-16)
 
 ```sh
-r D18 ./poc.sh e2e-en poc3_intake && export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
+r D18 ./poc.sh e2e-en poc3_intake && tls_ok && export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
 ```
 
-- Esperado: rc=0.
+- Esperado: rc=0 y `TLS_OK`.
   - Con A4: `13 passed`, que son f1, f3, acciones, 7 de `intake.spec.ts` y 3 de axe.
   - Sin A4: `10 passed` y `3 skipped`.
-- Recrea `app` y `proxy` **sin** el override (`poc.sh:87-95`).
-- El log no debe contener la contraseña del admin: `E2E_RESET` viaja por entorno (`poc.sh:84,94`). Si el reset falla, el mensaje del driver puede incluir el final de la salida del reset (`contrato-driver.mjs:292-293`). Hay que revisarlo con J1 antes de compartirlo.
+- Recrea `app` y `proxy` **sin** el override, verifica la base y lanza Playwright (`poc.sh:89-97`).
+- El log no debe contener la contraseña del admin: `E2E_RESET` viaja por entorno (`poc.sh:96-97`). Si el reset falla, el mensaje del driver puede incluir el final de la salida del reset (`contrato-driver.mjs:292-293`). Hay que revisarlo con K2 antes de compartirlo.
 - Parada: fallo registrable.
 
 ## H. `app-prod` (3444): U7 producción, NV-8, gate U9 parte 2 y U8 en producción
@@ -351,7 +479,7 @@ r D19 ./poc.sh migrate-en poc3_intake
 r D20 ./poc.sh build-en poc3_intake
 ```
 
-- Esperado: rc=0 y la línea `build_ms=<n> codigo=0` (`poc.sh:116-118`).
+- Esperado: rc=0 y la línea `build_ms=<n> codigo=0` (`poc.sh:121-123`).
 - Parada: dura.
 
 **D21 · El build no contiene la inyección** (T-05 (iv), NV-11)
@@ -369,27 +497,27 @@ r D21b node --test test/build/comprobar-build.test.mjs
 
 ```sh
 T22="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-r D22a env INTAKE_SECRETO=abcd ./poc.sh up-prod-en poc3_intake && export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
+r D22a env INTAKE_SECRETO=abcd ./poc.sh up-prod-en poc3_intake && tls_ok && export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
 sleep 30
 r D22b ./poc.sh logs-since "$T22"
 grep 'app-prod' "$S/D22b.log" | grep -c 'config_intake_invalida'
 ```
 
-- **D22a:** rc=0, porque `up -d` no espera a que el contenedor salga.
-- **D22b:** rc=0, y el `grep` final cuenta ≥ 1 línea `{"evento":"arranque","codigo":"config_intake_invalida"}` de `app-prod`.
+- **D22a:** rc=0 (`poc.sh:134-138`), porque `up -d` no espera a que el contenedor salga, y `TLS_OK`.
+- **D22b:** rc=0 (`poc.sh:70-72`), y el `grep` final cuenta ≥ 1 línea `{"evento":"arranque","codigo":"config_intake_invalida"}` de `app-prod`.
 - **Debe ir después de D20.** Sin build, `next start` también saldría con 1 por otro motivo y la prueba sería vacua (corrección C-3).
 - No hay orden de `poc.sh` que muestre el código de salida del contenedor (HUECO H-7).
-- `abcd` es un valor falso deliberado. Se pasa en línea y no se exporta.
+- `abcd` es un valor falso deliberado: es la única excepción a la advertencia 7. Se pasa en línea y no se exporta.
 - Parada: dura si no aparece la línea.
 
 **D23 · `app-prod` con el proxy de pruebas** (U7)
 
 ```sh
-r D23 ./poc.sh up-prod-pruebas-en poc3_intake && export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
+r D23 ./poc.sh up-prod-pruebas-en poc3_intake && tls_ok && export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
 ```
 
-- Esperado: rc=0 (`poc.sh:134-138`). Recrea `app-prod` con el secreto real de `.env`, porque cambia su configuración.
-- `app` sigue levantado desde D18, y debe seguir así: el reset del driver y de E2E se ejecuta dentro de `app` (`contrato-driver.mjs:286`; `poc.sh:79-82`).
+- Esperado: rc=0 (`poc.sh:139-143`) y `TLS_OK`. Recrea `app-prod` con el secreto real de `.env`, porque cambia su configuración.
+- `app` sigue levantado desde D18, y debe seguir así: el reset del driver se ejecuta dentro de `app` mediante `exec-en` (`contrato-driver.mjs:286`; `poc.sh:79-84`).
 - Esperar a `Ready` de `app-prod` en `./poc.sh logs-since <instante>`.
 - Parada: dura.
 
@@ -435,25 +563,32 @@ r D27 env POC_TARGET_DATABASE=poc3_intake POC_BASE_URL=https://127.0.0.1:3444 PO
 **D28 · E2E contra el build de producción** (U8 en producción)
 
 ```sh
-r D28 ./poc.sh e2e-prod-en poc3_intake && export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
+r D28 ./poc.sh e2e-prod-en poc3_intake && tls_ok && export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
 ```
 
-- Esperado: rc=0, con los mismos conteos que D18.
-- **Precondición de `app`:** *corregida en `b09d7ea`, pendiente de verificación Docker.* `e2e-prod-en` ahora levanta `app` en `poc3_intake` y la verifica con `verificar-db.ts` antes del reset, y `exec-en` repite esa verificación. Antes sólo levantaba `db` y `app-prod`, y el reset (`exec-en` en `app`) podía caer en otra base.
-- Recrea `app-prod` y `proxy` **sin** el override (`poc.sh:100-101`).
+- Esperado: rc=0 y `TLS_OK`, con los mismos conteos que D18.
+- **Precondición de `app`:** *corregida en `b09d7ea`, pendiente de verificación Docker.*
+  - Ahora `e2e-prod-en` levanta `app` en `poc3_intake` y la verifica con `verificar-db.ts` antes del reset (`poc.sh:104-106`).
+  - `exec-en` repite esa verificación (`poc.sh:83`).
+  - Antes sólo levantaba `db` y `app-prod`, y el reset podía caer en otra base.
+- Recrea `app-prod` y `proxy` **sin** el override (`poc.sh:102-103`). `E2E_RESET` se obtiene en `poc.sh:107`.
 - Parada: fallo registrable.
 
 ## I. U9 · Medición de latencia y falsos positivos
 
 **D29 · Volver a poner el proxy de pruebas: corrección C-1**
 
-`poc1a/README.md:114` afirma que, tras `e2e-prod-en`, «app-prod sigue arriba con el proxy de pruebas». **Es falso.** `e2e-prod-en` recrea el proxy con `$C`, sin `compose.pruebas.yaml` (`poc.sh:7,101`). Lo mismo hacen `up-en` y `e2e-en` (`poc.sh:54,92`). La medición envía `x-poc-ip-sintetica` (`medicion/intake-latencia.mjs:140`), y sólo el proxy de pruebas la respeta (`intake-latencia.mjs:2-4`). Con el de producción, los 150 envíos saldrían de una sola IP y desde el sexto darían 429, que el script contaría como falsos positivos.
+Tras `e2e-prod-en`, `app-prod` **no** queda con el proxy de pruebas. `README.md:114` lo afirmaba y se corrigió en `b09d7ea`.
+
+- `e2e-prod-en` recrea el proxy con `$C`, sin `compose.pruebas.yaml` (`poc.sh:7,103`). Lo mismo hacen `up-en` y `e2e-en` (`poc.sh:54,94`).
+- La medición envía `x-poc-ip-sintetica` (`medicion/intake-latencia.mjs:140`), y sólo el proxy de pruebas la respeta (`intake-latencia.mjs:2-4`).
+- Con el proxy de producción, los 150 envíos saldrían de una sola IP y desde el sexto darían 429, que el script contaría como falsos positivos.
 
 ```sh
-r D29 ./poc.sh up-prod-pruebas-en poc3_intake && export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
+r D29 ./poc.sh up-prod-pruebas-en poc3_intake && tls_ok && export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
 ```
 
-- Esperado: rc=0.
+- Esperado: rc=0 (`poc.sh:139-143`) y `TLS_OK`.
 - Esperar a `Ready` de `app-prod`.
 - Parada: dura.
 
@@ -470,17 +605,51 @@ r D30 env POC_BASE_URL=https://127.0.0.1:3444 node medicion/intake-latencia.mjs
 - Crea 150 solicitudes en `poc_prod` (`README.md:114`).
 - Parada: fallo registrable si rc=1. No se repite sin registrar el primer intento.
 
-## J. Cierre de la evidencia
+## J. Limpieza (sólo servicios del POC)
 
 ```sh
-grep -nE '"password"|PAYLOAD_SECRET|INTAKE_SECRETO=|POC_DB_PASSWORD|PRIVATE KEY|E2E_RESET=' "$S"/*.log
-sha256sum "$S"/*.log > "$S/SHA256SUMS"
+r J1 ./poc.sh down-prod
+r J2 ./poc.sh down
+r J3 ./poc.sh stats
 ```
 
-- J1: la única coincidencia admisible es la cabecera de `D22a.log` con el valor falso `INTAKE_SECRETO=abcd`. Cualquier otra coincidencia se elimina del material compartido y se avisa.
-- J2: se guardan los hashes.
+- **J1:** rc=0. Para y borra `app-prod` (`poc.sh:144`).
+- **J2:** rc=0. Ejecuta `docker compose -p jozeuzz-poc-a down` (`poc.sh:67`): baja contenedores y redes del proyecto y **conserva** el volumen `db` con las bases `poc3_*` y `poc1b_*`.
+- **J3:** rc=1, con el mensaje `sin contenedores del proyecto jozeuzz-poc-a; nada que medir` (`poc.sh:145-148`). Ese rc=1 es el esperado.
+- **No usar** `./poc.sh destroy` (`down -v`, `poc.sh:149`) ni `docker system prune`.
+- `.tls/` se queda en el disco: está ignorada (`.gitignore:2`), su CA dura 1 día y su `ca.key` ya se borró (`poc.sh:25`).
+- `.next-prod/` y `media-store-prod/` están ignorados (`poc1a/.gitignore:13-14`).
 
-Las filas de evidencia se pegan en `poc1a/EVIDENCIA.md`, sección «POC-3 · Intake seguro» (`EVIDENCIA.md:170-230`). Hay que sustituir los `PENDIENTE` de `EVIDENCIA.md:187-211` y rellenar las tablas de latencia y de falsos positivos (`EVIDENCIA.md:218-228`) con los campos del JSON de D30. Si quien edita `EVIDENCIA.md` es un agente, el humano le pasa los logs o la copia con su `SHA256SUMS`.
+## K. Cierre de la evidencia (S6, S7)
+
+Se hace después de J, para que los logs de limpieza también entren en `SHA256SUMS`. Todo desde `poc1a/`.
+
+```sh
+# K1 · guarda final y estado del árbol
+g status --porcelain -- $GUARDA        # vacío
+g status --short                       # registrar lo que aparezca (p. ej. tsconfig.json si next dev lo reescribió)
+# K2 · fugas: sólo nombres de archivo, nunca líneas
+P='"password"|PAYLOAD_SECRET=|INTAKE_SECRETO=|POC_DB_PASSWORD=|PRIVATE KEY|E2E_RESET=|postgres://[^:@]*:[^@]*@'
+grep -lE "$P" "$S"/*.log                                       # sólo D22a.log
+grep -E "$P" "$S/D22a.log" | grep -vcF 'INTAKE_SECRETO=abcd'   # 0
+grep -lFf <(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' .env) "$S"/*.log  # vacío
+# K3 · hashes
+sha256sum -c --quiet "$S/SHA256SUMS"   # sin salida, rc=0
+sha256sum "$S/SHA256SUMS"              # anotar este hash fuera del host
+```
+
+- **K1:** es parada dura si la guarda no sale vacía, porque significa que un contenedor alteró el árbol durante el último paso. Si `g status --short` muestra otros cambios, se registran.
+- **K2, por patrón:** la única coincidencia admisible es `D22a.log`, por la cabecera con el valor falso `INTAKE_SECRETO=abcd`.
+- **K2, por valor:** la búsqueda usa como patrones los valores de `.env`. La sustitución de procesos los pasa por un descriptor, así que no aparecen en la línea de órdenes ni en pantalla, y `-l` sólo imprime nombres de archivo.
+- **Si K2 encuentra algo:** el archivo afectado se retira del material compartido, se avisa y se trata como parada dura de seguridad. No se abre el log en pantalla compartida.
+- La contraseña aleatoria del admin sintético no está en `.env`. La cubre el patrón `"password"`.
+- **K3:** `sha256sum -c` comprueba que ningún log cambió desde que `r()` lo registró. El hash de `SHA256SUMS` se guarda **fuera del host**, por ejemplo en otro equipo o en papel. Sólo así se puede comprobar después que la carpeta de salidas no se alteró (advertencia 9).
+
+Las filas de evidencia se pegan en `poc1a/EVIDENCIA.md`, sección «POC-3 · Intake seguro» (`EVIDENCIA.md:170-230`).
+
+- Hay que sustituir los `PENDIENTE` de `EVIDENCIA.md:187-211`.
+- Hay que rellenar las tablas de latencia y de falsos positivos (`EVIDENCIA.md:218-228`) con los campos del JSON de D30.
+- Si quien edita `EVIDENCIA.md` es un agente, el humano le pasa los logs o la copia con su `SHA256SUMS`.
 
 ### Plantilla de registro
 
@@ -495,18 +664,22 @@ Basta con los conteos, las líneas de resumen y la ruta y el hash del log.
 
 ```markdown
 #### Gate Docker POC-3 (ejecución humana, docs/GATE-DOCKER-POC-3.md)
-Ejecutado por: <responsable> · Salidas: <ruta fuera del repo> · SHA256SUMS: <hash del archivo>
+Ejecutado por: <responsable> · Blob del procedimiento: <BLOB> · Salidas: <ruta fuera del repo> · SHA256SUMS: <hash, copia fuera del host>
 
 | Paso | Unidad / criterio | Fecha (UTC) | HEAD | rc | Conteo / resultado | Observación | Log (sha256) |
 |---|---|---|---|---|---|---|---|
-| A2 | revisión de seguridad | | | — | REV=<…> | sin hallazgos / hallazgos | — |
-| A4 | P3-05 axe | | | | versión instalada | autorizado sí/no | A4a.log |
+| A0 | config Git | | | — | grep vacío sí/no | explicación si no | — |
+| A1 | estado y blob | | | — | blob-ok | | — |
+| A2 | revisión de seguridad | | | — | REV=<…> | sin hallazgos / hallazgos; config Compose conforme | — |
+| A3f | alcance de escritura uid 1000 | | | | rutas listadas | rutas de GUARDA presentes sí/no | A3f.log |
+| A4 | P3-05 axe | | | | @axe-core/playwright <v>, axe-core <v> | autorizado sí/no; lockfile conforme; audit signatures | A4a/A4b/A4c.log |
+| B1v | .env | | | — | 0 / 3 / root 600 | | — |
 | D01–D03 | U4 desde cero | | | | 3 migraciones; 2.ª sin pendientes; tablas y CHECK | | |
 | D05 | NV-15 | | | | digest coincide sí/no | | |
 | D07 / D24 | U5a T-02 NV-3 | | | | 3 OK / 3 OK | | |
 | D08 | NV-17 | | | | tablas y CHECK en public | | |
 | D09 | T-01 (ii) NV-4 | | | | pass 2 / fail 0 | | |
-| D11 | U2 U5b U6 vitest | | | | Tests N passed (N) | H-1/H-2 confirmados sí/no | |
+| D11 | U2 U5b U6 vitest | | | | Tests N passed (N) | H-1 verificado sí/no; H-2 verificado sí/no | |
 | D12 | tsc | | | | sin errores | | |
 | D13 | IN-* modo pruebas | | | | casos 12 · ok 12 · fail 0 · pendiente 0 | | |
 | D15 | U7 fallos | | | | pass 9 / fail 0 | | |
@@ -521,9 +694,10 @@ Ejecutado por: <responsable> · Salidas: <ruta fuera del repo> · SHA256SUMS: <h
 | D27 | IN-* app-prod | | | | casos 12 · ok 12 · fail 0 · pendiente 0 | | |
 | D28 | U8 E2E prod | | | | N passed, M skipped | | |
 | D30 | U9 medición | | | | 150/150, FP 0, errores 0 | mediana de medianas, p95 | |
+| K1–K3 | integridad y fugas | | | — | guarda vacía; sólo D22a.log; valor vacío; -c ok | | SHA256SUMS |
 ```
 
-## Correcciones y huecos detectados al redactar
+## Correcciones, huecos y hallazgos detectados al redactar
 
 **Correcciones** (este procedimiento ya las aplica; `README.md` y los arreglos de código se corrigieron en el ciclo 1, pendientes de verificación Docker):
 
@@ -533,11 +707,11 @@ Ejecutado por: <responsable> · Salidas: <ruta fuera del repo> · SHA256SUMS: <h
 
 **Huecos:**
 
-- **H-1.** *Corregido en `c8bbf0f` (la base por defecto pasa a `https://proxy:3443`), pendiente de verificación Docker.* `test/http/intake.test.ts:3` no podía llegar al proxy desde dentro de `app` (D11).
-- **H-2.** *Corregido en `c8bbf0f` (el honeypot usa token y cookie válidos), pendiente de verificación Docker.* El caso honeypot estaba mal construido (`intake.test.ts:41,44` frente a `manejador.ts:91-93`).
+- **H-1.** *Corregido en `c8bbf0f` (la base por defecto pasa a `https://proxy:3443`, `intake.test.ts:5`), pendiente de verificación Docker en D11.* El test no podía llegar al proxy desde dentro de `app`.
+- **H-2.** *Corregido en `c8bbf0f` (el honeypot usa token y cookie válidos, `intake.test.ts:46-47`), pendiente de verificación Docker en D11.* El caso honeypot estaba mal construido: el CSRF se comprueba antes que la trampa (`manejador.ts:92-93`).
 - **H-3.** T-08, NV-5 y NV-6 no tienen prueba Docker ni HTTP. Son el 413 chunked y el `Content-Length` falso directos a `app:3000` y `app-prod:3000` (`POC-3-DISENO.md:325`). En `test/http/` no hay `chunked` ni `app-prod:3000` para intake; sólo existe el unitario `src/lib/intake/cuerpo.test.ts`.
 - **H-4.** La matriz CSRF/origen del diseño (`POC-3-DISENO.md:308`) sólo está cubierta en parte por HTTP:
-  - `intake.test.ts:37-40` cubre Origin ajeno, `null`, Referer engañoso y cookie distinta;
+  - `intake.test.ts:38-43` cubre tipo, Origin ajeno, `null`, Referer engañoso, cookie distinta y trampa;
   - faltan sin token, token alterado, caducado, sin Origin ni Referer y urlencoded con token malo;
   - ninguna prueba HTTP comprueba «sin registro», que es el criterio de `PLAN-POC-3.md:180`.
 - **H-5.** No hay orden documentada para ejecutar `test/http/intake.test.ts` contra `app-prod` (T-07 en 3444). Lo cubre en parte el test de cookie de E2E en D28 (`e2e/intake.spec.ts:91`).
@@ -545,8 +719,17 @@ Ejecutado por: <responsable> · Salidas: <ruta fuera del repo> · SHA256SUMS: <h
 - **H-7.** `poc.sh` no tiene orden que muestre el código de salida de `app-prod` (D22).
 - **H-8.** `poc.sh` no tiene orden de espera de disponibilidad: se usan los logs.
 - **H-9.** No hay orden que libere el cupo del gateway para repetir D09: hay que esperar a la ventana siguiente.
+- **H-10.** *Observación, sin verificar.* `verificar-db.ts`, que `exec-en` ejecuta antes de cada orden (`poc.sh:83`), arranca Payload con el entorno de `app`. Ese entorno no fija `POC_NO_PUSH` (`compose.yaml:42-50`), así que `push` queda habilitado (`src/payload.config.ts:47`) sobre `public`. Se deduce que no hace nada si `next dev` ya sincronizó `public`, pero comparte el riesgo de pregunta interactiva de `docs/POC-3-DISENO.md:142`. Si una batería se cuelga en el reset, hay que mirar aquí primero.
 
-Los arreglos de H-1 a H-5 son trabajo de jz-implementer, y su priorización corresponde a jz-qa en U10.
+**Hallazgos de código pendientes (después del gate):**
+
+- **S-1 (jz-security, importante).** Los servicios `app`, `app-prod`, `deps` y `e2e` montan `./` en escritura con uid 1000 (`compose.yaml:7-10,94-97`). La guarda de `r()` y `tls_ok` sólo detectan alteraciones; no las impiden, y queda una ventana entre la comprobación y la ejecución. Corrección propuesta:
+  - montar `./` en sólo lectura;
+  - montar con escritura sólo las subrutas que lo necesitan: `node_modules`, `.next`, `.next-prod`, `.npm-cache`, `media-store*`, `test-results`, `playwright-report` y `blob-report`, según `poc1a/.gitignore`. `package.json` y `package-lock.json` sólo en `deps`.
+
+  **PENDIENTE:** la lista exacta y el diseño los decide jz-architect con jz-security. Lo implementa jz-implementer.
+
+Los arreglos de H-1 a H-5, H-10 y S-1 son trabajo de jz-implementer, y su priorización corresponde a jz-qa y jz-security en U10.
 
 ## Decisiones humanas que bloquean el cierre
 
@@ -556,6 +739,8 @@ Los arreglos de H-1 a H-5 son trabajo de jz-implementer, y su priorización corr
 | D-08 | Mecanismo antiabuso del MVP | Controles propios: límites 30 intentos y 5 creaciones / 10 min por IP o /64 con clave HMAC, trampa y tiempo mínimo. El desafío externo queda como mitigación bajo demanda, con un disparador explícito. Antes de cerrar: medición de falsos positivos (D30) y comportamiento tras NAT (H-6) | `poc1a/EVIDENCIA.md:232-247`; `docs/ROADMAP-MVP.md:427` |
 | D-09 | Mecanismo antiduplicados | **PENDIENTE: la documentación no registra una recomendación explícita.** El único mecanismo diseñado e implementado es la clave HMAC del nonce del formulario en `intake_envio`, con `ON CONFLICT DO NOTHING` en la misma transacción. Los criterios de `ROADMAP-MVP.md:428` se evidencian con IN-09 (D13, D17, D27), el duplicado concurrente HTTP (D11), IN-10 y la medición (D30). Hay que tener en cuenta que cada GET emite un nonce nuevo (`POC-3-DISENO.md:94`): un reintento con el mismo formulario no duplica, pero recargar la página y reenviar crea un registro nuevo | `docs/PLAN-POC-3.md:94-96`; `docs/POC-3-DISENO.md:138,153,159`; `docs/ROADMAP-MVP.md:188,428` |
 | P3-05 | Autorizar ahora la instalación (A4) | La opción está aprobada (`@axe-core/playwright` 4.13.0); falta autorizar el acto de instalar. La alternativa, una lista manual con lector de pantalla, es «más débil» | `docs/PLAN-POC-3.md:186,197`; `poc1a/README.md:77-81` |
+| A2 | `REV`, el último commit revisado por el humano | Lo fija el humano | — |
+| A4 | Cómo deshacer el commit local de A4 si fallan A4b o A4c | Lo decide el humano (no hay push) | — |
 
 ## Criterio de cierre de U10 (`docs/PLAN-POC-3.md:176-182`)
 
@@ -564,27 +749,21 @@ Los arreglos de H-1 a H-5 son trabajo de jz-implementer, y su priorización corr
 - [ ] **vitest y `tsc` en verde:**
   - D11 y D12;
   - la suite `jz-run` de los agentes repetida sobre el HEAD final, porque la de `EVIDENCIA.md:182` es de `95db8f4`;
-  - H-1 y H-2 resueltos.
+  - H-1 y H-2 verificados en D11.
 - [ ] **E2E en verde, con teclado y auditoría:** D18 y D28 con los 3 tests de axe ejecutados. Requiere A4 y P3-05.
-- [ ] **CSRF y origen con 403 sin registro:** D11 (`intake.test.ts:33-48`) y D25 (CSRF 403 en producción). Para cumplirlo tal como está escrito hace falta cerrar H-4.
+- [ ] **CSRF y origen con 403 sin registro:** D11 (`intake.test.ts:35-51`) y D25 (CSRF 403 en producción). Para cumplirlo tal como está escrito hace falta cerrar H-4.
 - [ ] **Mediciones registradas:**
   - D30 en las tablas de `EVIDENCIA.md:218-228`;
   - CO-05 de D26;
   - `build_ms` de D20;
   - las decisiones **D-08** y **D-09**.
-- [ ] **jz-security y jz-qa sin defectos importantes abiertos:** es la propia U10, sobre los logs de este gate, H-3 y H-5.
+- [ ] **Integridad de la evidencia:** sin `ARBOL ALTERADO` ni `TLS ALTERADO`; K1–K3 conformes; hash de `SHA256SUMS` guardado fuera del host.
+- [ ] **jz-security y jz-qa sin defectos importantes abiertos:** es la propia U10, sobre los logs de este gate, H-3, H-5, H-10 y S-1.
 
-## K. Limpieza (sólo servicios del POC)
+## Historial de revisiones
 
-```sh
-r K1 ./poc.sh down-prod
-r K2 ./poc.sh down
-r K3 ./poc.sh stats
-```
-
-- **K1:** rc=0. Para y borra `app-prod` (`poc.sh:139`).
-- **K2:** rc=0. Ejecuta `docker compose -p jozeuzz-poc-a down` (`poc.sh:67`): baja contenedores y redes del proyecto y **conserva** el volumen `db` con las bases `poc3_*` y `poc1b_*`.
-- **K3:** rc=1, con el mensaje `sin contenedores del proyecto jozeuzz-poc-a; nada que medir` (`poc.sh:140-143`). Ese rc=1 es el esperado.
-- **No usar** `./poc.sh destroy` (`down -v`, `poc.sh:144`) ni `docker system prune`.
-- `.tls/` se queda en el disco: está ignorada (`.gitignore:2`), su CA dura 1 día y su `ca.key` ya se borró (`poc.sh:25`).
-- `.next-prod/` y `media-store-prod/` están ignorados (`poc1a/.gitignore:13-14`).
+| Ciclo | Revisores | Hallazgos incorporados |
+|---|---|---|
+| Redacción inicial | jz-architect | Procedimiento A–K a partir de la lectura del código. Correcciones C-1 a C-3. Huecos H-1 a H-9 |
+| 1 | jz-qa y jz-architect | Precondiciones de proxy en D09 y D29. `--solo` en D13 y D27 (C-2). NV-8 detrás del build (C-3). Predicción de fallo de H-1/H-2 en D11. Corrección de `README.md` y de código en `b09d7ea`/`c8bbf0f`, pendientes de verificación Docker |
+| 2 (último) | jz-qa y jz-security | **QA:** D11 pasa a verificar H-1/H-2 (corregidos en `c8bbf0f`) y `D11-diag` queda obsoleta; citas de `poc.sh` actualizadas (`exec-en` 79-84, `e2e-en` 89-97, `E2E_RESET` 96 y 107, proxy de `e2e-prod-en` 102-103, `build_ms` 123, `up-prod-pruebas-en` 139-143, `down-prod` 144, `stats` 145-148, `destroy` 149); duración con el coste de `verificar-db.ts` por caso. **Seguridad:** S1, montaje escribible, con la comprobación A3f, la guarda `ARBOL ALTERADO` en `r()`, `tls_ok` y el hallazgo S-1; S2, revisión A2 obligatoria y ampliada, y blob del documento en A1; S3, A4 con `--ignore-scripts`, revisión del lockfile, versión de `axe-core` y `npm audit signatures`; S4, `config --no-interpolate` en A2c; S5, validación de `.env` en B1v; S6, búsqueda de fugas por valor y por URL de Postgres en K2; S7, carpeta 700, `SHA256SUMS` incremental y hash fuera del host; S8, comprobación de `git config` y la función `g` en A0. Regla de no pasar secretos en línea a `r()`. Añadidos propios: `.npmrc` en `GUARDA`, rechazo de identificadores repetidos en `r()`, `source:` en el `grep` de A2c, la observación H-10 y la reordenación de la limpieza (J) antes del cierre (K) |
