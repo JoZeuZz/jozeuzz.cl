@@ -1,7 +1,7 @@
 # Gate Docker de POC-3 (U2–U9): procedimiento para ejecución humana
 
 - **Estado:** procedimiento para ejecución humana. **No se ha ejecutado.** Lo redactó jz-architect el 2026-10-19 leyendo el código. Ningún resultado esperado de este documento está verificado en ejecución: son deducciones del código, con su cita.
-- **HEAD de referencia:** `100c322` (rama `poc/candidata-a-3`). Si se hace el paso A4 (instalación de axe), la referencia pasa a ser el commit que deja A4. Ese HEAD se anota en cada fila de evidencia.
+- **HEAD de referencia:** `c8bbf0f` (rama `poc/candidata-a-3`), último commit de código y pruebas del ciclo de corrección 1. Los commits posteriores sólo tocan `docs/` (compruébelo en A1). Si se hace el paso A4 (instalación de axe), la referencia pasa a ser el commit que deja A4. Ese HEAD se anota en cada fila de evidencia.
 - **Quién lo ejecuta:** el responsable del proyecto, como root en el host de la POC, con Docker y Compose v2 y con Node ≥ 20 en el host (`poc1a/README.md:34-36`). Los agentes no tienen Docker (`docs/PLAN-POC-3.md:157`, P3-07 `:199`). Mientras dure el gate, ningún agente escribe en este worktree.
 - **Duración:** no está medida. Una estimación orientativa es de 1,5 a 3 h, sin contar descargas de imágenes. Referencias: una batería de 56 casos tardó 232 s en POC-1a (`poc1a/EVIDENCIA.md:20`), aunque sólo tenía 13 activos; el build tardó 16 s (`poc1a/EVIDENCIA.md:152`). Este gate ejecuta unos 167 casos activos en cinco baterías, dos tandas E2E y 150 envíos de medición.
 - **Desbloquea:** U10, la revisión del hito por jz-security y jz-qa (`docs/PLAN-POC-3.md:172`).
@@ -30,11 +30,12 @@
 ```sh
 cd /home/proyectos/jozeuzz-poc-candidata-a
 git branch --show-current   # poc/candidata-a-3
-git rev-parse --short HEAD  # 100c322
+git rev-parse --short HEAD  # c8bbf0f o un commit posterior
+git diff --name-only c8bbf0f..HEAD  # vacío o sólo rutas bajo docs/
 git status --short          # vacío
 ```
 
-Parada dura si la rama o el HEAD no coinciden o si el árbol no está limpio.
+Parada dura si la rama no coincide, si entre `c8bbf0f` y HEAD cambia algo fuera de `docs/` o si el árbol no está limpio.
 
 ### A2 · Revisión del contenido editado por agentes
 
@@ -53,7 +54,7 @@ grep -n 'docker' poc1a/poc.sh
 Qué hay que ver:
 
 - **`grep` de Compose:** sólo `ports:` y los dos `127.0.0.1:3443/3444` del proxy (`compose.yaml:82-84`). Nada de `docker.sock`, `privileged` ni `network_mode`.
-- **`grep` de `poc.sh`:** sólo `poc.sh:6` (`C="docker compose -p jozeuzz-poc-a …"`) y `poc.sh:143` (`docker stats`).
+- **`grep` de `poc.sh`:** sólo `poc.sh:6` (`C="docker compose -p jozeuzz-poc-a …"`) y la orden `stats` (`docker stats`).
 - **En el diff:** ninguna escritura fuera de `poc1a/`, ninguna descarga ejecutada (`curl | sh`), ningún `rm` fuera de `.tls` y ningún otro proyecto Compose.
 
 Parada dura ante cualquier cosa no explicada.
@@ -438,7 +439,7 @@ r D28 ./poc.sh e2e-prod-en poc3_intake && export NODE_EXTRA_CA_CERTS="$PWD/.tls/
 ```
 
 - Esperado: rc=0, con los mismos conteos que D18.
-- **Precondición:** `app` levantado en `poc3_intake`, porque `e2e-prod-en` no lo levanta (`poc.sh:100`) y el reset lo usa.
+- **Precondición de `app`:** *corregida en `b09d7ea`, pendiente de verificación Docker.* `e2e-prod-en` ahora levanta `app` en `poc3_intake` y la verifica con `verificar-db.ts` antes del reset, y `exec-en` repite esa verificación. Antes sólo levantaba `db` y `app-prod`, y el reset (`exec-en` en `app`) podía caer en otra base.
 - Recrea `app-prod` y `proxy` **sin** el override (`poc.sh:100-101`).
 - Parada: fallo registrable.
 
@@ -524,16 +525,16 @@ Ejecutado por: <responsable> · Salidas: <ruta fuera del repo> · SHA256SUMS: <h
 
 ## Correcciones y huecos detectados al redactar
 
-**Correcciones** (este procedimiento ya las aplica; `README.md` sigue sin corregir y su escritor asignado debe alinearlo):
+**Correcciones** (este procedimiento ya las aplica; `README.md` y los arreglos de código se corrigieron en el ciclo 1, pendientes de verificación Docker):
 
-- **C-1.** `README.md:114` dice que tras `e2e-prod-en` el proxy de pruebas sigue arriba. No es así: hay que repetir `up-prod-pruebas-en` antes de medir (D29).
-- **C-2.** `README.md:112` y el diseño (`POC-3-DISENO.md:280`) usan `--alcance poc-3` sin `--solo`. Eso ejecuta los 56 casos, y EV-04 falla donde no hay inyección (D13 y D27).
+- **C-1.** *Corregido en `b09d7ea`, pendiente de verificación Docker.* `README.md:114` decía que tras `e2e-prod-en` el proxy de pruebas sigue arriba. No es así: hay que repetir `up-prod-pruebas-en` antes de medir (D29).
+- **C-2.** *Corregido en `b09d7ea`, pendiente de verificación Docker.* `README.md:112` y el diseño (`POC-3-DISENO.md:280`) usan `--alcance poc-3` sin `--solo`. Eso ejecuta los 56 casos, y EV-04 falla donde no hay inyección (D13 y D27).
 - **C-3.** NV-8 sólo es significativo después de un build (D22 va detrás de D20).
 
 **Huecos:**
 
-- **H-1.** `test/http/intake.test.ts:3` no puede llegar al proxy desde dentro de `app` (D11).
-- **H-2.** El caso honeypot está mal construido (`intake.test.ts:41,44` frente a `manejador.ts:91-93`).
+- **H-1.** *Corregido en `c8bbf0f` (la base por defecto pasa a `https://proxy:3443`), pendiente de verificación Docker.* `test/http/intake.test.ts:3` no podía llegar al proxy desde dentro de `app` (D11).
+- **H-2.** *Corregido en `c8bbf0f` (el honeypot usa token y cookie válidos), pendiente de verificación Docker.* El caso honeypot estaba mal construido (`intake.test.ts:41,44` frente a `manejador.ts:91-93`).
 - **H-3.** T-08, NV-5 y NV-6 no tienen prueba Docker ni HTTP. Son el 413 chunked y el `Content-Length` falso directos a `app:3000` y `app-prod:3000` (`POC-3-DISENO.md:325`). En `test/http/` no hay `chunked` ni `app-prod:3000` para intake; sólo existe el unitario `src/lib/intake/cuerpo.test.ts`.
 - **H-4.** La matriz CSRF/origen del diseño (`POC-3-DISENO.md:308`) sólo está cubierta en parte por HTTP:
   - `intake.test.ts:37-40` cubre Origin ajeno, `null`, Referer engañoso y cookie distinta;
