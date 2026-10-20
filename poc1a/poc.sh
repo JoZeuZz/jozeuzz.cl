@@ -46,7 +46,9 @@ case "$cmd" in
     for dir in node_modules .npm-cache .next .next-prod media-store media-store-test media-store-prod test-results playwright-report blob-report; do
       mkdir -p "$dir"
     done
-    [ -e next-env.d.ts ] || : > next-env.d.ts
+    # Creación exclusiva (noclobber = O_EXCL): falla si la ruta existe, incluido un enlace colgante creado tras la comprobación -L.
+    [ -e next-env.d.ts ] || [ -L next-env.d.ts ] || ( set -C; : > next-env.d.ts )
+    if [ -L next-env.d.ts ]; then echo "punto de montaje es enlace simbólico: next-env.d.ts" >&2; exit 1; fi
     if [ ! -f .env ]; then
       umask 077
       printf 'POC_DB_PASSWORD=%s\nPAYLOAD_SECRET=%s\n' "$(openssl rand -hex 24)" "$(openssl rand -hex 32)" > .env

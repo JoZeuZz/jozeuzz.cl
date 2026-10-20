@@ -1,7 +1,10 @@
 # Gate Docker de POC-3 (U2–U9): procedimiento para ejecución humana
 
 - **Estado:** procedimiento para ejecución humana. **No se ha ejecutado.** Lo redactó jz-architect el 2026-10-19 leyendo el código y lo revisó en dos ciclos (ver «Historial de revisiones»). Ningún resultado esperado de este documento está verificado en ejecución: son deducciones del código, con su cita.
-- **HEAD de referencia del código:** `69e1883` (rama `poc/candidata-a-3`), último commit de código y pruebas. Sustituye a `c8bbf0f`: sólo cambia `poc1a/contrato-driver.mjs` (el error de reset ya no vuelca stdout y `POC_RESET_ENV` se valida con `/^[A-Z_][A-Z0-9_]*=\S*$/`, `contrato-driver.mjs:19-24`). Los commits posteriores sólo tocan `docs/`. Se acepta como HEAD de ejecución el commit que confirme este documento y `docs/adr/0001-stack.md`, o uno posterior que sólo cambie `docs/` (A1 lo comprueba). Si se hace el paso A4 (instalación de axe), la referencia pasa a ser el commit que deja A4. Ese HEAD se anota en cada fila de evidencia.
+- **HEAD de referencia del código:** `69e1883` (rama `poc/candidata-a-3`). Es la **referencia vinculante de código** del gate: el último commit que cambia código o pruebas. A1 la copia en `CODEREF` y exige que, entre ella y HEAD, sólo cambie `docs/`.
+  - El ciclo de corrección 1 del aislamiento de escritura cambia código (`poc.sh`, pruebas y documentación de `poc1a/`), así que la referencia vinculante pasa al commit de código de ese ciclo (`fix(poc-3): close review findings for write isolation`, «commit A»). Un commit posterior, sólo de `docs/`, escribe su hash en esta cabecera y en `CODEREF` de A1. Si esta cabecera aún muestra `69e1883`, ese commit no se ha aplicado y A1 parará: es lo esperado.
+  - Las citas de línea no actualizadas siguen refiriéndose a `69e1883`; **la referencia vinculante de código es el commit A**, no esas líneas.
+  - Se acepta como HEAD de ejecución el commit que confirme este documento y `docs/adr/0001-stack.md`, o uno posterior que sólo cambie `docs/` (A1 lo comprueba). Si se hace el paso A4 (instalación de axe), la referencia pasa a ser el commit que deja A4. Ese HEAD se anota en cada fila de evidencia.
 - **Quién lo ejecuta:** el responsable del proyecto, como root en el host de la POC, con Docker y Compose v2 y con Node ≥ 20 en el host (`poc1a/README.md:34-36`). Los agentes no tienen Docker (`docs/PLAN-POC-3.md:157`, P3-07 `:199`). Mientras dure el gate, ningún agente escribe en este worktree.
 - **Duración:** no está medida. La estimación orientativa del ciclo 1 era de 1,5 a 3 h sin contar descargas de imágenes, y **puede quedarse corta**:
   - Referencias: una batería de 56 casos tardó 232 s en POC-1a (`poc1a/EVIDENCIA.md:20`), aunque sólo tenía 13 activos; el build tardó 16 s (`poc1a/EVIDENCIA.md:152`).
@@ -12,14 +15,14 @@
 ## Advertencia de seguridad (leer antes de nada)
 
 1. `poc1a/poc.sh` y los scripts Node del host (driver, batería, pruebas `test/docker`, `test/build` y `medicion`) se ejecutan **como root con acceso a `docker.sock`**. Su contenido lo editaron agentes. **Antes de ejecutar nada**, el humano revisa el diff del paso A2, que es obligatorio.
-2. **Los contenedores no deben poder escribir en `poc1a/`.** Los servicios `app`, `app-prod`, `deps` y `e2e` montan `./` (`poc1a/`) en `/app` como bind **de sólo lectura**, con raíz `read_only: true`, uid 1000 y `/tmp` en `tmpfs`. Sólo escriben en volúmenes nombrados de la lista cerrada de A2 y en `/tmp` (corrección del hallazgo S-1, **pendiente de verificación Docker**: A2 y A3f la comprueban). `next-env.d.ts` se monta como bind de archivo RO desde `contenedor/next-env.dev.txt` (`app`) y `contenedor/next-env.prod.txt` (`app-prod`), porque Next 16.4.1 lo reescribe si difiere y `/app` es RO. Por eso `r()` sigue comprobando la integridad del árbol antes de cada orden (A3) y se comprueba `.tls` tras cada orden que lo regenera. `../contrato` no se monta en ningún contenedor (deducción de `compose.yaml`). Los scripts Node del host sólo importan módulos `node:` (deducción por lectura de sus `import`), así que no cargan `node_modules`. El único servicio que corre como root es `volumes-init` (A3f1): sin red, sin bind, sin socket y con `cap_drop`.
+2. **Los contenedores no deben poder escribir en `poc1a/`.** Los servicios `app`, `app-prod`, `deps` y `e2e` montan `./` (`poc1a/`) en `/app` como bind **de sólo lectura**, con raíz `read_only: true`, uid 1000 y `/tmp` en `tmpfs`. Sólo escriben en volúmenes nombrados de la lista cerrada de A2 y en `/tmp` (corrección del hallazgo S-1, **pendiente de verificación Docker**: A2 y A3f la comprueban). `next-env.d.ts` se monta como bind de archivo RO desde `contenedor/next-env.dev.txt` (`app`) y `contenedor/next-env.prod.txt` (`app-prod`), porque Next 16.4.1 lo reescribe si difiere y `/app` es RO. Por eso `r()` sigue comprobando la integridad del árbol antes de cada orden (A3) y se comprueba `.tls` tras cada orden que lo regenera. `../contrato` no se monta en ningún contenedor (deducción de `compose.yaml`). Los scripts Node del host sólo importan módulos `node:` (deducción por lectura de sus `import`), así que no cargan `node_modules`. `volumes-init` (A3f1) es el único servicio root con acceso a volúmenes de aplicación: sin red, sin bind, sin socket y con `cap_drop`. `db` y `proxy` son root de imagen sin bind RW del repositorio (`db` sólo monta su volumen; `proxy`, binds RO de configuración y `.tls`), así que no tienen camino de escritura al árbol.
 3. Sólo se usan bases `poc3_*`: `poc3_intake` y `poc3_migraciones` (`docs/POC-3-DISENO.md:8`). La guarda de `poc.sh:31-39` y la del driver (`poc1a/contrato-driver.mjs:15`) rechazan cualquier otra base.
 4. **No usar la base `poc` (contaminada).** Quedan prohibidas las órdenes heredadas que la usan: `up`, `up-prod`, `migrate`, `migrate-create`, `build`, `exec`, `resetdb` (hace `DROP SCHEMA` de `poc`, `poc.sh:77`), `e2e` y `destroy` (`poc1a/README.md:8`). `./poc.sh psql` se conecta a `poc` (`poc.sh:74`); aquí sólo se usa para listar y crear bases (`poc1a/README.md:10,99`).
 5. No tocar otros servicios del host. Todas las órdenes Docker pasan por `./poc.sh`, que fija el proyecto Compose `jozeuzz-poc-a` (`poc.sh:2-6`). Hay dos excepciones documentadas, ambas de sólo lectura:
    - `docker compose -p jozeuzz-poc-a … config --no-interpolate` en A2c;
    - `docker image inspect` en D05 (`docs/POC-3-DISENO.md:264`).
 
-   Prohibidos: `docker system prune`, `docker volume rm`, `./poc.sh destroy` (borra el volumen `db` con todas las bases, `poc.sh:149`) y cualquier `docker stop` fuera del proyecto.
+   Prohibidos: `docker system prune`, `docker volume rm`, `./poc.sh destroy` (borra con `down -v` los once volúmenes: el volumen `db` con todas las bases y los diez de aplicación, `poc.sh:149`) y cualquier `docker stop` fuera del proyecto. Si alguna vez se ejecutara `destroy` por decisión humana, hay que repetir después `init-volumes`, `deps` y `probe-mounts` (A3f1-A3f3), porque los volúmenes se recrean como root y vacíos.
 6. No exportar `POC_BASE_URL`, `POC_TARGET_DATABASE`, `POC_RESET_ENV`, `INTAKE_SECRETO` ni `E2E_RESET`: se pasan siempre en línea. La única variable exportada es `NODE_EXTRA_CA_CERTS`.
 7. **Nunca pasar un secreto real en línea a `r()`.** `r()` escribe la orden completa (`$*`) en la cabecera del log. La única excepción es el valor falso deliberado `INTAKE_SECRETO=abcd` de D22a.
 8. No imprimir `.env` (A3 y B1 lo validan sin mostrar valores). No usar `sh -x` con `poc.sh`, porque expondría `E2E_RESET`, que lleva la contraseña del admin sintético (`poc.sh:96,107`). No usar `NODE_TLS_REJECT_UNAUTHORIZED=0` (`docs/POC-3-DISENO.md:64`).
@@ -32,7 +35,8 @@
   - fallos de seguridad: aislamiento de red, IP forjada, fugas en logs, inyección en el build o NV-8;
   - fallos de integridad: `ARBOL ALTERADO` (rc=99), `TLS ALTERADO`, blob del documento distinto o configuración Git sin explicar;
   - fallos de aislamiento de escritura (stop conditions de montajes):
-    - A2 no coincide exactamente con la matriz;
+    - A2 no coincide exactamente con la matriz, o runc es inferior a 1.1.12 (A2d);
+    - A3e: el proyecto conserva contenedores tras `down --remove-orphans` o algún contenedor del host monta el worktree en RW;
     - A3f1-A3f3 divergen de ownership, UID, denegaciones o allowlist; la salida del `find` host A3d no bloquea;
     - cualquier contenedor escribe bajo el bind `/app`: se conserva la evidencia y no se ejecuta ningún script del árbol;
     - EROFS/EACCES de `next-env.d.ts` o de un punto de montaje es parada dura; prohibido resolverlo abriendo el bind del repositorio (ni con un bind RW, ni quitando `read_only`);
@@ -72,9 +76,10 @@ El humano lee este documento desde Git (`g show HEAD:docs/GATE-DOCKER-POC-3.md`)
 ```sh
 BLOB=<blob anotado por el humano tras leer el documento>
 g branch --show-current                               # poc/candidata-a-3
-g rev-parse --short HEAD                              # 69e1883 o un commit posterior que sólo cambie docs/
-g diff --name-only 69e1883..HEAD                      # vacío o sólo rutas bajo docs/
-g diff --name-only 69e1883..HEAD | grep -v '^docs/'   # vacío (rc=1 es lo esperado)
+CODEREF=69e1883                                       # referencia vinculante de código (cabecera); el commit B del ciclo 1 la sustituye por el hash del commit A
+g rev-parse --short HEAD                              # CODEREF o un commit posterior que sólo cambie docs/
+g diff --name-only "$CODEREF"..HEAD                   # vacío o sólo rutas bajo docs/
+g diff --name-only "$CODEREF"..HEAD | grep -v '^docs/'   # vacío (rc=1 es lo esperado)
 g status --short                                      # vacío
 test "$(g rev-parse HEAD:docs/GATE-DOCKER-POC-3.md)" = "$BLOB" && echo blob-ok
 ```
@@ -82,7 +87,7 @@ test "$(g rev-parse HEAD:docs/GATE-DOCKER-POC-3.md)" = "$BLOB" && echo blob-ok
 Es **parada dura** en cualquiera de estos casos:
 
 - la rama no coincide;
-- entre `69e1883` y HEAD cambia algo fuera de `docs/` (el `grep -v '^docs/'` imprime alguna ruta);
+- entre `CODEREF` y HEAD cambia algo fuera de `docs/` (el `grep -v '^docs/'` imprime alguna ruta);
 - el árbol no está limpio, por ejemplo porque `docs/adr/` sigue sin confirmar;
 - no sale `blob-ok`, es decir, el documento cambió después de que el humano lo leyera.
 
@@ -127,7 +132,7 @@ grep -nE 'external|name:|driver_opts|build:|devices|env_file|sock' "$S/A2-compos
 - **`--no-interpolate` es obligatorio.** Sin él, `config` sustituye `${POC_DB_PASSWORD}`, `${PAYLOAD_SECRET}` e `${INTAKE_SECRETO}` desde `.env` (`compose.yaml:45,85,88,131,134`) e imprime los secretos.
 - Los perfiles `volumes-init`, `deps`, `prod` y `e2e` existen (`compose.yaml:21,60,126,180`).
 - La salida normalizada se guarda en `S` y el humano la abre y la compara con la matriz de abajo. El formato exacto de la salida de Compose (montajes en formato largo con `- type:`) no está verificado: si el `grep` no muestra los montajes, se lee el archivo completo.
-- Las demás citas de línea de `poc.sh` y `compose.yaml` de este documento corresponden al código de `69e1883` y se desplazaron con el aislamiento de escritura; las de A2c ya están actualizadas.
+- Las demás citas de línea de `poc.sh` y `compose.yaml` de este documento corresponden al código de `69e1883` y se desplazaron con el aislamiento de escritura; las de A2c ya están actualizadas. Las citas no actualizadas siguen refiriéndose a `69e1883`; la referencia vinculante de código es el commit A (ver la cabecera).
 
 Qué hay que ver:
 
@@ -150,6 +155,19 @@ Qué hay que ver:
   - no aparece `external`, `driver_opts`, `build:`, `devices`, `env_file`, `privileged`, `cap_add` ni `sock`.
 - **Parada dura de A2:** bind sin `read_only: true`, destino no listado, volumen `external`, `driver_opts`, source absoluta no aprobada, `node_modules` RW fuera de `deps`, caché npm fuera de `deps`, falta de `read_only: true` de servicio o falta de `/tmp` tmpfs. Para `volumes-init`, también cualquier bind, red distinta de `none`, `privileged`, `cap_add`, socket, volumen ajeno a los diez aprobados, imagen sin digest, usuario distinto de `0:0` o `cap_drop` distinto de la lista fijada por `test/estatico/compose-write-isolation.test.ts`.
 - **En el diff:** ninguna escritura fuera de `poc1a/`, ninguna descarga ejecutada (`curl | sh`), ningún `rm` fuera de `.tls` y ningún otro proyecto Compose.
+
+**A2d · Versión del motor y de runc (S-M10).** El aislamiento depende de que runc no tenga la fuga de descriptores de CVE-2024-21626 (corregida en runc 1.1.12). Es lectura del demonio (`docker version`), así que va en la clase Docker.
+
+```sh
+docker version > "$S/A2-docker-version.txt" 2>&1
+runc --version > "$S/A2-runc-version.txt" 2>&1 || true   # puede no estar en PATH: entonces vale la versión de runc que informa docker version
+RUNC="$(docker version --format '{{range .Server.Components}}{{.Name}} {{.Version}}{{"\n"}}{{end}}' | sed -n 's/^runc //p')"
+sha256sum "$S/A2-docker-version.txt" "$S/A2-runc-version.txt" >> "$S/SHA256SUMS"
+test -n "$RUNC" && test "$(printf '%s\n' 1.1.12 "$RUNC" | sort -V | head -n 1)" = 1.1.12 && echo "runc-ok $RUNC"
+```
+
+- **Esperado:** `runc-ok <versión>` con versión ≥ 1.1.12. Se anotan `docker version` y `runc --version` en la fila A2.
+- **Parada dura** si runc es inferior a 1.1.12, si no se puede determinar su versión o si no sale `runc-ok`: sin esa corrección, un contenedor puede alcanzar el árbol del host aunque el bind sea RO.
 
 Parada dura ante cualquier cosa no explicada.
 
@@ -194,6 +212,30 @@ r A3d find . -maxdepth 2 '(' -user 1000 -o -perm -0002 ')' -not -path './node_mo
 
 **A3f (parada dura)** es el comprobante efectivo de montajes. Se ejecuta en la sección B, después de B1/B1v (`./poc.sh init`, que prepara los puntos de montaje) y antes de `db-up`. El `node_modules` del host no es prerrequisito de nada.
 
+**A3e (parada dura) · contenedores de la era RW.** Antes de A4 y de B1 hay que comprobar que ningún contenedor creado antes del aislamiento sigue existiendo: un contenedor viejo conserva su bind RW de `poc1a/` y de nada sirve que el `compose.yaml` actual lo monte RO. `docker ps` y `docker inspect` son Docker root-equivalente (ver la clasificación); `down` lo ejecuta el humano. Se hace desde `poc1a/`.
+
+```sh
+cd /home/proyectos/jozeuzz-poc-candidata-a/poc1a
+# A3e.0 · si .env ya existe (herencia de la era RW), valídalo con el bloque B1v (sólo lectura, sin imprimir valores) antes de cualquier orden compose que interpole
+# A3e.1 · el proyecto no debe tener contenedores (ni parados): la salida debe quedar vacía
+docker ps -a --filter label=com.docker.compose.project=jozeuzz-poc-a --format '{{.ID}} {{.Names}} {{.Status}}' > "$S/A3e1.txt" 2>&1
+sha256sum "$S/A3e1.txt" >> "$S/SHA256SUMS"
+test ! -s "$S/A3e1.txt" && echo proyecto-sin-contenedores
+# Si no está vacío: retirarlos (SIN -v: los volúmenes, incluido db, se conservan) y repetir A3e.1 hasta que quede vacío
+docker compose -p jozeuzz-poc-a -f compose.yaml -f compose.pruebas.yaml --profile prod --profile e2e --profile deps --profile volumes-init down --remove-orphans
+# A3e.2 · ningún contenedor del host monta el worktree en RW: la salida debe quedar vacía
+{ docker ps -aq | xargs -r docker inspect --format '{{.Name}}{{range .Mounts}} {{.Source}}:{{.RW}}{{end}}' | grep -F /home/proyectos/jozeuzz-poc-candidata-a | grep ':true'; } > "$S/A3e2.txt" 2>&1
+sha256sum "$S/A3e2.txt" >> "$S/SHA256SUMS"
+test ! -s "$S/A3e2.txt" && echo sin-montajes-rw
+# A3e.3 · repetir la guarda de integridad
+g status --porcelain -- $GUARDA   # vacío
+```
+
+- **A3e.1:** `down --remove-orphans` solo se ejecuta si la salida no está vacía. Nunca lleva `-v`. Interpola `.env`, por eso A3e.0 lo valida antes (M-8).
+- **A3e.2:** `grep ':true'` es conservador: marca cualquier montaje RW de un contenedor que también monte el worktree. Lo que salga se analiza a mano. Si sale algo, **parada dura**: no tocar contenedores ajenos al proyecto `jozeuzz-poc-a`; el humano decide cómo retirarlo.
+- **A3e.3:** después de A3e se repite `g status --porcelain -- $GUARDA`, y tras B1 se repite B1v. Cualquier salida distinta es parada dura.
+- Es **parada dura** si, tras `down --remove-orphans`, A3e.1 sigue sin quedar vacío, o si A3e.2 no queda vacío.
+
 **Guarda de `.tls` (S1).** `tls_ok` se encadena tras cada orden que regenera `.tls`. Es **parada dura** si imprime `TLS ALTERADO` (enlace simbólico o propietario distinto de root).
 
 **Listas y entorno.**
@@ -214,8 +256,13 @@ r A3d find . -maxdepth 2 '(' -user 1000 -o -perm -0002 ')' -not -path './node_mo
 - **`--ignore-scripts` no protege la ejecución posterior.** Evita los scripts de instalación, pero el código de `@axe-core/playwright` y `axe-core` se ejecuta después en E2E (D18 y D28), dentro del contenedor `e2e`, con uid 1000, en la red interna `e2e` y con `./` montado como bind RO. Por eso se revisa el lockfile antes del commit.
 - **Nuevo modelo (sin escritura del repositorio desde contenedores).** El contenedor `deps` ya no puede editar `package.json` ni el lockfile (bind RO). `./poc.sh manifest-patch-axe` copia ambos manifiestos a un `tmpfs`, ejecuta `npm install --package-lock-only --ignore-scripts --save-exact --save-dev` como uid 1000 con `--cap-drop ALL` y `no-new-privileges`, y emite un único JSON con los dos manifiestos en base64. El host (root humano) valida, decodifica y genera el parche con `diff`; la **aplicación humana revisada** es un paso separado. No instala `node_modules`; el volumen se actualiza después con `npm ci` (A4b0).
 
+**Orden de ejecución.** A4 completo (generación del parche, aplicación humana, commit y los pasos A4b0, A4b y A4c) se ejecuta **después de B1/B1v y de A3f1-A3f3**, aunque figure en la sección A por legibilidad: A4b0, A4b y A4c usan el servicio `deps`, que necesita los puntos de montaje de `init` (B1) y el ownership de los volúmenes (A3f1-A3f3). Los pasos de generación sólo usan `docker run` de `manifest-patch-axe`, pero se mantiene un único orden para no mezclar HEADs.
+
+**Salidas de error.** El primer bloque corre en una subshell `( … )`: una salida por error (guarda alterada, `diff` inválido, `manifest-patch-axe` con rc≠0) termina sólo la subshell y no cierra la sesión interactiva ni se pierde `$S`. Tras la subshell, `a4_rc` debe ser 0; si no, es parada dura.
+
 ```sh
 cd /home/proyectos/jozeuzz-poc-candidata-a/poc1a
+(
 grep -c '^ignore-scripts=true$' .npmrc          # 1 (EVIDENCIA.md:167); no se imprime .npmrc
 alterado="$(g status --porcelain -- $GUARDA)"
 test -z "$alterado" || { echo "ARBOL ALTERADO" >&2; exit 99; }
@@ -256,6 +303,9 @@ test "$diff_rc" -eq 1 || { echo "A4 package-lock.json sin diff válido: rc=$diff
 sha256sum "$S/A4-package.json" "$S/A4-package-lock.json" "$S/A4-manifiestos.patch" >> "$S/SHA256SUMS"
 test -s "$S/A4-manifiestos.patch"
 g apply --check "$S/A4-manifiestos.patch"
+)
+a4_rc=$?
+echo "A4-generacion rc=$a4_rc"   # debe ser 0; si no, parada dura (se conservan $S/A4a.stderr.log y los demás archivos)
 cat "$S/A4-manifiestos.patch"
 # Tras revisar el parche completo: aplicación humana revisada (paso separado; nunca un agente)
 g apply --check "$S/A4-manifiestos.patch"
@@ -280,6 +330,7 @@ r A4c ./poc.sh deps npm audit signatures
 ```
 
 - **A4 genera un parche, no instala ni aplica nada por sí mismo.** `node --version` debe informar Node 20 o superior. `diff --version` debe identificar GNU diffutils; si falta o no se identifica, A4 se detiene antes de Docker. `manifest-patch-axe` usa red y Docker sólo en la ejecución humana futura, corre como uid 1000 con la imagen fijada, dirige npm a stderr y emite sólo JSON por stdout. El host valida claves, base64 canónico y JSON, escribe salidas root 600 y genera el parche con la herramienta host ya comprobada. No existe bind RW ni dependencia de `diff` dentro de la imagen. Ningún agente aplica el parche.
+- **Etiquetas del parche (M-2).** Las etiquetas `a/poc1a/package.json` y `b/poc1a/package.json` (y las del lockfile) son rutas del parche relativas a la raíz del repositorio. `g` (A0: `g() { git -c core.fsmonitor=false -c core.hooksPath=/dev/null --no-pager "$@"; }`) no lleva `-C`, así que A4 la ejecuta en `poc1a/`; aun así `git apply` resuelve las rutas del parche desde la raíz del repositorio también cuando se invoca desde un subdirectorio. Por eso `a/poc1a/…` es correcto desde `poc1a/` y desde la raíz; `a/package.json` no lo sería. Comprobado con un repositorio temporal (`git apply --check` y `git apply` desde el subdirectorio, rc=0).
 - **A4b0 (añadido por el relevo):** como `node_modules` es un volumen nombrado, instalar el parche en el repositorio no lo actualiza; `npm ci` (A4b0) lo hace antes de `npm ls` y de los E2E con axe.
 - **Lectura de los conteos:** `grep -c` devuelve rc=1 cuando cuenta 0, y eso es lo esperado. El conteo de 6 es una deducción del formato v3 del lockfile. Si difiere, se inspecciona el diff completo antes de seguir.
 - **`npm audit signatures`:** `./poc.sh deps` acepta cualquier orden y la ejecuta en el servicio `deps`, que tiene red externa (`poc.sh:78`; `compose.yaml:58-77`). El texto exacto de su salida no está verificado. Se registra completo.
@@ -297,19 +348,20 @@ r A4c ./poc.sh deps npm audit signatures
 | Clase | Operaciones | Regla |
 |---|---|---|
 | setpriv UID 1000, sin grupo docker | Sólo D21b (`node --test test/build/comprobar-build.test.mjs`) y D30 (`env POC_BASE_URL=https://127.0.0.1:3444 node medicion/intake-latencia.mjs`), porque no invocan `poc.sh` ni Docker | Lanzar con `setpriv --reuid=1000 --regid=1000 --clear-groups`. D30 hereda `NODE_EXTRA_CA_CERTS` y necesita leer `.tls/ca.crt`, no socket. Si cualquiera empieza a invocar `poc.sh`, cambia automáticamente a la clase Docker |
-| Docker: privilegio equivalente a root | Todo `docker compose up/run/exec/logs/down`, `docker image inspect`, `docker stats`, `init-volumes`, `deps`, `probe-mounts`, `run-prod-en`, `manifest-patch-axe` y los pasos D01-D29 que los usan. D13, D16, D17, D26 y D27 también pertenecen aquí: el driver llama `poc.sh exec-en` para resetear cada caso | Sólo humano autorizado. Pertenecer al grupo Docker o usar el socket como no-root sigue siendo root-equivalente sobre el CT. No delegar a agentes |
+| Docker: privilegio equivalente a root | Todo `docker compose up/run/exec/logs/down`, `docker version`, `docker ps` y `docker inspect` (A2d y A3e: retirada de contenedores de la era RW), `docker image inspect`, `docker stats`, `init-volumes`, `deps`, `probe-mounts`, `run-prod-en`, `manifest-patch-axe` y los pasos D01-D29 que los usan. D13, D16, D17, D26 y D27 también pertenecen aquí: el driver llama `poc.sh exec-en` para resetear cada caso | Sólo humano autorizado. Pertenecer al grupo Docker o usar el socket como no-root sigue siendo root-equivalente sobre el CT. No delegar a agentes |
 | root real: `.env`, `.tls` y salidas | `./poc.sh init`, creación/validación de `.env` 600, generación/reemplazo de `.tls` root-owned, creación de `/root/jz-gate-poc3`, `SHA256SUMS`, búsqueda por valores secretos y captura del parche A4 | Ejecutar como root humano con `umask 077`. No abrir ni copiar valores secretos |
-| Compose sin daemon | El comando literal `docker compose -p jozeuzz-poc-a -f compose.yaml -f compose.pruebas.yaml --profile volumes-init --profile prod --profile e2e --profile deps config --no-interpolate` de A2c | Usa el parser Compose y no necesita socket; ejecutarlo sin grupo Docker. Aun así se revisa como configuración que luego consumirá el daemon |
+| Compose sin daemon | El comando literal `docker compose -p jozeuzz-poc-a -f compose.yaml -f compose.pruebas.yaml --profile volumes-init --profile prod --profile e2e --profile deps config --no-interpolate` de A2c | Usa el parser Compose y no necesita socket. Corre como **root humano** (necesita leer `.env` root 600 aunque no interpola) y no necesita estar en el grupo Docker. `--no-interpolate` no exige variables: Compose no sustituye `${…}`, así que A2c no depende de que `.env` sea válido y no hace falta reordenarlo tras B1v. Toda orden compose que **sí** interpole (`down` de A3e y cualquier `./poc.sh`) va después de validar `.env` con B1v (A3e.0 lo hace si el archivo ya existe). Aun así se revisa como configuración que luego consumirá el daemon |
 
 ## B. Prerrequisitos Docker
 
-Todos desde `poc1a/`, con el entorno de A0 y A3.
+Todos desde `poc1a/`, con el entorno de A0 y A3. **A3e (sin contenedores de la era RW y sin montajes RW del worktree) debe haber pasado antes de B1.**
 
 | Paso | Orden | Esperado | Parada |
 |---|---|---|---|
-| B1 | `r B1 ./poc.sh init` | rc=0; sin salida. `./poc.sh init` prepara los puntos de montaje (directorios `node_modules`, `.npm-cache`, `.next`, `.next-prod`, `media-store`, `media-store-test`, `media-store-prod`, `test-results`, `playwright-report` y `blob-report`, y un `next-env.d.ts` vacío si no existe; un enlace simbólico en cualquiera de ellos es error y `exit 1`) y después crea `.env` si falta y añade `INTAKE_SECRETO` si no está (`poc.sh:41-54`). No abrir `.env`. A3f depende de ello: runc no puede crear destinos dentro de un bind RO | dura |
+| B1 | `r B1 ./poc.sh init` | rc=0; sin salida. `./poc.sh init` prepara los puntos de montaje (directorios `node_modules`, `.npm-cache`, `.next`, `.next-prod`, `media-store`, `media-store-test`, `media-store-prod`, `test-results`, `playwright-report` y `blob-report`, y un `next-env.d.ts` vacío si no existe, creado de forma exclusiva con `set -C` (no sigue un enlace creado tras la comprobación); un enlace simbólico en cualquiera de ellos es error y `exit 1`) y después crea `.env` si falta y añade `INTAKE_SECRETO` si no está (`poc.sh:41-54`). No abrir `.env`. A3f depende de ello: runc no puede crear destinos dentro de un bind RO | dura |
 | B1v | validación de `.env` sin imprimir valores (S5), abajo | `0`, `3` y `root 600` | dura |
 | A3f | `r A3f1 ./poc.sh init-volumes`, `r A3f2 ./poc.sh deps` y `r A3f3 ./poc.sh probe-mounts` (abajo) | tres rc=0; A3f3 imprime `MOUNT_PROBE_OK` cuatro veces | dura |
+| A4 | Si el humano lo autoriza: A4 completo (generación, aplicación humana, commit, A4b0, A4b y A4c), **después de A3f y antes de B2** | ver A4 | dura |
 | B2 | `r B2 ./poc.sh db-up` | rc=0 (`poc.sh:80`) | dura |
 | B3 | `r B3 ./poc.sh psql -Atc "SELECT datname FROM pg_database WHERE datname LIKE 'poc3%' ORDER BY 1"` | rc=0; lista las `poc3*` existentes | dura si rc≠0 |
 | B4 | `r B4a ./poc.sh psql -c 'CREATE DATABASE poc3_intake'` y `r B4b ./poc.sh psql -c 'CREATE DATABASE poc3_migraciones'`, cada una **sólo si no aparece en B3** (`README.md:99`; `POC-3-DISENO.md:276`) | rc=0, `CREATE DATABASE` | dura |
@@ -458,8 +510,10 @@ r D10 ./poc.sh up-pruebas-en poc3_intake && tls_ok && export NODE_EXTRA_CA_CERTS
 **D11 · vitest completo dentro de `app`, con verificación de H-1 y H-2** (U2 hook y NV-12, U5b T-03 (i)/(ii), U6 T-03 (iii), HTTP U5b/U6, NV-7, POC-1b)
 
 ```sh
-r D11 ./poc.sh exec-en poc3_intake npx vitest run
+r D11 ./poc.sh exec-en poc3_intake npx vitest run --configLoader runner
 ```
+
+- **`--configLoader runner` es obligatorio** en toda invocación de vitest dentro de un contenedor. Vite carga `vitest.config.ts` por defecto con el cargador bundle y escribe `node_modules/.vite-temp`: con el volumen `node_modules` RO el resultado es EROFS/EACCES y el fallback de Vite no lo cubre (`node_modules/vite/dist/node/chunks/node.js:38115-38130`; ya se observó como EACCES en `.jz-state/runs/20261016T135909Z-661834.log`). El cargador `runner` no escribe archivos temporales.
 
 - Incluye `src/**/*.test.ts` y `test/**/*.test.ts` (`vitest.config.ts:9`), y entre ellos:
   - `test/integracion/intake-hook.int.test.ts`
@@ -482,9 +536,9 @@ r D11 ./poc.sh exec-en poc3_intake npx vitest run
 **D12 · `tsc` dentro de `app`** (criterio «vitest y tsc», `docs/PLAN-POC-3.md:178`)
 
 ```sh
-find . -name '*.tsbuildinfo' -not -path './node_modules/*' -not -path './.next*/*' -exec sha256sum {} + | sort > "$S/D12-tsbuildinfo-before.txt"
+find . -name '*.tsbuildinfo' -type f -not -path './node_modules/*' -not -path './.next*/*' -exec sha256sum {} + | sort > "$S/D12-tsbuildinfo-before.txt"
 r D12 ./poc.sh exec-en poc3_intake npx tsc --noEmit --tsBuildInfoFile /tmp/tsconfig.tsbuildinfo
-find . -name '*.tsbuildinfo' -not -path './node_modules/*' -not -path './.next*/*' -exec sha256sum {} + | sort > "$S/D12-tsbuildinfo-after.txt"
+find . -name '*.tsbuildinfo' -type f -not -path './node_modules/*' -not -path './.next*/*' -exec sha256sum {} + | sort > "$S/D12-tsbuildinfo-after.txt"
 r D12b cmp -s "$S/D12-tsbuildinfo-before.txt" "$S/D12-tsbuildinfo-after.txt"
 ```
 
@@ -716,7 +770,7 @@ r J3 ./poc.sh stats
 - **J1:** rc=0. Para y borra `app-prod` (`poc.sh:144`).
 - **J2:** rc=0. Ejecuta `docker compose -p jozeuzz-poc-a down` (`poc.sh:67`): baja contenedores y redes del proyecto y **conserva** el volumen `db` con las bases `poc3_*` y `poc1b_*`.
 - **J3:** rc=1, con el mensaje `sin contenedores del proyecto jozeuzz-poc-a; nada que medir` (`poc.sh:145-148`). Ese rc=1 es el esperado.
-- **No usar** `./poc.sh destroy` (`down -v`, `poc.sh:149`) ni `docker system prune`.
+- **No usar** `./poc.sh destroy` (`down -v`, `poc.sh:149`) ni `docker system prune`. `destroy` borra los once volúmenes (los diez de aplicación y `db`); si se usara por decisión humana, hay que repetir `init-volumes`, `deps` y `probe-mounts` antes de volver a levantar nada.
 - `.tls/` se queda en el disco: está ignorada (`.gitignore:2`), su CA dura 1 día y su `ca.key` ya se borró (`poc.sh:25`).
 - `.next-prod/` y `media-store-prod/` están ignorados (`poc1a/.gitignore:13-14`).
 
@@ -772,7 +826,9 @@ Ejecutado por: <responsable> · Blob del procedimiento: <BLOB> · Salidas: <ruta
 | A1 | estado y blob | | | — | blob-ok | | — |
 | A2 | revisión de seguridad | | | — | REV=<…> | sin hallazgos / hallazgos; config Compose conforme | — |
 | A2 (compose) | matriz de montajes | | | — | coincide sí/no | `A2-compose-resuelto.yaml` | — |
+| A2d | versión de Docker y runc | | | | runc-ok <versión> (≥ 1.1.12) | `A2-docker-version.txt`, `A2-runc-version.txt` | — |
 | A3d | find diagnóstico no vinculante | | | | rutas listadas | no bloquea | A3d.log |
+| A3e | contenedores de la era RW | | | | `proyecto-sin-contenedores` y `sin-montajes-rw` | si hubo `down --remove-orphans`, qué se retiró | A3e1.txt, A3e2.txt |
 | A3f1 | `volumes-init` | | | | rc | ownership 1000:1000 | A3f1.log |
 | A3f2 | `deps` (`npm ci` en el volumen) | | | | rc | node_modules en volumen nombrado | A3f2.log |
 | A3f3 | `probe-mounts` | | | | `MOUNT_PROBE_OK` ×4 | denegaciones y allowlist | A3f3.log |
@@ -832,10 +888,13 @@ Ejecutado por: <responsable> · Blob del procedimiento: <BLOB> · Salidas: <ruta
 **Riesgos residuales del aislamiento (sin cambio de código; verificar en el gate):**
 
 - La caché de Vitest (`node_modules/.vite`) y `payload generate:types` (`src/payload-types.ts`) fallan en silencio con el sistema de archivos RO; se verificó en el código que no son fatales, pero no hay ejecución que lo confirme.
+- **`node_modules/.vite-temp` sí es fatal por defecto.** Vite carga `vitest.config.ts` con el cargador bundle y escribe `node_modules/.vite-temp`; con el volumen `node_modules` RO eso da EROFS/EACCES que el fallback de Vite no cubre (`node_modules/vite/dist/node/chunks/node.js:38115-38130`; observado como EACCES en `.jz-state/runs/20261016T135909Z-661834.log`). Por eso toda invocación de vitest en contenedor lleva `--configLoader runner`, que no escribe temporales (D11, README, EVIDENCIA y diseño; una prueba estática lo vigila). Sin ese flag, un fallo de D11 es de infraestructura, no del intake.
 - `importMap` de Payload sólo se regenera en HMR; con `/app` RO no se reescribe fuera de él.
 - `npm ci` con `node_modules` montado se valida en A3f2 (volumen nombrado), con `HOME=/tmp` (en `deps`, `app`, `app-prod` y `e2e`; la caché npm persistente sólo existe en `deps`, en `/app/.npm-cache`; los consumidores usan `/tmp/.npm`, efímero).
 - El `node_modules` del host fue poblado en la era RW (antes del aislamiento) y sólo se usa para las pruebas estáticas en sandbox de `jz-run`; nunca como prerrequisito del gate. El volumen nombrado lo enmascara en los contenedores.
-- Next 16.4.1 reescribiría `next-env.d.ts` si su contenido difiriera (`writeAppTypeDeclarations.js`); `test/estatico/next-env-contenedor.test.ts` fija byte a byte los dos archivos de `contenedor/` contra la función real de Next. `writeConfigurationDefaults` también escribiría `tsconfig.json` si no fuera un punto fijo; se deduce por lectura que lo es (incluye los globs de dev y build y ninguna opción obligatoria cambia), pero no se verificó con `next build`: un `EROFS` ahí es parada dura (D20).
+  - Los tests estáticos de los agentes se ejecutan dentro de `jz-run` (sandbox con el worktree escribible) contra ese `node_modules` heredado: su verde no prueba integridad de dependencias.
+  - **Recomendación humana:** antes de confiar en pruebas del host, regenerar el `node_modules` del host desde el lockfile con `--ignore-scripts`, bajo control humano y con red (`npm ci --ignore-scripts`). Sólo documentación: ningún agente lo hace.
+- Next 16.4.1 reescribiría `next-env.d.ts` si su contenido difiriera (`writeAppTypeDeclarations.js`); `test/estatico/next-env-contenedor.test.ts` fija byte a byte los dos archivos de `contenedor/` contra la función real de Next. `writeConfigurationDefaults` también escribiría `tsconfig.json` si no fuera un punto fijo; `test/estatico/tsconfig-punto-fijo.test.ts` ejecuta la función real de Next sobre una copia de `tsconfig.json` en `os.tmpdir()`, para dev (`.next/dev`, `NODE_ENV=development`) y build (`.next-prod`, `NODE_ENV=production`), y comprueba que el archivo no cambia; no se verificó con `next build` real: un `EROFS` ahí es parada dura (D20).
 
 Los arreglos de H-1 a H-5, H-10 y S-1 son trabajo de jz-implementer, y su priorización corresponde a jz-qa y jz-security en U10.
 
@@ -876,3 +935,4 @@ Los arreglos de H-1 a H-5, H-10 y S-1 son trabajo de jz-implementer, y su priori
 | 1 | jz-qa y jz-architect | Precondiciones de proxy en D09 y D29. `--solo` en D13 y D27 (C-2). NV-8 detrás del build (C-3). Predicción de fallo de H-1/H-2 en D11. Corrección de `README.md` y de código en `b09d7ea`/`c8bbf0f`, pendientes de verificación Docker |
 | 2 | jz-qa y jz-security | **QA:** D11 pasa a verificar H-1/H-2 (corregidos en `c8bbf0f`) y `D11-diag` queda obsoleta; citas de `poc.sh` actualizadas (`exec-en` 79-84, `e2e-en` 89-97, `E2E_RESET` 96 y 107, proxy de `e2e-prod-en` 102-103, `build_ms` 123, `up-prod-pruebas-en` 139-143, `down-prod` 144, `stats` 145-148, `destroy` 149); duración con el coste de `verificar-db.ts` por caso. **Seguridad:** S1, montaje escribible, con la comprobación A3f, la guarda `ARBOL ALTERADO` en `r()`, `tls_ok` y el hallazgo S-1; S2, revisión A2 obligatoria y ampliada, y blob del documento en A1; S3, A4 con `--ignore-scripts`, revisión del lockfile, versión de `axe-core` y `npm audit signatures`; S4, `config --no-interpolate` en A2c; S5, validación de `.env` en B1v; S6, búsqueda de fugas por valor y por URL de Postgres en K2; S7, carpeta 700, `SHA256SUMS` incremental y hash fuera del host; S8, comprobación de `git config` y la función `g` en A0. Regla de no pasar secretos en línea a `r()`. Añadidos propios: `.npmrc` en `GUARDA`, rechazo de identificadores repetidos en `r()`, `source:` en el `grep` de A2c, la observación H-10 y la reordenación de la limpieza (J) antes del cierre (K) |
 | `69e1883` | jz-architect | El HEAD de referencia del código pasa de `c8bbf0f` a `69e1883`, que sólo cambia `poc1a/contrato-driver.mjs` (el error de reset no vuelca stdout; validación de `POC_RESET_ENV`). Cabecera y A1 actualizadas: A1 acepta commits posteriores que sólo toquen `docs/` |
+| Aislamiento de escritura, ciclo de corrección 1 | jz-qa y jz-security | **QA:** `--configLoader runner` en toda invocación de vitest en contenedor (Vite escribe `node_modules/.vite-temp`); `-type f` en D12; ejecución de A4 tras A3f; tsconfig como punto fijo de `writeConfigurationDefaults` (prueba estática); órdenes contradictorias de README, EVIDENCIA y diseño. **Seguridad:** A3e, retirada de contenedores de la era RW y comprobación de montajes RW del worktree; A2d, runc ≥ 1.1.12 (CVE-2024-21626); `next-env.d.ts` creado de forma exclusiva en `init`; referencia de código vinculante `CODEREF` en A1; aclaraciones de root, Compose sin daemon, `destroy` y riesgo del `node_modules` heredado |

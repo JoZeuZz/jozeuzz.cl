@@ -186,11 +186,11 @@ Rutas de log relativas a la raíz del repositorio. «Suite agregada» = `.jz/bin
 | Unidad | Comando exacto | Resultado |
 |---|---|---|
 | U2 validador, slug, hook `intake` | Suite agregada (unitarios `src/lib/intake/*.test.ts`) | ok, rc=0, log arriba |
-| U2 hook con la Local API | `./poc.sh exec-en poc3_intake npx vitest run` | PENDIENTE (no ejecutado) |
+| U2 hook con la Local API | `./poc.sh exec-en poc3_intake npx vitest run --configLoader runner` | PENDIENTE (no ejecutado) |
 | U3 token, Origin/Referer, IP | Suite agregada (`token`, `origen`, `ip`, `ip-sintetica`, `config`, `claves`) | ok, rc=0, log arriba |
 | U4 migración | Suite agregada (`migracion-poc3.test.ts`, estático) | ok, rc=0, log arriba |
 | U4 desde cero | `./poc.sh migrate-en poc3_intake` y `./poc.sh comprobar-en poc3_intake` | PENDIENTE (no ejecutado) |
-| U5/U5a proxy, `/solicitar`, `/api/intake` | `./poc.sh init` · `./poc.sh up-en poc3_intake` · `./poc.sh sonda-red` · `./poc.sh up-fallos-en poc3_intake` · `./poc.sh exec-en poc3_intake npx vitest run` (HTTP) · `node --test test/docker/ip-produccion.test.mjs` | PENDIENTE (no ejecutado) |
+| U5/U5a proxy, `/solicitar`, `/api/intake` | `./poc.sh init` · `./poc.sh init-volumes` · `./poc.sh deps` · `./poc.sh probe-mounts` · `./poc.sh up-en poc3_intake` · `./poc.sh sonda-red` · `./poc.sh up-fallos-en poc3_intake` · `./poc.sh exec-en poc3_intake npx vitest run --configLoader runner` (HTTP) · `node --test test/docker/ip-produccion.test.mjs` | PENDIENTE (no ejecutado) |
 | U5a estático de Compose y proxy | Suite agregada (`compose-proxy.test.ts`, `poc-sh-aislamiento.test.ts`) | ok, rc=0, log arriba |
 | U6 límites | Suite agregada (`limites.test.ts`) | ok, rc=0, log arriba |
 | U6 IN-11, concurrencia, reenvío | Batería `--alcance poc-3` (README «POC-3 U9», 1) | PENDIENTE (no ejecutado) |

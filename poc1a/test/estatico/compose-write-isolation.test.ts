@@ -89,7 +89,8 @@ describe('aislamiento de escritura Docker', () => {
     ])
   })
 
-  it('volumes-init es el único servicio con root, sin red o con privilegios recortados', async () => {
+  // db y proxy no fijan `user:` (corren como root de imagen) y no montan el worktree; esto fija que ningún otro servicio declare root ni privilegios.
+  it('volumes-init es el único servicio que declara root, y ningún otro declara user root, network_mode ni privileged', async () => {
     const cfg = await compose()
     for (const [nombre, service] of Object.entries(cfg.services)) {
       if (nombre === 'volumes-init') continue

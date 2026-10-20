@@ -93,3 +93,153 @@ it('EVIDENCIA no afirma resultados Docker del aislamiento', async () => {
   expect(evidencia).toContain('`volumes-init`, `deps` y `probe-mounts` siguen sin ejecutarse')
   expect(evidencia).not.toContain('./poc.sh exec-en poc3_intake npx tsc --noEmit\n')
 })
+
+// ---- Ciclo de corrección 1 (revisión jz-qa y jz-security) ----
+
+const bloque = (texto: string, desde: string, hasta: string) => {
+  const i = texto.indexOf(desde)
+  const j = texto.indexOf(hasta, i + desde.length)
+  expect(i, desde).toBeGreaterThan(-1)
+  expect(j, hasta).toBeGreaterThan(i)
+  return texto.slice(i, j)
+}
+
+it('toda invocación de vitest en contenedor lleva --configLoader runner (Q-I1)', async () => {
+  const [gate, readme, evidencia, diseno] = await Promise.all([
+    leer('../docs/GATE-DOCKER-POC-3.md'), leer('README.md'), leer('EVIDENCIA.md'), leer('../docs/POC-3-DISENO.md'),
+  ])
+  const sinFlag = (texto: string, filtro: (l: string) => boolean = () => true) =>
+    texto.split('\n').filter((l) => /(npx vitest|vitest run)/.test(l) && filtro(l) && !l.includes('--configLoader runner'))
+  expect(sinFlag(gate)).toEqual([])
+  expect(sinFlag(readme)).toEqual([])
+  // EVIDENCIA conserva filas históricas de POC-1a (`exec npx vitest run`): sólo se exige en las órdenes `exec-en`.
+  expect(sinFlag(evidencia, (l) => l.includes('exec-en'))).toEqual([])
+  expect(sinFlag(diseno)).toEqual([])
+  expect(gate).toContain('r D11 ./poc.sh exec-en poc3_intake npx vitest run --configLoader runner')
+  // El riesgo residual explica .vite-temp y la razón del flag.
+  expect(gate).toContain('node_modules/.vite-temp')
+  expect(gate).toMatch(/cargador bundle[^\n]*EROFS|EROFS[^\n]*cargador bundle/)
+})
+
+it('A3e retira contenedores de la era RW antes de A4 y B1 como parada dura (S-I1)', async () => {
+  const gate = await leer('../docs/GATE-DOCKER-POC-3.md')
+  const a3e = gate.indexOf('**A3e')
+  expect(a3e).toBeGreaterThan(-1)
+  expect(gate.indexOf('### A3 ·')).toBeLessThan(a3e)
+  expect(a3e).toBeLessThan(gate.indexOf('### A4 ·'))
+  expect(a3e).toBeLessThan(gate.indexOf('## B. Prerrequisitos Docker'))
+  const seccion = bloque(gate, '**A3e', '### A4 ·')
+  expect(seccion).toContain('docker ps -a --filter label=com.docker.compose.project=jozeuzz-poc-a')
+  const down = seccion.split('\n').find((l) => /\bdown\b/.test(l) && l.includes('docker compose')) ?? ''
+  expect(down).toContain('docker compose -p jozeuzz-poc-a -f compose.yaml -f compose.pruebas.yaml --profile prod --profile e2e --profile deps --profile volumes-init down --remove-orphans')
+  expect(down).not.toMatch(/\s-v(\s|$)|--volumes/)
+  expect(seccion).toContain("docker ps -aq | xargs -r docker inspect --format '{{.Name}}{{range .Mounts}} {{.Source}}:{{.RW}}{{end}}'")
+  expect(seccion).toContain('grep -F /home/proyectos/jozeuzz-poc-candidata-a')
+  expect(seccion).toContain("grep ':true'")
+  expect(seccion).toMatch(/parada dura/i)
+  expect(seccion).toMatch(/no tocar contenedores ajenos al proyecto/i)
+  expect(seccion).toContain('g status --porcelain -- $GUARDA')
+  expect(seccion).toContain('B1v')
+  expect(seccion).toContain('era RW')
+  // Clasificación: estas órdenes son Docker root-equivalente.
+  const fila = gate.split('\n').find((l) => l.startsWith('| Docker: privilegio equivalente a root')) ?? ''
+  expect(fila).toContain('A3e')
+})
+
+it('el HEAD de código del gate es coherente entre cabecera y A1 y distingue citas de línea (M-1)', async () => {
+  const gate = await leer('../docs/GATE-DOCKER-POC-3.md')
+  const cabecera = /\*\*HEAD de referencia del código:\*\* `([0-9a-f]{7,40})`/.exec(gate)
+  expect(cabecera, 'cabecera').toBeTruthy()
+  const ref = cabecera![1]
+  const a1 = bloque(gate, '### A1 ·', '### A2 ·')
+  expect(a1).toContain(`CODEREF=${ref}`)
+  expect(a1).toContain('g diff --name-only "$CODEREF"..HEAD | grep -v \'^docs/\'')
+  // Todo rango de A1 usa la variable: no queda ningún hash fijo.
+  expect(a1.replace(/"\$CODEREF"\.\.HEAD/g, '')).not.toContain('..HEAD')
+  expect(gate).toContain('referencia vinculante de código')
+  expect(gate).toContain('citas de línea no actualizadas siguen refiriéndose a `69e1883`')
+})
+
+it('A4 usa etiquetas coherentes con g apply, subshell sin exit suelto y se ejecuta tras A3f (M-2, M-3)', async () => {
+  const gate = await leer('../docs/GATE-DOCKER-POC-3.md')
+  const a4 = bloque(gate, '### A4 ·', '### Clasificación de operaciones por privilegio')
+  expect(a4).toContain('--label a/poc1a/package.json --label b/poc1a/package.json')
+  expect(a4).toContain('--label a/poc1a/package-lock.json --label b/poc1a/package-lock.json')
+  expect(a4).toContain('rutas del parche relativas a la raíz del repositorio')
+  expect(a4).toMatch(/A4 completo[^\n]*después de B1[^\n]*A3f/)
+  const lineas = a4.split('\n')
+  const abre = lineas.indexOf('(')
+  const cierra = lineas.indexOf(')')
+  expect(abre, 'subshell abre').toBeGreaterThan(-1)
+  expect(cierra, 'subshell cierra').toBeGreaterThan(abre)
+  lineas.forEach((l, i) => {
+    if (/(^|[\s;&|])exit(\s|$)/.test(l) && !l.trim().startsWith('#')) expect(i > abre && i < cierra, `exit fuera de subshell: ${l}`).toBe(true)
+  })
+  // A4b0/A4b/A4c van después del commit de A4 y dependen de deps (A3f).
+  expect(a4.indexOf('r A4b0')).toBeGreaterThan(a4.indexOf('g commit'))
+})
+
+it('D12 no sigue enlaces ni FIFOs al listar .tsbuildinfo (M-5)', async () => {
+  const gate = await leer('../docs/GATE-DOCKER-POC-3.md')
+  const finds = gate.split('\n').filter((l) => l.startsWith("find . -name '*.tsbuildinfo'"))
+  expect(finds.length).toBe(2)
+  for (const l of finds) expect(l).toContain('-type f')
+})
+
+it('M-7 y M-8: texto de root y de Compose sin daemon', async () => {
+  const gate = await leer('../docs/GATE-DOCKER-POC-3.md')
+  expect(gate).toContain('único servicio root con acceso a volúmenes de aplicación')
+  expect(gate).toContain('`db` y `proxy` son root de imagen sin bind RW')
+  expect(gate).not.toContain('El único servicio que corre como root es `volumes-init`')
+  const fila = gate.split('\n').find((l) => l.startsWith('| Compose sin daemon')) ?? ''
+  expect(fila).toContain('root humano')
+  expect(fila).toContain('.env')
+  expect(fila).toContain('B1v')
+  expect(fila).toContain('no exige variables')
+})
+
+it('M-9: el verde estático no prueba la integridad de node_modules del host', async () => {
+  const gate = await leer('../docs/GATE-DOCKER-POC-3.md')
+  expect(gate).toContain('su verde no prueba integridad de dependencias')
+  expect(gate).toContain('regenerar el `node_modules` del host desde el lockfile con `--ignore-scripts`')
+})
+
+it('Q-M4: destroy borra los once volúmenes y obliga a repetir el bootstrap', async () => {
+  const [gate, readme] = await Promise.all([leer('../docs/GATE-DOCKER-POC-3.md'), leer('README.md')])
+  for (const texto of [gate, readme]) {
+    expect(texto).toMatch(/destroy[^\n]*once volúmenes/)
+    expect(texto).toMatch(/init-volumes[^\n]*deps[^\n]*probe-mounts/)
+  }
+})
+
+it('Q-M6: la documentación no contradice el modelo RO (diseño, README, EVIDENCIA)', async () => {
+  const [diseno, readme, evidencia] = await Promise.all([leer('../docs/POC-3-DISENO.md'), leer('README.md'), leer('EVIDENCIA.md')])
+  expect(diseno).not.toContain('./poc.sh deps npm install')
+  expect(diseno).not.toContain('jz-run node --test poc1a/test/build/')
+  expect(diseno).toContain('./poc.sh run-prod-en poc3_intake node --test test/build/sin-inyeccion.test.mjs')
+  expect(diseno).toContain('manifest-patch-axe')
+  const ancla = 'Comandos Docker pendientes de ejecución humana, desde `poc1a/`:\n'
+  const i = readme.indexOf(ancla)
+  expect(i).toBeGreaterThan(-1)
+  const trozo = readme.slice(i, readme.indexOf('./poc.sh up-en poc3_intake', i))
+  let previo = -1
+  for (const orden of ['./poc.sh init\n', './poc.sh init-volumes\n', './poc.sh deps\n', './poc.sh probe-mounts\n']) {
+    const k = trozo.indexOf(orden)
+    expect(k, orden).toBeGreaterThan(previo)
+    previo = k
+  }
+  const fila = evidencia.split('\n').find((l) => l.startsWith('| U5/U5a proxy')) ?? ''
+  expect(fila).toMatch(/init.*init-volumes.*deps.*probe-mounts.*up-en poc3_intake/)
+})
+
+it('S-M10: A2 registra versiones y exige runc >= 1.1.12; README escribe en $S', async () => {
+  const [gate, readme] = await Promise.all([leer('../docs/GATE-DOCKER-POC-3.md'), leer('README.md')])
+  const a2 = bloque(gate, '### A2 ·', '### A3 ·')
+  expect(a2).toContain('docker version')
+  expect(a2).toContain('runc --version')
+  expect(a2).toContain('CVE-2024-21626')
+  expect(a2).toContain('1.1.12')
+  expect(a2).toMatch(/runc[^\n]*inferior[^\n]*parada dura|parada dura[^\n]*runc/i)
+  expect(readme).toContain('> "$S/A4-manifiestos.json"')
+  expect(readme).not.toContain('/root/jz-gate-poc3/A4-manifiestos.json')
+})

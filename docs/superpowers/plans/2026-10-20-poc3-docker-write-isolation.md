@@ -1047,3 +1047,18 @@ Prevalecen sobre el plan donde choquen.
 - **E7 · `migrate-create`.** Con `/app` RO no puede escribir `src/migrations`: rechazo explícito (`exit 2`), test estático y nota en README. `migrate` y `migrate-en` no cambian.
 - **E8 · `manifest-patch-axe`.** Además de lo del plan, `docker run` lleva `--cap-drop ALL --security-opt no-new-privileges:true`, con aserción en test.
 - **E9 · Riesgo residual (sólo documental, en el gate).** La caché de Vitest (`node_modules/.vite`) y `payload generate:types` (`src/payload-types.ts`) fallan en silencio con RO (no fatal); `importMap` sólo se regenera en HMR; `npm ci` con `node_modules` montado se valida en A3f2; `HOME=/tmp`. El `node_modules` del host se pobló en la era RW y sólo sirve para pruebas estáticas en sandbox, nunca como prerrequisito.
+
+### Ciclo de corrección 1
+
+Tras la revisión de jz-qa y jz-security. Prevalece sobre el plan y sobre E1-E9 donde choque.
+
+- **Q-I1.** Toda invocación de vitest dentro de contenedores lleva `--configLoader runner` (Vite escribe `node_modules/.vite-temp` con el cargador bundle). Prueba en `docs-write-isolation.test.ts` sobre gate, README, EVIDENCIA (órdenes `exec-en`) y diseño.
+- **S-I1.** Gate A3e (parada dura, antes de A4 y B1): sin contenedores del proyecto (`down --remove-orphans` sin `-v`) y ningún contenedor del host con el worktree montado en RW; clasificado como Docker root-equivalente.
+- **M-1.** `CODEREF` en A1 reemplaza el hash fijo. Commit A con todos los cambios del ciclo y commit B sólo en `docs/GATE-DOCKER-POC-3.md` con el hash del commit A. Las pruebas no fijan el hash.
+- **M-2.** Etiquetas `a/poc1a/…` del parche A4 correctas: `git apply` resuelve las rutas desde la raíz del repositorio también desde `poc1a/` (comprobado en un repositorio temporal).
+- **M-3.** A4 completo se ejecuta tras B1/B1v y A3f; el primer bloque va en una subshell `( … )`.
+- **M-5.** `find … -name '*.tsbuildinfo'` con `-type f` (D12).
+- **M-6.** `poc.sh init` crea `next-env.d.ts` con `( set -C; : > next-env.d.ts )` y vuelve a comprobar `-L`.
+- **M-7, M-8, M-9, Q-M4, Q-M6, S-M10.** Aclaraciones documentales (root, Compose sin daemon, riesgo del `node_modules` heredado, `destroy`, comandos contradictorios, runc ≥ 1.1.12).
+- **Q-M2.** `test/estatico/tsconfig-punto-fijo.test.ts` ejecuta la función real `writeConfigurationDefaults` de Next sobre una copia de `tsconfig.json` en `os.tmpdir()` (dev con `NODE_ENV=development` y `.next/dev`; build con `NODE_ENV=production` y `.next-prod`) y comprueba que no cambia; incluye un control que sí cambia.
+- **No se hizo:** M-4, `cap_drop` en servicios, bind recursive ni citas de línea masivas.

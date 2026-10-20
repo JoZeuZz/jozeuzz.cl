@@ -6,11 +6,12 @@ H0A-02/03/04 se validan en servidor. El intake sintético interno de esta fase (
 
 ```sh
 # desde poc1a/; nunca usar base poc, ./poc.sh up/e2e/migrate heredados
+# antes de nada: init, init-volumes, deps y probe-mounts (ver «POC-3 — aislamiento de escritura Docker»)
 ./poc.sh db-up
 ./poc.sh psql -c 'CREATE DATABASE poc1b_migraciones' # sólo si no existe
 ./poc.sh up-en poc1b_migraciones
 ./poc.sh comprobar-en poc1b_migraciones
-./poc.sh exec-en poc1b_migraciones npx vitest run
+./poc.sh exec-en poc1b_migraciones npx vitest run --configLoader runner
 ./poc.sh exec-en poc1b_migraciones npx tsc --noEmit --tsBuildInfoFile /tmp/tsconfig.tsbuildinfo
 node --test ../contrato/test/
 POC_TARGET_DATABASE=poc1b_migraciones POC_BASE_URL=https://127.0.0.1:3443 NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt" node ../contrato/run.mjs --driver contrato-driver.mjs --alcance poc-1a
@@ -50,6 +51,8 @@ Orden previo obligatorio, desde `poc1a/` (operaciones Docker, ejecución humana;
 ./poc.sh probe-mounts
 ```
 
+`./poc.sh destroy` (`down -v`) borra los once volúmenes (los diez de aplicación y `db`): después hay que repetir `./poc.sh init-volumes`, `./poc.sh deps` y `./poc.sh probe-mounts` antes de levantar nada. Toda invocación de vitest en contenedor lleva `--configLoader runner`: Vite carga `vitest.config.ts` con el cargador bundle y escribe `node_modules/.vite-temp`, y con `node_modules` RO eso falla.
+
 `./poc.sh probe-mounts` comprueba como uid 1000 que `/app` y los manifiestos son RO, que `node_modules` es RO en los consumidores y que cada servicio escribe exactamente su lista permitida; el `find` del host (A3d del gate) es sólo diagnóstico no vinculante.
 
 Consecuencias operativas: `./poc.sh migrate-create` está deshabilitada (migrate-create deshabilitada: `/app` es sólo lectura, así que las migraciones se crean fuera de los contenedores con revisión humana); `./poc.sh migrate` y `migrate-en` no cambian. El typecheck en contenedor usa `npx tsc --noEmit --tsBuildInfoFile /tmp/tsconfig.tsbuildinfo` (`tsconfig.json` también fija esa ruta). La instalación de axe ya no escribe el repositorio: ver «POC-3 U8».
@@ -64,11 +67,14 @@ Comandos Docker pendientes de ejecución humana, desde `poc1a/`:
 
 ```sh
 ./poc.sh init
+./poc.sh init-volumes
+./poc.sh deps
+./poc.sh probe-mounts
 ./poc.sh up-en poc3_intake
 ./poc.sh sonda-red
 ./poc.sh up-fallos-en poc3_intake
 # la batería de 44 contra el intake real: gate «POC-3 U9»
-./poc.sh exec-en poc3_intake npx vitest run
+./poc.sh exec-en poc3_intake npx vitest run --configLoader runner
 ./poc.sh e2e-en poc3_intake
 ```
 
@@ -97,7 +103,7 @@ La lógica de la prueba de build (`test/build/comprobar-build.mjs`) tiene su pro
 
 ```sh
 # Con /app en sólo lectura, deps no puede editar los manifiestos: el contenedor emite un JSON base64 y el host genera el parche.
-./poc.sh manifest-patch-axe > /root/jz-gate-poc3/A4-manifiestos.json
+./poc.sh manifest-patch-axe > "$S/A4-manifiestos.json"   # $S = carpeta de salidas del gate (A0); no escribir directamente en /root/jz-gate-poc3/
 # después: decodificar, generar y revisar el parche con diff en el host, y aplicarlo (aplicación humana revisada; ver A4 del gate);
 # quitar "e2e/intake-axe.spec.ts" de "exclude" en tsconfig.json, confirmar package.json y package-lock.json, y ./poc.sh deps (npm ci)
 ./poc.sh e2e-en poc3_intake
