@@ -1,8 +1,8 @@
 # Gate Docker de POC-3 (U2–U9): procedimiento para ejecución humana
 
 - **Estado:** procedimiento para ejecución humana. **No se ha ejecutado.** Lo redactó jz-architect el 2026-10-19 leyendo el código y lo revisó en dos ciclos (ver «Historial de revisiones»). Ningún resultado esperado de este documento está verificado en ejecución: son deducciones del código, con su cita.
-- **HEAD de referencia del código:** `69e1883` (rama `poc/candidata-a-3`). Es la **referencia vinculante de código** del gate: el último commit que cambia código o pruebas. A1 la copia en `CODEREF` y exige que, entre ella y HEAD, sólo cambie `docs/`.
-  - El ciclo de corrección 1 del aislamiento de escritura cambia código (`poc.sh`, pruebas y documentación de `poc1a/`), así que la referencia vinculante pasa al commit de código de ese ciclo (`fix(poc-3): close review findings for write isolation`, «commit A»). Un commit posterior, sólo de `docs/`, escribe su hash en esta cabecera y en `CODEREF` de A1. Si esta cabecera aún muestra `69e1883`, ese commit no se ha aplicado y A1 parará: es lo esperado.
+- **HEAD de referencia del código:** `14278c1` (rama `poc/candidata-a-3`). Es la **referencia vinculante de código** del gate: el último commit que cambia código o pruebas. A1 la copia en `CODEREF` y exige que, entre ella y HEAD, sólo cambie `docs/`.
+  - `14278c1` es el commit A del ciclo de corrección 1 del aislamiento de escritura (`fix(poc-3): close review findings for write isolation`): cambia código (`poc.sh`, pruebas y documentación de `poc1a/`). El commit siguiente, sólo de `docs/`, escribió su hash en esta cabecera y en `CODEREF` de A1; antes de ese commit la referencia era `69e1883`.
   - Las citas de línea no actualizadas siguen refiriéndose a `69e1883`; **la referencia vinculante de código es el commit A**, no esas líneas.
   - Se acepta como HEAD de ejecución el commit que confirme este documento y `docs/adr/0001-stack.md`, o uno posterior que sólo cambie `docs/` (A1 lo comprueba). Si se hace el paso A4 (instalación de axe), la referencia pasa a ser el commit que deja A4. Ese HEAD se anota en cada fila de evidencia.
 - **Quién lo ejecuta:** el responsable del proyecto, como root en el host de la POC, con Docker y Compose v2 y con Node ≥ 20 en el host (`poc1a/README.md:34-36`). Los agentes no tienen Docker (`docs/PLAN-POC-3.md:157`, P3-07 `:199`). Mientras dure el gate, ningún agente escribe en este worktree.
@@ -76,7 +76,7 @@ El humano lee este documento desde Git (`g show HEAD:docs/GATE-DOCKER-POC-3.md`)
 ```sh
 BLOB=<blob anotado por el humano tras leer el documento>
 g branch --show-current                               # poc/candidata-a-3
-CODEREF=69e1883                                       # referencia vinculante de código (cabecera); el commit B del ciclo 1 la sustituye por el hash del commit A
+CODEREF=14278c1                                       # referencia vinculante de código (cabecera): commit A del ciclo de corrección 1
 g rev-parse --short HEAD                              # CODEREF o un commit posterior que sólo cambie docs/
 g diff --name-only "$CODEREF"..HEAD                   # vacío o sólo rutas bajo docs/
 g diff --name-only "$CODEREF"..HEAD | grep -v '^docs/'   # vacío (rc=1 es lo esperado)
