@@ -23,7 +23,7 @@ diff --git a/.jz/policy/policy.mjs b/.jz/policy/policy.mjs
  function readRoots(wt) {
    const home = os.homedir();
    const project = wt.replace(/[^A-Za-z0-9]/g, '-');
-@@ -213,13 +221,93 @@
+@@ -213,13 +221,94 @@
    return allow('filtro de salida');
  }
 
@@ -63,8 +63,10 @@ diff --git a/.jz/policy/policy.mjs b/.jz/policy/policy.mjs
 +// `git add <directorio>` añade también los archivos sin seguimiento no ignorados: ninguno puede ser un secreto.
 +function checkUntracked(dirs, ctx) {
 +  if (dirs.length === 0) return allow('sin directorios');
-+  const r = spawnSync('git', ['--literal-pathspecs', '-c', 'core.fsmonitor=false', '-C', ctx.wt, 'ls-files', '-o',
-+    '--exclude-standard', '-z', '--', ...dirs.map((d) => path.relative(ctx.wt, d))], { encoding: 'utf8', timeout: 5000 });
++  // I-3: -c core.excludesFile=/dev/null impide que un excludesFile global oculte secretos sin seguimiento.
++  const r = spawnSync('git', ['--literal-pathspecs', '-c', 'core.excludesFile=/dev/null', '-c', 'core.fsmonitor=false',
++    '-C', ctx.wt, 'ls-files', '-o', '--exclude-standard', '-z', '--', ...dirs.map((d) => path.relative(ctx.wt, d))],
++    { encoding: 'utf8', timeout: 5000 });
 +  if (r.status !== 0) return deny('no se pudo comprobar qué añadiría git add; se deniega por seguridad');
 +  const bad = r.stdout.split('\0').find((f) => f && isSecret(f));
 +  return bad ? deny(`git add incluiría un secreto sin seguimiento: ${bad}`) : allow('sin secretos sin seguimiento');
@@ -119,7 +121,7 @@ diff --git a/.jz/policy/policy.mjs b/.jz/policy/policy.mjs
    let i = 1;
    while (argv[i] === '--no-pager') i++;
    const sub = argv[i];
-@@ -244,22 +332,7 @@
+@@ -244,22 +334,7 @@
    }
    if (sub === 'worktree' && args[0] === 'list') return allow('git worktree list');
    if (sub === 'remote' && args.every((a) => a === '-v' || a === '--verbose')) return allow('git remote (lectura)');
@@ -143,7 +145,7 @@ diff --git a/.jz/policy/policy.mjs b/.jz/policy/policy.mjs
    return deny(`git ${sub} no está permitido para este rol (push, merge, reset, checkout, stash, clean, config, `
      + 'rebase y similares requieren al humano)');
  }
-@@ -283,7 +356,7 @@
+@@ -283,7 +358,7 @@
    }
    if (argv.some((a) => a.includes('$?')) && exe !== 'echo') return deny('$? sólo se admite en echo');
    if (exe === 'echo') return allow('echo');
@@ -367,7 +369,7 @@ diff --git a/.jz/tests/policy.test.mjs b/.jz/tests/policy.test.mjs
      'git rm src/viejo.ts', 'git branch --show-current', 'git worktree list', 'git --no-pager diff', 'git remote -v']) {
      ok(checkBash(cmd, 'jz-implementer', ctx), cmd);
    }
-@@ -136,3 +137,37 @@
+@@ -136,3 +137,57 @@
  test('tokenize conserva argumentos con comillas', () => {
    assert.deepEqual(tokenize(`git commit -m 'a "b"' -m "c 'd'"`), ['git', 'commit', '-m', 'a "b"', '-m', "c 'd'"]);
  });
@@ -405,10 +407,31 @@ diff --git a/.jz/tests/policy.test.mjs b/.jz/tests/policy.test.mjs
 +    }
 +  }
 +});
++
++test('I-3: git add directorio con excludesFile global que oculta .env* sigue denegado', () => {
++  // Demuestra que -c core.excludesFile=/dev/null es necesario: sin él, un gitignore global que
++  // ignore .env* ocultaría cfg/.env.local y checkUntracked permitiría git add cfg erróneamente.
++  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'jz-home-'));
++  try {
++    const excl = path.join(tmpHome, 'gitignore_global');
++    fs.writeFileSync(excl, '.env*\n');
++    fs.writeFileSync(path.join(tmpHome, '.gitconfig'), `[core]\n  excludesFile = ${excl}\n`);
++    const origHome = process.env.HOME;
++    process.env.HOME = tmpHome;
++    try {
++      no(checkBash('git add cfg', 'jz-implementer', ctx),
++        'git add cfg debe seguir denegado aunque excludesFile global oculte .env*');
++    } finally {
++      process.env.HOME = origHome;
++    }
++  } finally {
++    fs.rmSync(tmpHome, { recursive: true });
++  }
++});
 diff --git a/.jz/tests/recovery.test.mjs b/.jz/tests/recovery.test.mjs
 --- a/.jz/tests/recovery.test.mjs
 +++ b/.jz/tests/recovery.test.mjs
-@@ -188,4 +188,107 @@
+@@ -188,4 +188,112 @@
    const out = { env: {} };
    await hooks['shell.env']({ cwd: repo, sessionID: 'imp', callID: 'b1' }, out);
    assert.deepEqual(out.env, { JZ_ENGINE: 'opencode', JZ_SESSION: 'imp', JZ_AGENT: 'jz-implementer' });
@@ -516,6 +539,12 @@ diff --git a/.jz/tests/recovery.test.mjs b/.jz/tests/recovery.test.mjs
 +  const free = jzState(repo);
 +  assert.equal(free.rc, 0, free.out);
 +});
++
++// Pruebas de integración I-2 que no pueden ejecutarse dentro del sandbox de jz-run (anidamiento):
++// se marcan como skip para no afirmar resultados no verificados. Pendiente aprobación humana.
++test.skip('I-2 (integración pendiente): validador o dependencia sustituido en snapshot falla cerrado', () => {});
++test.skip('I-2 (integración pendiente): snapshot no RO o intento de escritura falla cerrado', () => {});
++test.skip('I-2 (integración pendiente): árbol cambia durante jz-run --validate falla cerrado', () => {});
 diff --git a/docs/AUTONOMIA-JZ.md b/docs/AUTONOMIA-JZ.md
 --- a/docs/AUTONOMIA-JZ.md
 +++ b/docs/AUTONOMIA-JZ.md

@@ -4,6 +4,7 @@
 # Uso (desde la raíz del worktree): .jz/bin/jz-run sh docs/propuestas/verificar-parche.sh
 # Limitación: .jz/tests/sandbox.test.mjs y integration.mjs dependen del worktree real y de bwrap;
 # no se copian ni se ejecutan aquí. policy.test y recovery.test sólo usan repos temporales propios.
+# I-1: el verificador impone conteos exactos RED/GREEN y retorna rc no-cero ante cualquier discrepancia.
 set -u
 
 SRC=$(pwd)
@@ -47,29 +48,77 @@ else
   fi
 fi
 
-count() { # $1=salida tap; imprime pass/fail/skipped
+# count <salida-tap> — extrae pass/fail/skipped del resumen TAP
+count() {
   p=$(printf '%s\n' "$1" | awk '/^# pass /{print $3}')
   f=$(printf '%s\n' "$1" | awk '/^# fail /{print $3}')
   s=$(printf '%s\n' "$1" | awk '/^# skipped /{print $3}')
-  echo "pass=${p:-?} fail=${f:-?} skipped=${s:-?}"
+  printf 'pass=%s fail=%s skipped=%s' "${p:-?}" "${f:-?}" "${s:-?}"
+}
+
+# assert_phase NOMBRE OBTENIDO ESPERADO — rc=0 si coinciden, rc=1 si no
+assert_phase() {
+  _name=$1 _got=$2 _exp=$3
+  if [ "$_got" = "$_exp" ]; then
+    echo "  conteos $1: OK ($2)"
+    return 0
+  else
+    echo "  ERROR $1: esperado=[$3] obtenido=[$2]"
+    return 1
+  fi
 }
 
 run_tests() {
   ( cd "$W" && node --test --test-reporter=tap .jz/tests/policy.test.mjs .jz/tests/recovery.test.mjs 2>&1 )
 }
 
+OVERALL=0
+
+# == Fase 2: ROJA ==
 echo "== 2. fase ROJA: sólo .jz/tests/ =="
 $G apply $RECOUNT --include='.jz/tests/*' "$PATCH_REL" || { echo "ERROR: aplicar hunks de tests"; exit 3; }
 OUT_R=$(run_tests)
 printf '%s\n' "$OUT_R" | grep -E '^not ok|^# (tests|pass|fail|skipped)'
 RES_R=$(count "$OUT_R")
+# En fase roja deben fallar exactamente 7 pruebas (I-1/I-2/I-3 sin código):
+EXP_R="pass=19 fail=7 skipped=3"
+assert_phase "rojo" "$RES_R" "$EXP_R" || OVERALL=1
+FAIL_R=$(printf '%s\n' "$RES_R" | sed 's/.*fail=\([^ ]*\).*/\1/')
+if [ "${FAIL_R:-0}" -eq 0 ] 2>/dev/null; then
+  echo "  ERROR rojo: fail=0 indica que las pruebas no detectan código ausente (parche ya aplicado o sin cobertura)"
+  OVERALL=1
+fi
 
+# == Fase 3: VERDE ==
 echo "== 3. fase VERDE: resto del parche =="
 $G apply $RECOUNT --exclude='.jz/tests/*' "$PATCH_REL" || { echo "ERROR: aplicar el resto"; exit 3; }
 OUT_G=$(run_tests)
 printf '%s\n' "$OUT_G" | grep -E '^not ok|^# (tests|pass|fail|skipped)'
 RES_G=$(count "$OUT_G")
+EXP_G="pass=26 fail=0 skipped=3"
+assert_phase "verde" "$RES_G" "$EXP_G" || OVERALL=1
+FAIL_G=$(printf '%s\n' "$RES_G" | sed 's/.*fail=\([^ ]*\).*/\1/')
+if [ "${FAIL_G:-1}" -ne 0 ] 2>/dev/null; then
+  echo "  ERROR verde: fail>0 tras parche completo"
+  OVERALL=1
+fi
 
+# == Auto-prueba del verificador (I-1): demuestra que una discrepancia retorna rc no-cero ==
+echo "== 4. auto-prueba del verificador =="
+if assert_phase "auto-prueba" "pass=99 fail=0 skipped=0" "pass=19 fail=7 skipped=3" 2>/dev/null; then
+  echo "  ERROR: assert_phase no detectó la discrepancia (el verificador está roto)"
+  OVERALL=1
+else
+  echo "  auto-prueba: OK — discrepancia detectada, assert_phase retorna rc no-cero"
+fi
+
+echo
 echo "== RESUMEN =="
-echo "rojo : $RES_R   (esperado arquitecto: pass=19 fail=6 skipped=9)"
-echo "verde: $RES_G   (esperado arquitecto: pass=25 fail=0 skipped=9)"
+echo "rojo : $RES_R   (esperado: $EXP_R)"
+echo "verde: $RES_G   (esperado: $EXP_G)"
+if [ "$OVERALL" -eq 0 ]; then
+  echo "RESULTADO: OK"
+else
+  echo "RESULTADO: FALLIDO"
+fi
+exit "$OVERALL"

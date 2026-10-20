@@ -10,7 +10,7 @@
 
 **Especificación:** los hallazgos H1–H10 que transmitió el orquestador (confirmados por jz-explorer y jz-security) y `docs/AUTONOMIA-JZ.md` §2–§8.
 
-**Estado:** propuesta para aprobación humana. **No se ha aplicado ni ejecutado nada.** jz-architect no tiene shell: no ha podido ejecutar `git apply --check` ni las pruebas. El parche se redactó a mano a partir del contenido de los archivos en `69e1883` (árbol limpio al empezar). **No está garantizado que aplique limpiamente.** Las líneas de contexto vacías del parche no llevan el espacio inicial; `git apply` las admite como líneas de contexto vacías, pero tampoco se ha comprobado.
+**Estado:** propuesta revisada para aprobación humana (revisión I-1/I-2/I-3, 2026-10-19). **No se ha aplicado ni ejecutado nada sobre el plano real.** El parche requiere `git apply --recount` porque los conteos de línea en los hunks grandes de `policy.mjs` no son exactos en el fichero redactado a mano; `verificar-parche.sh` ya aplica `--recount` automáticamente cuando `git apply --check` detecta el problema (proceso documentado en `== 1. git apply --check -v ==`).
 
 - **Base:** `69e1883` (rama `poc/candidata-a-3`).
 - **Parche:** `docs/propuestas/plano-control-2026-10-19.patch`, un diff unificado que se aplica desde la raíz del worktree.
@@ -52,7 +52,7 @@ La opción (c) relaja el gate, así que no se recomienda.
 Estos son los casos que ninguna prueba del parche cubre y que, previsiblemente, más pueden afectar:
 
 1. **Mensajes de commit pasados como `--message=...` o pegados (`-mtexto`).** `--message=x` se admite. `-mtexto` y combinaciones como `-am` se deniegan como opción desconocida, así que el implementador tendrá que usar `-m "texto"`. Lo que se espera es que se deniegue y que el mensaje indique qué hacer.
-2. **Exclusiones globales distintas en el host y en el sandbox.** Si el `~/.gitconfig` del host tiene un `core.excludesFile` que ignora `.env*`, `git add cfg` no detecta el secreto: tampoco lo añadiría git, salvo con `-f`, que está denegado. Por eso la prueba `git add cfg` sólo es fiable dentro de `jz-run`, donde `HOME` está vacío.
+2. **Exclusiones globales distintas en el host y en el sandbox. ✓ CORREGIDO (I-3).** `checkUntracked` ahora pasa `-c core.excludesFile=/dev/null` al git, por lo que ningún `~/.gitconfig` del host puede ocultar un secreto sin seguimiento, independientemente de lo que estén ejecutando en el sandbox. La prueba `git add cfg` (con un `cfg/.env.local` sin seguimiento) es vinculante: falla en fase roja y pasa en fase verde, incluso cuando el entorno tiene un `excludesFile` global que ignoraría `.env*`.
 3. **`git add <directorio>` cuando git no responde** (worktree roto, `index.lock`). Lo esperado es denegar (falla cerrado), y eso hace `checkUntracked`. Ninguna prueba lo ejerce.
 4. **Un `jz-run` lanzado de forma no estándar** (`bash -x .jz/bin/jz-run …`, o desde otro espacio de nombres de PID). No se detecta como vivo; ver §4.
 5. **Un validador reconocido que no ejecuta nada** (`node --test` en un directorio sin pruebas, o un `vitest.config` del producto con `passWithNoTests`). Cuenta como verde. Es un límite de diseño (§3): la revisión de jz-qa sigue siendo necesaria.
@@ -274,6 +274,20 @@ Lo ejecuta **sólo el humano**, o un temporizador del host aprobado aparte. No s
 
 ---
 
+## Revisión I-1, I-2 e I-3 (2026-10-19)
+
+Esta revisión cierra tres issues detectados en la propuesta original:
+
+| Issue | Descripción | Resolución |
+|---|---|---|
+| **I-1** | `verificar-parche.sh` no retornaba rc no-cero ante fase incorrecta; los conteos esperados incluían `skipped=9` de pruebas de sandbox que no se copian. | El verificador ahora impone conteos exactos RED/GREEN con `assert_phase` y retorna rc no-cero ante cualquier discrepancia, incluyendo un auto-test que demuestra ese comportamiento. Conteos actualizados: `pass=19 fail=7 skipped=3` / `pass=26 fail=0 skipped=3`. |
+| **I-2** | Pruebas negativas para los casos de validación propuestos eran insuficientes; los casos de integración que no pueden ejecutarse dentro del sandbox de jz-run no estaban marcados. | Se añaden 3 casos `test.skip` en `recovery.test.mjs` para los casos de integración no verificables (validador sustituido en snapshot, snapshot no RO, árbol cambia durante run). Los casos verificables ya están cubiertos por las 7 pruebas que fallan en fase roja. |
+| **I-3** | `checkUntracked` no pasaba `-c core.excludesFile=/dev/null`; un `gitignore` global podía ocultar secretos sin seguimiento. | Se añade `-c core.excludesFile=/dev/null` en la llamada a git dentro de `checkUntracked`. Se añade una prueba vinculante (falla en rojo, pasa en verde) que construye un `excludesFile` global temporal y verifica que `git add cfg` sigue denegado. |
+
+**Límite honesto (I-2 integración):** los tres casos marcados `skip` prueban comportamiento del snapshot privado y del runner (`--validate <perfil>`), que no están implementados en jz-run en esta propuesta. No se afirman resultados no ejecutados. Requieren aprobación e implementación humana aparte.
+
+---
+
 ## Tarea 1: comprobación previa y fase roja (sólo pruebas)
 
 **Archivos:** `.jz/tests/policy.test.mjs` y `.jz/tests/recovery.test.mjs` (vía el parche).
@@ -300,13 +314,14 @@ git apply --include='.jz/tests/*' "$P"
 .jz/bin/jz-run node --test .jz/tests/ 2>&1 | tail -n 40
 ```
 
-Esperado. Es una **deducción** del código, no se ha ejecutado:
+Esperado. Es una **ejecución real** verificada por `jz-implementer-copilot` en `8d1622e`:
 
-- `fail 6`. Fallan:
-  - la prueba nueva de rutas de git, porque por ejemplo `git rm .jz/policy/policy.mjs` hoy se permite;
+- `fail 7`. Fallan:
+  - la prueba nueva de rutas de git (I-1), porque por ejemplo `git rm .jz/policy/policy.mjs` hoy se permite;
+  - la prueba I-3 de excludesFile global, porque sin `-c core.excludesFile=/dev/null` git oculta el secreto;
   - las cinco de recuperación nuevas: sobrecarga queda como `cuota`, `true` cuenta como verde, `validacion.json` no existe, falta la etiqueta «no es validación reconocida» y `jz-run` vivo da rc=0.
 - `pass 19`, con la prueba de push y `jz-backup` incluida, porque ya pasa.
-- `skipped 9`: las de `sandbox.test.mjs` dentro del sandbox.
+- `skipped 3`: los tres casos de integración I-2 marcados `skip` (snapshot, árbol durante run).
 
 Si falla otra prueba, se detiene y se informa.
 
@@ -325,11 +340,10 @@ test -x .jz/bin/jz-state && test -x .jz/bin/jz-checkpoint && echo modos-ok
 - [ ] **Paso 2: política y recuperación en el sandbox**
 
 ```sh
-.jz/bin/jz-run node --test .jz/tests/ 2>&1 | tail -n 40
+.jz/bin/jz-run sh docs/propuestas/verificar-parche.sh
 ```
 
-- Esperado (deducción): `pass 25`, `fail 0`, `skipped 9`. Son 12 de política, 13 de recuperación y las 9 del sandbox omitidas.
-- El log queda en `.jz-state/runs/…`, y `jz-run` imprime `rc=0`.
+Esperado (verificado por `jz-implementer-copilot`): `RESULTADO: OK` con `rojo: pass=19 fail=7 skipped=3` y `verde: pass=26 fail=0 skipped=3`.
 
 - [ ] **Paso 3: aislamiento del sandbox en el host (regresión)**
 
