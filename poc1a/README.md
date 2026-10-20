@@ -11,7 +11,7 @@ H0A-02/03/04 se validan en servidor. El intake sintético interno de esta fase (
 ./poc.sh up-en poc1b_migraciones
 ./poc.sh comprobar-en poc1b_migraciones
 ./poc.sh exec-en poc1b_migraciones npx vitest run
-./poc.sh exec-en poc1b_migraciones npx tsc --noEmit
+./poc.sh exec-en poc1b_migraciones npx tsc --noEmit --tsBuildInfoFile /tmp/tsconfig.tsbuildinfo
 node --test ../contrato/test/
 POC_TARGET_DATABASE=poc1b_migraciones POC_BASE_URL=https://127.0.0.1:3443 NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt" node ../contrato/run.mjs --driver contrato-driver.mjs --alcance poc-1a
 ./poc.sh up-fallos-en poc1b_migraciones
@@ -34,6 +34,25 @@ POC desechable en rama `poc/candidata-a-1b`. No es el scaffold del producto. La 
 Docker con Compose v2 y Node ≥ 20 en el host (el host de la POC tiene 20.19.2; **no** tiene Node 24). El driver de contrato,
 `node --test` y los scripts de `scripts/` corren con el Node del host, sin dependencias. Node 24.22.0 solo existe en la imagen
 Docker (lo exige `engines` de `package.json`, que aplica dentro del contenedor). Acceso a Internet únicamente para `deps` y para descargar la imagen de Playwright (fijada por digest).
+
+## POC-3 — aislamiento de escritura Docker
+
+`poc1a/` se monta en `/app` como bind **de sólo lectura** en `deps`, `app`, `app-prod` y `e2e`; los cuatro tienen raíz `read_only: true`, `/tmp` en `tmpfs` y `HOME=/tmp`. Sólo escriben en volúmenes nombrados: `node_modules` (RW únicamente en `deps`, RO en los demás) y `npm_cache` (sólo `deps`); `next_dev`, `media_dev`, `media_test` y `media_prod` en `app`; `next_prod` y `media_prod` en `app-prod`; `test_results`, `playwright_report` y `blob_report` en `e2e`. Docker crea esos volúmenes como root, y por eso existe `volumes-init`: un servicio one-shot root, sin red, sin bind y sin socket, que sólo deja los volúmenes en `1000:1000`.
+
+Next reescribe `next-env.d.ts` si su contenido difiere, y `/app` es de sólo lectura: `contenedor/next-env.dev.txt` (`app`) y `contenedor/next-env.prod.txt` (`app-prod`) se montan como binds de archivo RO sobre `/app/next-env.d.ts`. `test/estatico/next-env-contenedor.test.ts` los compara byte a byte con la salida de la función real de Next. `./poc.sh init` prepara los puntos de montaje en el host (directorios y un `next-env.d.ts` vacío si falta; rechaza enlaces simbólicos): es prerrequisito de todo lo demás. `poc1a/node_modules` del host **no** es prerrequisito: lo enmascara el volumen nombrado.
+
+Orden previo obligatorio, desde `poc1a/` (operaciones Docker, ejecución humana; no se han ejecutado):
+
+```sh
+./poc.sh init
+./poc.sh init-volumes
+./poc.sh deps
+./poc.sh probe-mounts
+```
+
+`./poc.sh probe-mounts` comprueba como uid 1000 que `/app` y los manifiestos son RO, que `node_modules` es RO en los consumidores y que cada servicio escribe exactamente su lista permitida; el `find` del host (A3d del gate) es sólo diagnóstico no vinculante.
+
+Consecuencias operativas: `./poc.sh migrate-create` está deshabilitada (migrate-create deshabilitada: `/app` es sólo lectura, así que las migraciones se crean fuera de los contenedores con revisión humana); `./poc.sh migrate` y `migrate-en` no cambian. El typecheck en contenedor usa `npx tsc --noEmit --tsBuildInfoFile /tmp/tsconfig.tsbuildinfo` (`tsconfig.json` también fija esa ruta). La instalación de axe ya no escribe el repositorio: ver «POC-3 U8».
 
 ## POC-3 U5a — proxy TLS y aislamiento
 
@@ -64,21 +83,23 @@ Payload usa `pino` con `src/lib/intake/log.ts` (sin `pino-pretty`); `db` arranca
 ./poc.sh up-prod-pruebas-en poc3_intake
 export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
 POC_BASE_URL=https://127.0.0.1:3444 node --test test/docker/logs-intake.test.mjs
-node --test test/build/sin-inyeccion.test.mjs   # exige .next-prod actual (BUILD_ID posterior a las fuentes de intake)
+./poc.sh run-prod-en poc3_intake node --test test/build/sin-inyeccion.test.mjs   # D21a: dentro de app-prod; exige .next-prod actual (volumen next_prod; BUILD_ID posterior a las fuentes de intake)
 ./poc.sh up-fallos-en poc3_intake
 export NODE_EXTRA_CA_CERTS="$PWD/.tls/ca.crt"
 node --test test/docker/logs-intake-fallos.test.mjs
 ```
 
-La lógica de la prueba de build (`test/build/comprobar-build.mjs`) tiene su propia prueba sin Docker: `node --test test/build/comprobar-build.test.mjs`.
+La lógica de la prueba de build (`test/build/comprobar-build.mjs`) tiene su propia prueba sin Docker (D21b, 10 tests: `# pass 10`), en el host como uid 1000 y sin grupo Docker: `setpriv --reuid=1000 --regid=1000 --clear-groups node --test test/build/comprobar-build.test.mjs`. D13/D16/D17/D26/D27 son Docker root-equivalente (el driver llama `poc.sh exec-en`); D30 puede usar `setpriv` mientras el script no invoque `poc.sh`.
 
 ## POC-3 U8 — accesibilidad, sin JavaScript y E2E
 
 `/solicitar` usa HTML semántico sin scripts (`html.ts`; CSP sin `script-src`). `e2e/intake.spec.ts` cubre teclado, envío vacío y válido, el mismo flujo con `javaScriptEnabled: false`, dos pestañas (mensaje de csrf) y los atributos de la cookie `__Host-intake`. `e2e/intake-axe.spec.ts` audita con axe (`wcag2a`, `wcag2aa`) pero requiere `@axe-core/playwright@4.13.0`, que aún no está instalado: el spec se omite si falta el paquete y está excluido en `tsconfig.json` (`exclude`) para que `tsc` no falle por el import ausente. Pasos humanos, desde `poc1a/`:
 
 ```sh
-./poc.sh deps npm install --save-dev --save-exact @axe-core/playwright@4.13.0
-# después: quitar "e2e/intake-axe.spec.ts" de "exclude" en tsconfig.json y confirmar package.json y package-lock.json
+# Con /app en sólo lectura, deps no puede editar los manifiestos: el contenedor emite un JSON base64 y el host genera el parche.
+./poc.sh manifest-patch-axe > /root/jz-gate-poc3/A4-manifiestos.json
+# después: decodificar, generar y revisar el parche con diff en el host, y aplicarlo (aplicación humana revisada; ver A4 del gate);
+# quitar "e2e/intake-axe.spec.ts" de "exclude" en tsconfig.json, confirmar package.json y package-lock.json, y ./poc.sh deps (npm ci)
 ./poc.sh e2e-en poc3_intake
 ./poc.sh e2e-prod-en poc3_intake
 ```
@@ -97,6 +118,9 @@ Comandos Docker pendientes de ejecución humana, desde `poc1a/` (Docker no se ej
 
 ```sh
 ./poc.sh init
+./poc.sh init-volumes
+./poc.sh deps
+./poc.sh probe-mounts
 ./poc.sh db-up
 ./poc.sh psql -c 'CREATE DATABASE poc3_intake' # sólo si no existe
 # 1) app (3443): 44 casos y 12 IN-*

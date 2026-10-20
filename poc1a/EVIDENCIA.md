@@ -171,6 +171,8 @@ El driver mantiene `connection: close`.
 
 Estado de esta sección (unidad 9, 2026-10-17): **todo lo que requiere Docker figura como `PENDIENTE (no ejecutado)`**. Ninguna prueba de esta tabla se da por aprobada si no tiene su resultado y su log. Lo ejecutado con `jz-run` (sin red ni Docker) anota la ruta del log en `.jz-state/runs/` y el resultado real. Las filas pendientes las completa el humano tras el gate del README («POC-3 U9»).
 
+Aislamiento de escritura Docker (`/app` RO, raíz `read_only`, volúmenes nombrados, `next-env.d.ts` por bind de archivo RO): validado sólo estáticamente (`test/estatico/compose-write-isolation.test.ts`, `next-env-contenedor.test.ts`, `poc-sh-aislamiento.test.ts`, `docs-write-isolation.test.ts`) hasta A2, A3f y Docker. `volumes-init`, `deps` y `probe-mounts` siguen sin ejecutarse: A2 (matriz de montajes), A3f1, A3f2 y A3f3 son PENDIENTE (no ejecutado), igual que D12b (sin `.tsbuildinfo` nuevo) y D21a/D21b.
+
 ### Retirada de R-1 y regresión de los 44 (unidad 9)
 - `scripts/solicitud-sintetica.ts` se borró (`git rm`); la variable `POC_INTAKE_SINTETICO` ya no existe en `contrato-driver.mjs`, README, `poc.sh`, Compose, `scripts/` ni tests. Quedan menciones sólo en documentos históricos (este archivo, `HANDOFF-POC-1B.md`, `docs/`): describen lo que se hizo en POC-1b y no se reescriben. La prueba `test/estatico/retirada-r1.test.ts` exige lo anterior sobre los archivos vivos.
 - El driver usa sólo `GET /solicitar` + `POST /api/intake` por el proxy, con IP sintética por origen. R-1 no aportaba semántica que el driver deba conservar: `limite.max` ya era 5, el resultado (201 / 4xx) lo decide el servidor real, `listoEn` respeta `POC_INTAKE_TIEMPO_MINIMO_MS` (200 por defecto) y cada `origen` se convierte en una IP distinta.
@@ -193,9 +195,9 @@ Rutas de log relativas a la raíz del repositorio. «Suite agregada» = `.jz/bin
 | U6 límites | Suite agregada (`limites.test.ts`) | ok, rc=0, log arriba |
 | U6 IN-11, concurrencia, reenvío | Batería `--alcance poc-3` (README «POC-3 U9», 1) | PENDIENTE (no ejecutado) |
 | U7 logs sin PII, unitario | Suite agregada (`log.test.ts`, `fallos.test.ts`) | ok, rc=0, log arriba |
-| U7 logs de los servicios | `POC_BASE_URL=https://127.0.0.1:3444 node --test test/docker/logs-intake.test.mjs` · `node --test test/build/sin-inyeccion.test.mjs` · `node --test test/docker/logs-intake-fallos.test.mjs` | PENDIENTE (no ejecutado) |
+| U7 logs de los servicios | `POC_BASE_URL=https://127.0.0.1:3444 node --test test/docker/logs-intake.test.mjs` · `./poc.sh run-prod-en poc3_intake node --test test/build/sin-inyeccion.test.mjs` · `node --test test/docker/logs-intake-fallos.test.mjs` | PENDIENTE (no ejecutado) |
 | U8 accesibilidad y E2E | `./poc.sh e2e-en poc3_intake` · `./poc.sh e2e-prod-en poc3_intake` | PENDIENTE (no ejecutado) |
-| U8 axe | requiere instalar `@axe-core/playwright@4.13.0` (paso humano del README, U8) | PENDIENTE (no ejecutado) |
+| U8 axe | `./poc.sh manifest-patch-axe` y aplicación humana revisada del parche (README, U8; gate A4) | A4 aislado PENDIENTE: manifiestos no generados, parche no aplicado, dependencia no instalada y E2E axe no ejecutado |
 | U9 rojo de la retirada | `.jz/bin/jz-run --cwd poc1a node node_modules/vitest/vitest.mjs run --configLoader runner test/estatico/retirada-r1.test.ts` antes de implementar | rc=1, 7 de 7 fallan por la razón esperada (script existente, referencias a R-1, driver sin `logs-intake.mjs`): `.jz-state/runs/20261017T062353Z-1693736.log` |
 | U9 rojo del README del gate | misma orden tras añadir la prueba del gate | rc=1, 1 de 8 falla (sección ausente): `.jz-state/runs/20261017T062656Z-1702051.log` |
 | U9 rojo de la medición | `.jz/bin/jz-run --cwd poc1a node --test medicion/` antes de crear el script | rc=1 (módulo ausente): `.jz-state/runs/20261017T062554Z-1699377.log` |

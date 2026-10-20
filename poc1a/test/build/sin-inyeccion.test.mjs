@@ -1,7 +1,8 @@
 // POC-3 U7 (T-05 iv, NV-11): el build de producción no contiene la inyección de fallos de `src/lib/intake/fallos.ts`.
 // Next inlinea NODE_ENV y debe eliminar el bloque. PRECONDICIÓN: `./poc.sh build-en poc3_intake` (genera .next-prod);
-// después, desde poc1a/: `node --test test/build/sin-inyeccion.test.mjs`. Falla si .next-prod/server no existe o es
-// obsoleto. La lógica (marcadores sólo en *.js, controles positivos, BUILD_ID) está en `comprobar-build.mjs`.
+// después, desde poc1a/: `./poc.sh run-prod-en poc3_intake node --test test/build/sin-inyeccion.test.mjs`.
+// D21 debe correr dentro de app-prod porque `.next-prod` vive en el volumen nombrado `next_prod`.
+// Falla si .next-prod/server no existe o es obsoleto. La lógica (marcadores sólo en *.js, controles positivos, BUILD_ID) está en `comprobar-build.mjs`.
 //
 // Los marcadores son los valores de la cabecera x-poc-fallo exclusivos de fallos.ts. `POC_FALLOS_INYECTABLES` y
 // `x-poc-fallo` no sirven aquí: `src/collections/Solicitudes.ts` los menciona en su propia guarda (valor `tras-estado`).
