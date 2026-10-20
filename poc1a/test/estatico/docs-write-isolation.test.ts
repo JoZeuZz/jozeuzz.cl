@@ -176,16 +176,19 @@ it('A4 usa etiquetas coherentes con g apply, subshell sin exit suelto y se ejecu
   expect(a4).toContain('g -C .. apply "$S/A4-manifiestos.patch"')
   expect(a4.split('\n').filter((l) => /\bg apply\b/.test(l) && !l.trim().startsWith('#'))).toEqual([])
   expect(a4).toMatch(/A4 completo[^\n]*después de B1[^\n]*A3f/)
+  // Cada fase de A4 (A4a, A4r, A4p, A4v, A4k) corre en su subshell `(` … `)`: ningún exit queda fuera de ellas.
   const lineas = a4.split('\n')
-  const abre = lineas.indexOf('(')
-  const cierra = lineas.indexOf(')')
-  expect(abre, 'subshell abre').toBeGreaterThan(-1)
-  expect(cierra, 'subshell cierra').toBeGreaterThan(abre)
-  lineas.forEach((l, i) => {
-    if (/(^|[\s;&|])exit(\s|$)/.test(l) && !l.trim().startsWith('#')) expect(i > abre && i < cierra, `exit fuera de subshell: ${l}`).toBe(true)
+  let profundidad = 0
+  let subshells = 0
+  lineas.forEach((l) => {
+    if (l === '(') { profundidad++; subshells++ }
+    else if (l === ')') { profundidad-- }
+    else if (/(^|[\s;&|])exit(\s|$)/.test(l) && !l.trim().startsWith('#')) expect(profundidad, `exit fuera de subshell: ${l}`).toBeGreaterThan(0)
   })
+  expect(profundidad).toBe(0)
+  expect(subshells).toBeGreaterThanOrEqual(5)
   // A4b0/A4b/A4c van después del commit de A4 y dependen de deps (A3f).
-  expect(a4.indexOf('r A4b0')).toBeGreaterThan(a4.indexOf('g commit'))
+  expect(a4.indexOf('r A4b0')).toBeGreaterThan(a4.indexOf('commit --no-verify --no-gpg-sign'))
 })
 
 it('D12 no sigue enlaces ni FIFOs al listar .tsbuildinfo (M-5)', async () => {
@@ -286,19 +289,22 @@ it('K1: cualquier salida de g status --short es parada dura y la guarda falla ce
   expect(k1).toContain('GIT FALLÓ')
 })
 
-it('M-3: A4 corre con set -eu, no reutiliza A4-package.json y bloquea la aplicación si a4_rc != 0', async () => {
+it('M-3: A4 corre con set -eu en cada subshell, no reutiliza A4-package.json y no aplica sin a4a_rc/a4r_rc = 0 y hash aprobado', async () => {
   const gate = await leer('../docs/GATE-DOCKER-POC-3.md')
   const a4 = bloque(gate, '### A4 ·', '### Clasificación de operaciones por privilegio')
   const lineas = a4.split('\n')
-  const abre = lineas.indexOf('(')
-  expect(lineas[abre + 1]).toBe('set -eu')
+  lineas.forEach((l, i) => { if (l === '(') expect(lineas[i + 1], `subshell sin set -eu en la línea ${i}`).toBe('set -eu') })
   expect(a4).toContain('A4-package.json de un intento anterior')
   expect(a4).toContain('|| diff_rc=$?')
   expect(a4).toContain('|| rc=$?')
-  expect(a4).toContain('test "$a4_rc" -eq 0 || { echo "A4 falló: no aplicar"; }')
-  expect(a4).toContain('test "$a4_rc" -eq 0 && g -C .. apply --check "$S/A4-manifiestos.patch" && g -C .. apply "$S/A4-manifiestos.patch"')
-  // La comprobación de a4_rc va antes de cualquier aplicación.
-  expect(a4.indexOf('test "$a4_rc" -eq 0 ||')).toBeLessThan(a4.indexOf('g -C .. apply "$S'))
+  expect(a4).toContain('test "$a4a_rc" -eq 0 || echo "A4a FALLÓ: parada dura, no continuar" >&2')
+  // La aplicación (A4p) exige a4a_rc y a4r_rc en 0 dentro de su subshell, el hash aprobado y --check antes de apply.
+  const a4p = bloque(a4, '# A4p ·', '```')
+  expect(a4p).toContain('test "$a4a_rc" -eq 0')
+  expect(a4p).toContain('test "$a4r_rc" -eq 0')
+  expect(a4p.indexOf('g -C .. apply --check "$S/A4-manifiestos.patch"')).toBeLessThan(a4p.indexOf('g -C .. apply "$S/A4-manifiestos.patch"'))
+  // La comprobación de a4a_rc va antes de cualquier aplicación.
+  expect(a4.indexOf('test "$a4a_rc" -eq 0 ||')).toBeLessThan(a4.indexOf('g -C .. apply "$S'))
 })
 
 it('M-2: la justificación de las etiquetas cita la prueba con diff tradicional y el comportamiento real de git apply', async () => {
@@ -321,10 +327,12 @@ it('guarda: git status que falla es parada (no falla abierta) en r() y en A4', a
   expect(r).toMatch(/GIT FALLÓ[^\n]*return/)
 })
 
-it('A0 incluye filter\\. en la búsqueda de configuración Git peligrosa', async () => {
+it('A0 incluye filter\\. en la búsqueda de nombres de configuración Git peligrosa (sin imprimir valores)', async () => {
   const gate = await leer('../docs/GATE-DOCKER-POC-3.md')
   const a0 = bloque(gate, '### A0 ·', '### A3e ·')
-  expect(a0).toContain("grep -iE 'fsmonitor|hookspath|textconv|external|pager|sshcommand|alias|filter\\.'")
+  expect(a0).toMatch(/grep -iE '[^']*fsmonitor\|hookspath\|[^']*filter\\\.[^']*' "\$S\/A0-git-config-nombres\.txt"/)
+  expect(a0).toContain('--name-only')
+  expect(a0).not.toContain('git config --show-origin -l | grep')
 })
 
 it('poc.sh init: el comentario no promete más que O_EXCL y depende de A3e', async () => {

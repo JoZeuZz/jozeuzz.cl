@@ -104,8 +104,9 @@ La lógica de la prueba de build (`test/build/comprobar-build.mjs`) tiene su pro
 ```sh
 # Con /app en sólo lectura, deps no puede editar los manifiestos: el contenedor emite un JSON base64 y el host genera el parche.
 ./poc.sh manifest-patch-axe > "$S/A4-manifiestos.json"   # $S = carpeta de salidas del gate (A0); no escribir directamente en /root/jz-gate-poc3/
-# después: decodificar, generar y revisar el parche con diff en el host, y aplicarlo (aplicación humana revisada; ver A4 del gate);
-# quitar "e2e/intake-axe.spec.ts" de "exclude" en tsconfig.json, confirmar package.json y package-lock.json, y ./poc.sh deps (npm ci)
+# después, por fases (A4a-A4k del gate): el host decodifica y genera un parche con package.json, package-lock.json y tsconfig.json (que
+# ya quita "e2e/intake-axe.spec.ts" de "exclude": no se edita a mano); el humano lo lee completo, comprueba A4-verificacion.txt y
+# teclea su hash en A4_APROBADO; sólo entonces se aplica (A4p), se verifica (A4v) y se confirma (A4k); por último ./poc.sh deps (npm ci)
 ./poc.sh e2e-en poc3_intake
 ./poc.sh e2e-prod-en poc3_intake
 ```

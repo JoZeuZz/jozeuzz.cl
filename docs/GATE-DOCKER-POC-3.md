@@ -33,7 +33,7 @@
 - **Parada dura:** se detiene el procedimiento, se dejan los servicios como están, se registra lo ocurrido y se avisa al orquestador. Aplica en estos casos:
   - fallos de infraestructura: `init`, `db-up`, `up-*` o base equivocada;
   - fallos de seguridad: aislamiento de red, IP forjada, fugas en logs, inyección en el build o NV-8;
-  - fallos de integridad: `ARBOL ALTERADO` (rc=99), `TLS ALTERADO`, blob del documento distinto o configuración Git sin explicar;
+  - fallos de integridad: `ARBOL ALTERADO` (rc=99), `TLS ALTERADO`, blob del documento distinto o configuración Git, atributos o ruta de ejecución de Git sin explicar (A0);
   - fallos de aislamiento de escritura (stop conditions de montajes):
     - A2 no coincide exactamente con la matriz, o runc no cumple el mínimo de su rama o no tiene formato `X.Y.Z` (A2d);
     - A3e: el proyecto conserva contenedores tras `docker rm -f` o algún contenedor del host tiene un montaje RW sobre `/`, `/home`, `/home/proyectos`, `/home/proyectos/jozeuzz`, el worktree o su `.git`;
@@ -43,7 +43,7 @@
     - cualquier otro `EACCES`/`EROFS` en ruta no declarada se investiga con el mismo criterio;
     - D12 crea un `.tsbuildinfo` bajo `poc1a/`;
     - D21 no ve el `BUILD_ID` de `next_prod`, detecta build obsoleto o encuentra marcador;
-    - A4 emite cambios fuera de los dos manifiestos, elimina versiones/integridades existentes, agrega paquetes distintos de `@axe-core/playwright` y `axe-core`, usa URL fuera de `https://registry.npmjs.org/` o informa firmas inválidas: no se aplica el parche.
+    - A4 emite cambios fuera de los tres archivos esperados (`package.json`, `package-lock.json` y `tsconfig.json`), elimina versiones/integridades existentes, agrega paquetes distintos de `@axe-core/playwright` y `axe-core`, usa URL fuera de `https://registry.npmjs.org/` o informa firmas inválidas: no se aplica el parche. También son parada dura: un hash no aprobado o distinto del parche leído, HEAD movido desde A4a, el árbol sucio, la configuración Git o los atributos sin explicar, o un commit firmado (`gpgsig`).
 - **Fallo registrable:** se registra la salida completa y se sigue con el paso siguiente, que es independiente. El gate no se cierra mientras quede un fallo registrable. Aplica a vitest, a las baterías y a E2E.
 - Si se repite un paso, se registran **todos** los intentos (`D11`, `D11-r2`, …) con identificadores distintos (`r()` rechaza un identificador repetido). No se elige el intento verde.
 
@@ -62,12 +62,41 @@ set -o pipefail
 umask 077
 S="/root/jz-gate-poc3/$(date -u +%Y%m%dT%H%M%SZ)"
 test ! -L /root/jz-gate-poc3 && install -d -m 700 /root/jz-gate-poc3 "$S" && echo salidas-ok
-git config --show-origin -l | grep -iE 'fsmonitor|hookspath|textconv|external|pager|sshcommand|alias|filter\.'   # vacío
-g() { git -c core.fsmonitor=false -c core.hooksPath=/dev/null --no-pager "$@"; }
+# A0.1 · ruta de ejecución de Git (parada dura si algo falla)
+type -a git                                                  # una sola línea «git is /…»: sin alias ni función que lo sombree
+test "$(type -a git | wc -l)" -eq 1 && type -a git | grep -Eq '^git is /' || echo "A0 FALLÓ: git sombreado (alias, función o varias rutas): parada dura" >&2
+GIT_BIN="$(command -v git)"; echo "$GIT_BIN"
+git --version
+GIT_EXEC="$(git --exec-path)"; echo "$GIT_EXEC"
+a0_malos="$(find -L "$GIT_BIN" "$GIT_EXEC" -maxdepth 1 '(' ! -user root -o -perm /022 ')')" && test -z "$a0_malos" || { echo "A0 FALLÓ: binario o exec-path no son de root, son escribibles por grupo/otros o find falló: parada dura" >&2; printf '%s\n' "$a0_malos" >&2; }
+printf '%s\n' "$PATH" | awk -F: '{for(i=1;i<=NF;i++) if ($i=="" || $i=="." || substr($i,1,1)!="/" || $i ~ "^/home(/|$)") {bad=1; print "A0: entrada de PATH no válida: [" $i "]"}} END{exit bad}' || echo "A0 FALLÓ: PATH con entradas relativas, vacías o bajo /home: parada dura" >&2
+test -x /bin/false && echo bin-false-ok || echo "A0 FALLÓ: falta /bin/false: parada dura" >&2
+# A0.2 · variables GIT_* (cubre GIT_CONFIG_*, GIT_CONFIG_PARAMETERS, GIT_EXEC_PATH, GIT_DIR, GIT_EDITOR, GIT_SSH…)
+env | cut -d= -f1 | grep '^GIT_' && echo "A0 FALLÓ: hay variables GIT_* en el entorno (nombres arriba): parada dura" >&2
+# A0.3 · configuración efectiva: sólo nombres (nunca valores) y fallando cerrada
+git config --show-scope --show-origin --name-only -l > "$S/A0-git-config-nombres.txt" || echo "A0 FALLÓ: git config no se pudo leer: parada dura" >&2
+sha256sum "$S/A0-git-config-nombres.txt" >> "$S/SHA256SUMS"
+grep -iE 'fsmonitor|hookspath|pager|editor|sshcommand|askpass|attributesfile|gitproxy|textconv|\.command|driver|process|clean|smudge|program|helper|external|gpg|gpgsign|signingkey|showsignature|alias|filter\.|include|includeif|credential|sequence\.editor|difffilter|uploadpack|receivepack|maintenance|gc\.auto|submodule|url\.|protocol|tool' "$S/A0-git-config-nombres.txt"   # vacío o explicado
+# A0.4 · g endurecida: la usan todas las órdenes Git del procedimiento
+g() { git -c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.attributesFile=/dev/null -c commit.gpgSign=false -c tag.gpgSign=false -c log.showSignature=false -c gpg.program=/bin/false -c gpg.ssh.program=/bin/false -c gpg.x509.program=/bin/false -c gc.auto=0 -c maintenance.auto=false --no-pager "$@"; }
+# A0.5 · configuración efectiva tras definir g: cada clave anulada debe valer lo que dice g (el último -c gana)
+a0_fallos=0
+for par in core.fsmonitor=false core.hooksPath=/dev/null core.attributesFile=/dev/null commit.gpgSign=false tag.gpgSign=false log.showSignature=false gpg.program=/bin/false gpg.ssh.program=/bin/false gpg.x509.program=/bin/false gc.auto=0 maintenance.auto=false; do
+  k="${par%%=*}"; v="${par#*=}"
+  if test "$(g config --get "$k")" = "$v"; then echo "$k=$v"; else echo "A0 FALLÓ: $k no vale $v" >&2; a0_fallos=$((a0_fallos+1)); fi
+done
+test "$a0_fallos" -eq 0 && echo g-efectiva-ok || echo "A0 FALLÓ: la configuración efectiva de g difiere: parada dura" >&2
+# A0.6 · atributos: los filtros clean/smudge sólo actúan si un atributo los activa
+g check-attr -a -- poc1a/package.json poc1a/package-lock.json poc1a/tsconfig.json   # vacío
+test -z "$(g check-attr -a -- poc1a/package.json poc1a/package-lock.json poc1a/tsconfig.json)" && echo atributos-ok || echo "A0 FALLÓ: atributos sobre los manifiestos: parada dura" >&2
+ls -l "$(g rev-parse --git-common-dir)/hooks"   # informativo: hooks del repositorio común (g fija core.hooksPath=/dev/null y por eso rev-parse --git-path hooks devolvería /dev/null)
 ```
 
-- **Esperado:** sale `salidas-ok` (la carpeta de salidas `S` se crea aquí para que A2 pueda registrar su salida) y el `grep` no imprime nada.
-- **Si imprime algo:** el humano lo explica antes de seguir, y si no puede explicarlo es parada dura. En cualquier caso, todas las órdenes Git de este procedimiento usan `g`, que anula `fsmonitor`, los hooks y el paginador, y los diffs llevan `--no-ext-diff --no-textconv`.
+- **Esperado:** sale `salidas-ok` (la carpeta de salidas `S` se crea aquí para que A2 pueda registrar su salida), `bin-false-ok`, `g-efectiva-ok` y `atributos-ok`; `type -a git` muestra una sola línea; `git --exec-path` y el binario son de root y no escribibles por grupo ni otros; el `PATH` sólo tiene rutas absolutas fuera de `/home`; el `env | … | grep '^GIT_'` no imprime nada; el último `grep` sobre `A0-git-config-nombres.txt` no imprime nada; `g check-attr -a` no imprime nada; y no aparece ningún `A0 FALLÓ`.
+- **Si no:** parada dura. Lo que imprima el `grep` de nombres lo explica el humano antes de seguir (por ejemplo `credential.helper` o un `include` global); si no puede explicarlo, es parada dura. La comprobación ya **no imprime valores**, que podrían ser secretos: la lista contiene sólo ámbito, origen y nombre de clave, y falla cerrada (si `git config` no se puede leer, imprime `A0 FALLÓ` en lugar de parecer limpia). Para ver el valor de una clave concreta, el humano lo pide a mano sólo después de comprobar que no es un secreto.
+- **Por qué `g` y por qué no basta con ella.** El humano ejecuta `g commit`, `g add` o `g apply` como root, y Git puede ejecutar programas según su configuración: `gpg.program`, `gpg.ssh.program` y `gpg.x509.program` con `commit.gpgSign` o `tag.gpgSign`; `log.showSignature` al leer el historial; hooks; `core.fsmonitor`; filtros `clean`/`smudge` (si un atributo los activa); y `gc`/`maintenance` automáticos. Esa configuración puede venir del repositorio, de `/home/proyectos/jozeuzz/.git/config` (común a todos los worktrees), de `config.worktree`, de la global, de `include`/`includeIf` o de `GIT_CONFIG_*`. `g` anula en la propia invocación los programas de firma, los hooks (`core.hooksPath=/dev/null`), `fsmonitor`, el archivo global de atributos y el mantenimiento automático. Un filtro declarado en `.gitattributes` o en `.git/info/attributes` junto con `filter.<nombre>.clean` no lo puede anular `g`: lo detiene `check-attr -a` (A0.6) y el `grep` de nombres (A0.3). Los diffs llevan `--no-ext-diff --no-textconv` y las lecturas de blobs con `show` (A1), `--no-textconv`.
+- **Ajuste respecto del diseño:** `g rev-parse --git-path hooks` devuelve `/dev/null` con la `g` endurecida; por eso el listado informativo de hooks usa `--git-common-dir`.
+- **Riesgo residual (advertencia 9).** Los agentes corren como root en este host: un binario sustituido (`/usr/bin/git`, `diff`, `node`) o un `PATH` manipulado después de A0 no lo detecta esta comprobación, que sólo mira propietario y permisos. Es revisión humana.
 
 ### A3e · Retirada de contenedores de la era RW (primer paso tras A0, parada dura)
 
@@ -95,7 +124,7 @@ test ! -s "$S/A3e2.txt" && echo sin-montajes-rw
 
 ### A1 · Estado del repositorio y blob del procedimiento
 
-El humano lee este documento desde Git (`g show HEAD:docs/GATE-DOCKER-POC-3.md`), no desde el árbol de trabajo. Tras leerlo, anota su blob con `g rev-parse HEAD:docs/GATE-DOCKER-POC-3.md`. Al ejecutar, sigue el texto de ese mismo blob; si quiere evitar cualquier cambio posterior, lo lee con `g show <rev>:docs/GATE-DOCKER-POC-3.md`.
+El humano lee este documento desde Git (`g show --no-textconv HEAD:docs/GATE-DOCKER-POC-3.md`), no desde el árbol de trabajo. Tras leerlo, anota su blob con `g rev-parse HEAD:docs/GATE-DOCKER-POC-3.md`. Al ejecutar, sigue el texto de ese mismo blob; si quiere evitar cualquier cambio posterior, lo lee con `g show --no-textconv <rev>:docs/GATE-DOCKER-POC-3.md`.
 
 ```sh
 BLOB=<blob anotado por el humano tras leer el documento>
@@ -235,7 +264,7 @@ r A3d find . -maxdepth 2 '(' -user 1000 -o -perm -0002 ')' -not -path './node_mo
 
 - Es una **parada dura**: no se restaura nada sin decisión humana.
 - `.npmrc` se añadió a la lista que propuso jz-security porque fija `ignore-scripts` para los contenedores, y `./.n*` lo excluye del listado A3d. `contenedor` se añadió porque contiene los `next-env.d.ts` que se montan en `app` y `app-prod`.
-- **Excepción conocida:** entre la aplicación humana del parche de A4 y su commit, `package.json` y `package-lock.json` están modificados, así que `r()` devolverá 99. Por eso A4b0, A4b y A4c van **después** del commit.
+- **Excepción conocida:** entre la aplicación humana del parche de A4 (A4p) y su commit (A4k), `package.json` y `package-lock.json` están modificados, así que `r()` devolverá 99. Por eso A4b0, A4b y A4c van **después** del commit.
 - La guarda no ve archivos ignorados por Git. Esto es aceptable porque los scripts del host no cargan `node_modules` (advertencia 2).
 
 **A3d · find diagnóstico no vinculante.** Lista lo que el uid 1000 del host puede escribir en `poc1a/`. Se registra, pero **no bloquea**: `poc1a/` puede pertenecer a uid 1000 en el host y el bind efectivo en los contenedores es RO. No se infieren los permisos del contenedor desde ownership o bits de modo del host; los decide A3f.
@@ -264,20 +293,32 @@ r A3d find . -maxdepth 2 '(' -user 1000 -o -perm -0002 ')' -not -path './node_mo
 - **`--ignore-scripts` no protege la ejecución posterior.** Evita los scripts de instalación, pero el código de `@axe-core/playwright` y `axe-core` se ejecuta después en E2E (D18 y D28), dentro del contenedor `e2e`, con uid 1000, en la red interna `e2e` y con `./` montado como bind RO. Por eso se revisa el lockfile antes del commit.
 - **Nuevo modelo (sin escritura del repositorio desde contenedores).** El contenedor `deps` ya no puede editar `package.json` ni el lockfile (bind RO). `./poc.sh manifest-patch-axe` copia ambos manifiestos a un `tmpfs`, ejecuta `npm install --package-lock-only --ignore-scripts --save-exact --save-dev` como uid 1000 con `--cap-drop ALL` y `no-new-privileges`, y emite un único JSON con los dos manifiestos en base64. El host (root humano) valida, decodifica y genera el parche con `diff`; la **aplicación humana revisada** es un paso separado. No instala `node_modules`; el volumen se actualiza después con `npm ci` (A4b0).
 
-**Orden de ejecución.** A4 completo (generación del parche, aplicación humana, commit y los pasos A4b0, A4b y A4c) se ejecuta **después de B1/B1v y de A3f1-A3f3**, aunque figure en la sección A por legibilidad: A4b0, A4b y A4c usan el servicio `deps`, que necesita los puntos de montaje de `init` (B1) y el ownership de los volúmenes (A3f1-A3f3). Los pasos de generación sólo usan `docker run` de `manifest-patch-axe`, pero se mantiene un único orden para no mezclar HEADs.
+**Orden de ejecución.** A4 completo (generación, revisión humana con aprobación por hash, aplicación, verificación, commit y los pasos A4b0, A4b y A4c) se ejecuta **después de B1/B1v y de A3f1-A3f3**, aunque figure en la sección A por legibilidad: A4b0, A4b y A4c usan el servicio `deps`, que necesita los puntos de montaje de `init` (B1) y el ownership de los volúmenes (A3f1-A3f3). Los pasos de generación sólo usan `docker run` de `manifest-patch-axe`, pero se mantiene un único orden para no mezclar HEADs.
 
-**Salidas de error.** El primer bloque corre en una subshell `( … )`: una salida por error (guarda alterada, `diff` inválido, `manifest-patch-axe` con rc≠0) termina sólo la subshell y no cierra la sesión interactiva ni se pierde `$S`. La subshell abre con `set -eu` (sólo funciona porque no se usa como condición de `||`/`&&`) y se detiene si `$S` ya contiene archivos A4 de un intento anterior. Tras la subshell, `a4_rc` debe ser 0; si no, es parada dura y la aplicación humana queda bloqueada.
+**Fases (I-2).** A4 se divide en cinco fases, cada una en su bloque y con una parada explícita entre ellas. Un agente nunca aprueba ni aplica.
+
+| Fase | Qué hace | rc | Escribe en el árbol |
+|---|---|---|---|
+| A4a · Generación | Genera `manifest-patch-axe`, decodifica, construye `A4-tsconfig.json` y el parche de los tres archivos; `apply --check` | `a4a_rc` | No |
+| A4r · Revisión | Comprueba automáticamente los archivos de `$S` contra el árbol (antes de aplicar nada); el humano lee el parche completo, teclea su hash y registra la aprobación | `a4r_rc` | No |
+| A4p · Aplicación | Sólo si el hash actual del parche es el aprobado, HEAD no se movió y el árbol está limpio | `a4p_rc` | Sí (`apply`) |
+| A4v · Verificación | Exactamente tres rutas modificadas, idénticas byte a byte a las aprobadas | `a4v_rc` | No |
+| A4k · Commit | Commit local sin hooks ni firma y comprobaciones posteriores | `a4k_rc` | Sí (commit) |
+
+**Salidas de error.** Cada fase corre en una subshell `( … )`: una salida por error (guarda alterada, `diff` inválido, `manifest-patch-axe` con rc≠0, hash distinto) termina sólo la subshell y no cierra la sesión interactiva ni se pierde `$S`. Cada subshell abre con `set -eu` (sólo funciona porque no se usa como condición de `||`/`&&`; `set -u` hace que un `A4_APROBADO` sin definir falle cerrado) y A4a se detiene si `$S` ya contiene archivos A4 de un intento anterior. Tras cada subshell, su rc debe ser 0; si no, es parada dura y las fases siguientes quedan bloqueadas.
 
 ```sh
+# A4a · Generación (no escribe nada en el árbol)
 cd /home/proyectos/jozeuzz-poc-candidata-a/poc1a
 (
 set -eu
-for f in "$S/A4-package.json" "$S/A4-package-lock.json" "$S/A4-manifiestos.json" "$S/A4-manifiestos.patch"; do
+for f in "$S/A4-package.json" "$S/A4-package-lock.json" "$S/A4-tsconfig.json" "$S/A4-manifiestos.json" "$S/A4-manifiestos.patch" "$S/A4-base.txt" "$S/A4-verificacion.txt" "$S/A4-aprobacion.txt"; do
   if [ -e "$f" ] || [ -L "$f" ]; then echo "A4: $f ya existe (A4-package.json de un intento anterior): parada, no reutilizar" >&2; exit 1; fi
 done
 grep -c '^ignore-scripts=true$' .npmrc          # 1 (EVIDENCIA.md:167); no se imprime .npmrc
 alterado="$(g status --porcelain -- $GUARDA)" || { echo "GIT FALLÓ" >&2; exit 97; }
 test -z "$alterado" || { echo "ARBOL ALTERADO" >&2; exit 99; }
+g rev-parse HEAD > "$S/A4-base.txt"
 command -v node
 node --version
 node -e 'const m=Number(process.versions.node.split(".")[0]); if (m < 20) process.exit(1)'
@@ -290,20 +331,31 @@ rc=0
 printf 'rc=%s\n' "$rc" >> "$S/A4a.stderr.log"
 sha256sum "$S/A4a.stderr.log" "$S/A4-manifiestos.json" >> "$S/SHA256SUMS"
 test "$rc" -eq 0 || exit "$rc"
-node - "$S/A4-manifiestos.json" "$S" <<'NODE'
+node - "$S/A4-manifiestos.json" "$S" tsconfig.json <<'NODE'
 const fs = require('node:fs')
-const [entrada, salida] = process.argv.slice(2)
+const [entrada, salida, tsconfig] = process.argv.slice(2)
 const datos = JSON.parse(fs.readFileSync(entrada, 'utf8'))
 if (Object.keys(datos).sort().join(',') !== 'packageJson,packageLockJson') throw new Error('claves A4 inválidas')
+function escribir(nombre, contenido) {
+  fs.writeFileSync(`${salida}/${nombre}`, contenido, { flag: 'wx', mode: 0o600 })
+}
 function decodificar(nombre, valor) {
   if (typeof valor !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(valor)) throw new Error(`${nombre}: base64 inválido`)
   const contenido = Buffer.from(valor, 'base64')
   if (contenido.toString('base64') !== valor) throw new Error(`${nombre}: base64 no canónico`)
   JSON.parse(contenido.toString('utf8'))
-  fs.writeFileSync(`${salida}/${nombre}`, contenido, { flag: 'wx', mode: 0o600 })
+  escribir(nombre, contenido)
 }
 decodificar('A4-package.json', datos.packageJson)
 decodificar('A4-package-lock.json', datos.packageLockJson)
+// tsconfig.json: se quita exactamente una ocurrencia de e2e/intake-axe.spec.ts de "exclude" (no hay edición manual)
+const viejo = '    "node_modules",\n    "e2e/intake-axe.spec.ts"\n'
+const nuevo = '    "node_modules"\n'
+const actual = fs.readFileSync(tsconfig, 'utf8')
+if (actual.split(viejo).length - 1 !== 1) throw new Error('tsconfig.json: el bloque exclude no aparece exactamente una vez')
+const resultado = actual.replace(viejo, () => nuevo)
+JSON.parse(resultado)
+escribir('A4-tsconfig.json', resultado)
 NODE
 : > "$S/A4-manifiestos.patch"
 diff_rc=0
@@ -312,46 +364,191 @@ test "$diff_rc" -eq 1 || { echo "A4 package.json sin diff válido: rc=$diff_rc" 
 diff_rc=0
 diff -u --label a/poc1a/package-lock.json --label b/poc1a/package-lock.json package-lock.json "$S/A4-package-lock.json" >> "$S/A4-manifiestos.patch" || diff_rc=$?
 test "$diff_rc" -eq 1 || { echo "A4 package-lock.json sin diff válido: rc=$diff_rc" >&2; exit 1; }
-sha256sum "$S/A4-package.json" "$S/A4-package-lock.json" "$S/A4-manifiestos.patch" >> "$S/SHA256SUMS"
+diff_rc=0
+diff -u --label a/poc1a/tsconfig.json --label b/poc1a/tsconfig.json tsconfig.json "$S/A4-tsconfig.json" >> "$S/A4-manifiestos.patch" || diff_rc=$?
+test "$diff_rc" -eq 1 || { echo "A4 tsconfig.json sin diff válido: rc=$diff_rc" >&2; exit 1; }
+sha256sum "$S/A4-package.json" "$S/A4-package-lock.json" "$S/A4-tsconfig.json" "$S/A4-manifiestos.patch" "$S/A4-base.txt" >> "$S/SHA256SUMS"
 test -s "$S/A4-manifiestos.patch"
 g -C .. apply --check "$S/A4-manifiestos.patch"
 )
-a4_rc=$?
-echo "A4-generacion rc=$a4_rc"   # debe ser 0; si no, parada dura (se conservan $S/A4a.stderr.log y los demás archivos)
-test "$a4_rc" -eq 0 || { echo "A4 falló: no aplicar"; }
-cat "$S/A4-manifiestos.patch"
-# Tras revisar el parche completo: aplicación humana revisada (paso separado; nunca un agente). Bloqueada si a4_rc != 0
-test "$a4_rc" -eq 0 && g -C .. apply --check "$S/A4-manifiestos.patch" && g -C .. apply "$S/A4-manifiestos.patch"
-# Editar tsconfig.json: quitar "e2e/intake-axe.spec.ts" de "exclude" (tsconfig.json:47; README.md)
-g status --short                                  # sólo package.json, package-lock.json, tsconfig.json
-g diff --no-ext-diff --no-textconv -- package.json   # una línea nueva: "@axe-core/playwright": "4.13.0"
-g diff --no-ext-diff --stat -- package-lock.json
-g diff --no-ext-diff --no-textconv -U0 -- package-lock.json | grep -E '^\+\s*"node_modules/'
-#   exactamente: "node_modules/@axe-core/playwright" y "node_modules/axe-core"
-g diff --no-ext-diff --no-textconv -U0 -- package-lock.json | grep -cE '^-\s*"(version|resolved|integrity)"'   # 0
-g diff --no-ext-diff --no-textconv -U0 -- package-lock.json | grep -cE '^\+\s*"(version|resolved|integrity)"'  # 6 (3 por paquete nuevo)
-grep -oE '"resolved": *"[^"]*"' package-lock.json | grep -vc '"https://registry.npmjs.org/'  # 0
-grep -cE '"(git\+|file:|http:)' package-lock.json                                           # 0
-node -p "require('./package-lock.json').packages['node_modules/axe-core'].version"           # anotar (transitiva)
-g add package.json package-lock.json tsconfig.json
-g commit -m "chore(poc-3): add @axe-core/playwright 4.13.0 (P3-05)"
+a4a_rc=$?
+echo "A4a rc=$a4a_rc"   # debe ser 0; si no, parada dura (se conservan $S/A4a.stderr.log y los demás archivos)
+test "$a4a_rc" -eq 0 || echo "A4a FALLÓ: parada dura, no continuar" >&2
+```
+
+```sh
+# A4r · Comprobación automática previa (sobre los archivos de $S; el árbol no se modifica)
+# Compara package.json y package-lock.json del árbol con $S/A4-package.json y $S/A4-package-lock.json; no mira ningún archivo ya aplicado.
+cd /home/proyectos/jozeuzz-poc-candidata-a/poc1a
+(
+set -eu
+test "$a4a_rc" -eq 0
+if grep -qE '"(git\+|file:|http:)' "$S/A4-package-lock.json"; then echo "A4r: URL git+, file: o http: en el lockfile propuesto" >&2; exit 1; fi
+node - "$S" <<'NODE'
+const fs = require('node:fs')
+const { isDeepStrictEqual } = require('node:util')
+const S = process.argv[2]
+const NOMBRE = '@axe-core/playwright'
+const VERSION = '4.13.0'
+const REGISTRO = 'https://registry.npmjs.org/'
+const leer = (ruta) => JSON.parse(fs.readFileSync(ruta, 'utf8'))
+const informe = []
+let desviaciones = 0
+function exigir(condicion, texto) {
+  if (!condicion) desviaciones++
+  informe.push(`${condicion ? 'ok' : 'DESVIACIÓN'}: ${texto}`)
+}
+const sinDev = (objeto) => { const { devDependencies, ...resto } = objeto; return resto }
+const conAxe = (dev) => ({ ...dev, [NOMBRE]: VERSION })
+// package.json: sólo cambia devDependencies, añadiendo la dependencia exacta
+const pkg0 = leer('package.json')
+const pkg1 = leer(`${S}/A4-package.json`)
+exigir(!(NOMBRE in (pkg0.devDependencies ?? {})), 'package.json del árbol no declaraba ya la dependencia')
+exigir(isDeepStrictEqual(sinDev(pkg1), sinDev(pkg0)), 'package.json: todo salvo devDependencies es profundamente igual')
+exigir(isDeepStrictEqual(pkg1.devDependencies, conAxe(pkg0.devDependencies ?? {})), `package.json: devDependencies = las anteriores + "${NOMBRE}": "${VERSION}"`)
+// package-lock.json
+const lock0 = leer('package-lock.json')
+const lock1 = leer(`${S}/A4-package-lock.json`)
+const { packages: p0, ...resto0 } = lock0
+const { packages: p1, ...resto1 } = lock1
+exigir(lock1.name === lock0.name && lock1.version === lock0.version && lock1.lockfileVersion === lock0.lockfileVersion, 'lockfile: name, version y lockfileVersion iguales')
+exigir(isDeepStrictEqual(resto1, resto0), 'lockfile: las demás claves de primer nivel son iguales')
+const claves0 = Object.keys(p0)
+const claves1 = Object.keys(p1)
+exigir(claves0.filter((k) => !(k in p1)).length === 0, 'lockfile: ninguna clave de packages eliminada')
+const nuevas = claves1.filter((k) => !(k in p0)).sort()
+exigir(isDeepStrictEqual(nuevas, ['node_modules/@axe-core/playwright', 'node_modules/axe-core']), `lockfile: claves nuevas = ${nuevas.join(', ')}`)
+const cambiadas = claves0.filter((k) => k !== '' && k in p1 && !isDeepStrictEqual(p1[k], p0[k]))
+exigir(cambiadas.length === 0, `lockfile: ${claves0.length - 1} entradas preexistentes profundamente iguales${cambiadas.length ? ` (cambiadas: ${cambiadas.slice(0, 5).join(', ')})` : ''}`)
+const raiz0 = p0[''] ?? {}
+const raiz1 = p1[''] ?? {}
+exigir(isDeepStrictEqual(sinDev(raiz1), sinDev(raiz0)), 'lockfile packages[""]: todo salvo devDependencies igual')
+exigir(isDeepStrictEqual(raiz1.devDependencies, conAxe(raiz0.devDependencies ?? {})), `lockfile packages[""]: sólo gana "${NOMBRE}": "${VERSION}" en devDependencies`)
+for (const k of nuevas) {
+  const entrada = p1[k]
+  exigir(typeof entrada.resolved === 'string' && entrada.resolved.startsWith(REGISTRO), `${k}: resolved empieza por ${REGISTRO}`)
+  exigir(typeof entrada.integrity === 'string' && entrada.integrity.startsWith('sha512-'), `${k}: integrity sha512-`)
+}
+exigir(claves1.every((k) => p1[k].resolved === undefined || String(p1[k].resolved).startsWith(REGISTRO)), 'lockfile: todo resolved está en el registro npm')
+exigir(p1[`node_modules/${NOMBRE}`]?.version === VERSION, `${NOMBRE} = ${VERSION} en el lockfile`)
+informe.push(`versión de axe-core (transitiva): ${p1['node_modules/axe-core']?.version}`)
+informe.push(`desviaciones: ${desviaciones}`)
+fs.writeFileSync(`${S}/A4-verificacion.txt`, `${informe.join('\n')}\n`, { flag: 'wx', mode: 0o600 })
+console.log(informe.join('\n'))
+if (desviaciones > 0) process.exit(1)
+NODE
+test -s "$S/A4-verificacion.txt"
+sha256sum "$S/A4-verificacion.txt" >> "$S/SHA256SUMS"
+)
+a4r_rc=$?
+echo "A4r rc=$a4r_rc"   # debe ser 0; si no, parada dura y no se aplica nada
+test "$a4r_rc" -eq 0 || echo "A4r FALLÓ: parada dura, no aplicar" >&2
+cat "$S/A4-verificacion.txt"
+cat "$S/A4-manifiestos.patch"       # el humano lee el parche COMPLETO
+sha256sum "$S/A4-manifiestos.patch"
+```
+
+```sh
+# A4r (aprobación humana) · PARADA: no continuar a A4p sin aprobación
+A4_APROBADO=<sha256 del parche leído, tecleado por el humano>
+APROBADOR=<responsable que aprueba>
+( set -C; printf 'sha256=%s\nresponsable=%s\nfecha_utc=%s\n' "$A4_APROBADO" "$APROBADOR" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$S/A4-aprobacion.txt" )
+sha256sum "$S/A4-aprobacion.txt" >> "$S/SHA256SUMS"
+```
+
+```sh
+# A4p · Aplicación (única fase que modifica el árbol de trabajo)
+cd /home/proyectos/jozeuzz-poc-candidata-a/poc1a
+(
+set -eu
+test "$a4a_rc" -eq 0
+test "$a4r_rc" -eq 0
+printf %s "$A4_APROBADO" | grep -Eq '^[0-9a-f]{64}$' || { echo "A4p: A4_APROBADO no es un sha256" >&2; exit 1; }
+actual="$(sha256sum "$S/A4-manifiestos.patch" | cut -d' ' -f1)"
+test "$actual" = "$A4_APROBADO" || { echo "A4p: el parche actual no es el aprobado" >&2; exit 1; }
+grep -qx "sha256=$A4_APROBADO" "$S/A4-aprobacion.txt" || { echo "A4p: el hash no consta en A4-aprobacion.txt" >&2; exit 1; }
+test "$(g rev-parse HEAD)" = "$(cat "$S/A4-base.txt")" || { echo "A4p: HEAD se movió desde A4a" >&2; exit 1; }
+st="$(g -C .. status --porcelain)" || { echo "GIT FALLÓ" >&2; exit 97; }
+test -z "$st" || { echo "A4p: el árbol no está limpio" >&2; exit 1; }
+g -C .. apply --check "$S/A4-manifiestos.patch"
+g -C .. apply "$S/A4-manifiestos.patch"
+)
+a4p_rc=$?
+echo "A4p rc=$a4p_rc"   # debe ser 0; si no, parada dura
+test "$a4p_rc" -eq 0 || echo "A4p FALLÓ: parada dura" >&2
+```
+
+```sh
+# A4v · Verificación previa al commit (no modifica nada)
+cd /home/proyectos/jozeuzz-poc-candidata-a/poc1a
+(
+set -eu
+st="$(g -C .. status --porcelain)" || { echo "GIT FALLÓ" >&2; exit 97; }
+test "$(printf '%s\n' "$st" | LC_ALL=C sort)" = "$(printf '%s\n' ' M poc1a/package.json' ' M poc1a/package-lock.json' ' M poc1a/tsconfig.json' | LC_ALL=C sort)" || { echo "A4v: el estado no son exactamente las tres rutas" >&2; exit 1; }
+cmp package.json "$S/A4-package.json"
+cmp package-lock.json "$S/A4-package-lock.json"
+cmp tsconfig.json "$S/A4-tsconfig.json"
+)
+a4v_rc=$?
+echo "A4v rc=$a4v_rc"   # debe ser 0; si no, parada dura
+test "$a4v_rc" -eq 0 || echo "A4v FALLÓ: parada dura, no confirmar" >&2
+g diff --no-ext-diff --no-textconv -- package.json tsconfig.json   # para lectura: una línea nueva de dependencia y la quitada de exclude
+g diff --no-ext-diff --no-textconv --stat -- package-lock.json
+```
+
+```sh
+# A4k · Commit local (sin hooks ni firma)
+cd /home/proyectos/jozeuzz-poc-candidata-a/poc1a
+(
+set -eu
+base="$(cat "$S/A4-base.txt")"
+test "$(g rev-parse HEAD)" = "$base" || { echo "A4k: HEAD se movió desde A4a" >&2; exit 1; }
+cmp package.json "$S/A4-package.json"
+cmp package-lock.json "$S/A4-package-lock.json"
+cmp tsconfig.json "$S/A4-tsconfig.json"
+g -C .. add -- poc1a/package.json poc1a/package-lock.json poc1a/tsconfig.json
+test "$(g -C .. diff --cached --no-ext-diff --name-only | LC_ALL=C sort)" = "$(printf '%s\n' poc1a/package-lock.json poc1a/package.json poc1a/tsconfig.json | LC_ALL=C sort)" || { echo "A4k: lo preparado no son exactamente las tres rutas" >&2; exit 1; }
+g -C .. commit --no-verify --no-gpg-sign -m "chore(poc-3): add @axe-core/playwright 4.13.0 (P3-05)"
+test "$(g cat-file commit HEAD | sed -n '/^$/q;p' | grep -c '^gpgsig')" = 0 || { echo "A4k: el commit lleva gpgsig" >&2; exit 1; }
+test "$(g diff-tree --no-commit-id --name-only -r HEAD | LC_ALL=C sort)" = "$(printf '%s\n' poc1a/package-lock.json poc1a/package.json poc1a/tsconfig.json | LC_ALL=C sort)" || { echo "A4k: el commit no contiene exactamente las tres rutas" >&2; exit 1; }
+test "$(g rev-parse HEAD~1)" = "$base" || { echo "A4k: HEAD~1 no es la base" >&2; exit 1; }
 g rev-parse --short HEAD                          # nuevo HEAD de referencia
-r A4b0 ./poc.sh deps                              # npm ci: puebla el volumen node_modules con el lockfile nuevo (con red)
+)
+a4k_rc=$?
+echo "A4k rc=$a4k_rc"   # debe ser 0; si no, parada dura
+test "$a4k_rc" -eq 0 || echo "A4k FALLÓ: parada dura" >&2
+```
+
+```sh
+# A4b · Tras el commit (antes de él, r devolvería 99 por la guarda)
+test "$a4k_rc" -eq 0 && r A4b0 ./poc.sh deps                              # npm ci: puebla el volumen node_modules con el lockfile nuevo (con red)
 r A4b ./poc.sh deps npm ls @axe-core/playwright axe-core @playwright/test
 r A4c ./poc.sh deps npm audit signatures
 ```
 
-- **A4 genera un parche, no instala ni aplica nada por sí mismo.** `node --version` debe informar Node 20 o superior. `diff --version` debe identificar GNU diffutils; si falta o no se identifica, A4 se detiene antes de Docker. `manifest-patch-axe` usa red y Docker sólo en la ejecución humana futura, corre como uid 1000 con la imagen fijada, dirige npm a stderr y emite sólo JSON por stdout. El host valida claves, base64 canónico y JSON, escribe salidas root 600 y genera el parche con la herramienta host ya comprobada. No existe bind RW ni dependencia de `diff` dentro de la imagen. Ningún agente aplica el parche.
-- **Etiquetas del parche (M-2).** Las etiquetas `a/poc1a/package.json` y `b/poc1a/package.json` (y las del lockfile) son rutas del parche relativas a la raíz del repositorio. `g` (A0: `g() { git -c core.fsmonitor=false -c core.hooksPath=/dev/null --no-pager "$@"; }`) no lleva `-C`, así que A4 se ejecuta en `poc1a/`. **Prueba decisiva (ciclo 2, ejecutada con `jz-run`):** en un repositorio temporal con `sub/f` se generó el parche con GNU `diff -u --label a/sub/f --label b/sub/f sub/f nuevo > p` (parche tradicional, no `git diff`). Resultado: `(cd sub && git apply --check ../p)` rc=0 y `git apply --check p` desde la raíz rc=0; `git apply` desde `sub/` modificó `sub/f`. Es decir, las etiquetas son rutas desde la raíz y funcionan también desde el subdirectorio. Con un parche de un archivo de la raíz (`top`), en cambio, `git apply --check`/`git apply` desde `sub/` devolvieron rc=1 sin tocar nada: desde un subdirectorio `git apply` sólo aplica archivos bajo el directorio actual. Por eso la forma robusta es ejecutar `--check` y la aplicación humana desde la raíz del worktree (`g -C .. apply …`, con la ruta absoluta `$S/…`): no depende del directorio actual aunque el parche llegara a incluir otras rutas, y las etiquetas `a/poc1a/…` y `b/poc1a/…` son entonces exactamente las que se resuelven. `a/package.json` no sería correcto. La subshell lleva `set -eu`: cada paso fallido la termina y deja `a4_rc` ≠ 0, lo que bloquea la aplicación humana.
+- **A4a genera un parche, no instala ni aplica nada por sí mismo.** `node --version` debe informar Node 20 o superior. `diff --version` debe identificar GNU diffutils; si falta o no se identifica, A4 se detiene antes de Docker. `manifest-patch-axe` usa red y Docker sólo en la ejecución humana futura, corre como uid 1000 con la imagen fijada, dirige npm a stderr y emite sólo JSON por stdout. El host valida claves, base64 canónico y JSON, escribe salidas root 600 y genera el parche con la herramienta host ya comprobada. No existe bind RW ni dependencia de `diff` dentro de la imagen. Ningún agente aprueba ni aplica el parche.
+  - **Esperado / Si no: parada dura.** Esperado: `A4a rc=0`, `A4-base.txt` con el HEAD actual y `apply --check` sin salida. Si no: parada dura y no se continúa a A4r.
+- **tsconfig dentro del parche (I-2).** `e2e/intake-axe.spec.ts` sale de `exclude` en `tsconfig.json` sin edición manual: el script de A4a sustituye exactamente una ocurrencia de `"node_modules"` + `"e2e/intake-axe.spec.ts"` por `"node_modules"` (falla si no hay exactamente una) y lo escribe en `$S/A4-tsconfig.json` con `wx` y modo 0600. El parche contiene los tres archivos (`package.json`, `package-lock.json` y `tsconfig.json`) con etiquetas `a/poc1a/…` y `b/poc1a/…`, así que lo que el humano revisa y aprueba es lo único que se aplica.
+- **A4r · revisión humana obligatoria, antes de cualquier aplicación (I-2).**
+  1. **Comprobación automática** (`a4r_rc`), sobre los archivos de `$S` y **no sobre el árbol ya modificado**. Exige: en `package.json` sólo cambia `devDependencies`, añadiendo `"@axe-core/playwright": "4.13.0"` (todo lo demás, profundamente igual); en el lockfile, `name`, `version`, `lockfileVersion` y demás claves de primer nivel iguales; las claves nuevas de `packages` son exactamente `node_modules/@axe-core/playwright` y `node_modules/axe-core`; no se elimina ninguna clave; toda entrada preexistente es profundamente igual salvo `packages[""]`, que sólo puede ganar esa devDependency; las dos entradas nuevas tienen `resolved` que empieza por `https://registry.npmjs.org/` e `integrity` `sha512-`; y la versión de `@axe-core/playwright` es 4.13.0. Registra además la versión de `axe-core`. El informe va a `$S/A4-verificacion.txt` (con su `sha256` en `SHA256SUMS`) y se mantienen las comprobaciones de URL `git+`, `file:` y `http:` sobre `$S/A4-package-lock.json`. Cualquier desviación es parada dura y no se aplica nada.
+  2. **Lectura y aprobación.** El humano lee el parche **completo** (`cat "$S/A4-manifiestos.patch"`) y `A4-verificacion.txt`, obtiene `sha256sum "$S/A4-manifiestos.patch"` y, sólo si aprueba, **teclea el hash leído** en `A4_APROBADO=<…>` (marcador como `BLOB`/`REV`: no se calcula por script, porque un script aprobaría cualquier parche) y registra `$S/A4-aprobacion.txt` (hash, responsable y fecha UTC, con su `sha256` en `SHA256SUMS`). **PARADA: no continuar a A4p sin aprobación.**
+  - **Esperado / Si no: parada dura.** Esperado: `A4r rc=0`, ninguna línea `DESVIACIÓN` en `A4-verificacion.txt` y el hash tecleado igual al del parche leído. Si no: parada dura, sin aplicar.
+- **A4p · aplicación.** Exige `a4a_rc` y `a4r_rc` en 0; `A4_APROBADO` definido (con `set -u` un valor sin definir falla cerrado) y con forma de `sha256`; el `sha256` actual del parche igual a `A4_APROBADO` y presente en `A4-aprobacion.txt`; HEAD igual a `A4-base.txt`; y `g -C .. status --porcelain` vacío (el árbol entero limpio). Sólo entonces ejecuta `g -C .. apply --check` y `g -C .. apply`.
+  - **Esperado / Si no: parada dura.** Esperado: `A4p rc=0`. Si no (hash no aprobado o distinto, HEAD movido, árbol sucio): parada dura; no se aplica nada porque `git apply` es atómico.
+- **A4v · verificación previa al commit.** `g -C .. status --porcelain` debe ser exactamente ` M poc1a/package.json`, ` M poc1a/package-lock.json` y ` M poc1a/tsconfig.json`, y `cmp` de los tres archivos del árbol con los de `$S` aprobados debe ser idéntico. Los diffs para lectura llevan `--no-ext-diff --no-textconv`.
+  - **Esperado / Si no: parada dura.** Esperado: `A4v rc=0`. Si no: parada dura, sin confirmar.
+- **A4k · commit.** Repite `cmp` y HEAD igual a la base, prepara exactamente las tres rutas (`g -C .. add -- …`, con `diff --cached --name-only` exacto) y confirma con `g -C .. commit --no-verify --no-gpg-sign` (con `g` endurecida y sin hooks ni firma). Después comprueba, con fontanería que no invoca gpg, que la cabecera del commit no tiene `gpgsig` (`g cat-file commit HEAD | sed -n '/^$/q;p' | grep -c '^gpgsig'` debe dar 0), que `g diff-tree --no-commit-id --name-only -r HEAD` lista las tres rutas y que `HEAD~1` es la base. El HEAD nuevo es la referencia de código si se hace A4.
+  - **Esperado / Si no: parada dura.** Esperado: `A4k rc=0` y el HEAD nuevo. Si no (commit firmado, rutas distintas, HEAD~1 distinto de la base): parada dura.
+- **Etiquetas del parche (M-2).** Las etiquetas `a/poc1a/package.json` y `b/poc1a/package.json` (y las del lockfile y de `tsconfig.json`) son rutas del parche relativas a la raíz del repositorio. `g` (A0) no lleva `-C`, así que A4a se ejecuta en `poc1a/`. **Prueba decisiva (ciclo 2, ejecutada con `jz-run`):** en un repositorio temporal con `sub/f` se generó el parche con GNU `diff -u --label a/sub/f --label b/sub/f sub/f nuevo > p` (parche tradicional, no `git diff`). Resultado: `(cd sub && git apply --check ../p)` rc=0 y `git apply --check p` desde la raíz rc=0; `git apply` desde `sub/` modificó `sub/f`. Es decir, las etiquetas son rutas desde la raíz y funcionan también desde el subdirectorio. Con un parche de un archivo de la raíz (`top`), en cambio, `git apply --check`/`git apply` desde `sub/` devolvieron rc=1 sin tocar nada: desde un subdirectorio `git apply` sólo aplica archivos bajo el directorio actual. Por eso la forma robusta es ejecutar `--check` y la aplicación humana desde la raíz del worktree (`g -C .. apply …`, con la ruta absoluta `$S/…`): no depende del directorio actual aunque el parche llegara a incluir otras rutas, y las etiquetas `a/poc1a/…` y `b/poc1a/…` son entonces exactamente las que se resuelven. `a/package.json` no sería correcto. Cada subshell lleva `set -eu`: cada paso fallido la termina y deja su rc ≠ 0, lo que bloquea las fases siguientes (A4p exige `a4a_rc` y `a4r_rc` en 0).
 - **A4b0 (añadido por el relevo):** como `node_modules` es un volumen nombrado, instalar el parche en el repositorio no lo actualiza; `npm ci` (A4b0) lo hace antes de `npm ls` y de los E2E con axe.
-- **Lectura de los conteos:** `grep -c` devuelve rc=1 cuando cuenta 0, y eso es lo esperado. El conteo de 6 es una deducción del formato v3 del lockfile. Si difiere, se inspecciona el diff completo antes de seguir.
+- **Sustituye a los conteos con `grep` sobre el diff:** las comprobaciones del lockfile (claves nuevas exactas, entradas preexistentes intactas, `resolved` y `integrity`) las hace A4r con un script sobre los archivos de `$S`, **antes** de aplicar nada; ya no se infieren de conteos de líneas del diff después de aplicar. El humano además lee el parche completo.
 - **`npm audit signatures`:** `./poc.sh deps` acepta cualquier orden y la ejecuta en el servicio `deps`, que tiene red externa (`poc.sh:78`; `compose.yaml:58-77`). El texto exacto de su salida no está verificado. Se registra completo.
-- **Parada dura**, antes del commit, si ocurre cualquiera de estas cosas:
+- **Parada dura**, antes de aplicar o de confirmar, si ocurre cualquiera de estas cosas:
   - `manifest-patch-axe` falla: `E404`, `ETARGET` o `EACCES`. Un `EACCES`/`EROFS` en los manifiestos del repositorio no se resuelve abriendo el bind ni cambiando permisos sin decisión humana;
-  - cambian otros paquetes de `package.json`;
-  - aparecen claves `node_modules/…` distintas de las dos esperadas, por ejemplo una copia anidada de `axe-core`;
-  - hay líneas `-` de `version`, `resolved` o `integrity`;
-  - algún `resolved` no está en `https://registry.npmjs.org/`.
+  - A4r informa una desviación: cambian otros paquetes de `package.json`, aparecen claves `node_modules/…` distintas de las dos esperadas (por ejemplo una copia anidada de `axe-core`), se elimina o cambia alguna entrada preexistente, o algún `resolved` no está en `https://registry.npmjs.org/`;
+  - el hash tecleado no es el del parche leído o falta la aprobación;
+  - HEAD se movió, el árbol no está limpio o el estado no son exactamente las tres rutas;
+  - la configuración Git o los atributos no se explican (A0), o el commit lleva `gpgsig`.
 - **Parada dura después del commit** si `npm ls` informa `invalid` o `UNMET PEER`, o si `npm audit signatures` informa firmas inválidas. **PENDIENTE (decisión humana):** cómo deshacer el commit local de A4 en ese caso. No hay push.
 - La fila A4 registra la versión de `@axe-core/playwright` y la de `axe-core`.
 
@@ -361,7 +558,7 @@ r A4c ./poc.sh deps npm audit signatures
 |---|---|---|
 | setpriv UID 1000, sin grupo docker | Sólo D21b (`node --test test/build/comprobar-build.test.mjs`) y D30 (`env POC_BASE_URL=https://127.0.0.1:3444 node medicion/intake-latencia.mjs`), porque no invocan `poc.sh` ni Docker | Lanzar con `setpriv --reuid=1000 --regid=1000 --clear-groups`. D30 hereda `NODE_EXTRA_CA_CERTS` y necesita leer `.tls/ca.crt`, no socket. Si cualquiera empieza a invocar `poc.sh`, cambia automáticamente a la clase Docker |
 | Docker: privilegio equivalente a root | Todo `docker compose up/run/exec/logs/down`, `docker version`, `docker ps`, `docker inspect` y `docker rm -f` (A2d y A3e: retirada de contenedores de la era RW sin Compose), `docker image inspect`, `docker stats`, `init-volumes`, `deps`, `probe-mounts`, `run-prod-en`, `manifest-patch-axe` y los pasos D01-D29 que los usan. D13, D16, D17, D26 y D27 también pertenecen aquí: el driver llama `poc.sh exec-en` para resetear cada caso | Sólo humano autorizado. Pertenecer al grupo Docker o usar el socket como no-root sigue siendo root-equivalente sobre el CT. No delegar a agentes |
-| root real: `.env`, `.tls` y salidas | `./poc.sh init`, creación/validación de `.env` 600, generación/reemplazo de `.tls` root-owned, creación de `/root/jz-gate-poc3`, `SHA256SUMS`, búsqueda por valores secretos y captura del parche A4 | Ejecutar como root humano con `umask 077`. No abrir ni copiar valores secretos |
+| root real: `.env`, `.tls` y salidas | `./poc.sh init`, creación/validación de `.env` 600, generación/reemplazo de `.tls` root-owned, creación de `/root/jz-gate-poc3`, `SHA256SUMS`, búsqueda por valores secretos, captura del parche A4 y la aplicación y el commit de A4 (A4p y A4k, que ejecutan Git como root: siempre con la `g` endurecida de A0, sin hooks ni firma, tras la aprobación por hash) | Ejecutar como root humano con `umask 077`. No abrir ni copiar valores secretos |
 | Compose sin daemon | El comando literal `docker compose -p jozeuzz-poc-a -f compose.yaml -f compose.pruebas.yaml --profile volumes-init --profile prod --profile e2e --profile deps config --no-interpolate` de A2c | Usa el parser Compose y no necesita socket. Corre como **root humano** (necesita leer `.env` root 600 aunque no interpola) y no necesita estar en el grupo Docker. `--no-interpolate` no exige variables: Compose no sustituye `${…}`, así que A2c no depende de que `.env` sea válido y no hace falta reordenarlo tras B1v. Toda orden compose que **sí** interpole (cualquier `./poc.sh`) va después de validar `.env` con B1v. A3e ya no interpola: retira los contenedores con `docker rm -f` sin Compose. Aun así se revisa como configuración que luego consumirá el daemon |
 
 ## B. Prerrequisitos Docker
@@ -373,7 +570,7 @@ Todos desde `poc1a/`, con el entorno de A0 y A3. **A3e (sin contenedores de la e
 | B1 | `r B1 ./poc.sh init` | rc=0; sin salida. `./poc.sh init` prepara los puntos de montaje (directorios `node_modules`, `.npm-cache`, `.next`, `.next-prod`, `media-store`, `media-store-test`, `media-store-prod`, `test-results`, `playwright-report` y `blob-report`, y un `next-env.d.ts` vacío si no existe, creado de forma exclusiva con `set -C` (`O_EXCL` cubre también un enlace colgante creado tras la comprobación; un enlace a un archivo no regular creado a la vez se detecta después con `-L`; la garantía depende de que A3e haya retirado los escritores concurrentes); un enlace simbólico en cualquiera de ellos es error y `exit 1`) y después crea `.env` si falta y añade `INTAKE_SECRETO` si no está (`poc.sh:41-54`). No abrir `.env`. A3f depende de ello: runc no puede crear destinos dentro de un bind RO | dura |
 | B1v | validación de `.env` sin imprimir valores (S5), abajo | `0`, `3` y `root 600` | dura |
 | A3f | `r A3f1 ./poc.sh init-volumes`, `r A3f2 ./poc.sh deps` y `r A3f3 ./poc.sh probe-mounts` (abajo) | tres rc=0; A3f3 imprime `MOUNT_PROBE_OK` cuatro veces | dura |
-| A4 | Si el humano lo autoriza: A4 completo (generación, aplicación humana, commit, A4b0, A4b y A4c), **después de A3f y antes de B2** | ver A4 | dura |
+| A4 | Si el humano lo autoriza: A4 completo (A4a generación, A4r revisión y aprobación por hash, A4p aplicación, A4v verificación, A4k commit, A4b0, A4b y A4c), **después de A3f y antes de B2** | ver A4 | dura |
 | B2 | `r B2 ./poc.sh db-up` | rc=0 (`poc.sh:80`) | dura |
 | B3 | `r B3 ./poc.sh psql -Atc "SELECT datname FROM pg_database WHERE datname LIKE 'poc3%' ORDER BY 1"` | rc=0; lista las `poc3*` existentes | dura si rc≠0 |
 | B4 | `r B4a ./poc.sh psql -c 'CREATE DATABASE poc3_intake'` y `r B4b ./poc.sh psql -c 'CREATE DATABASE poc3_migraciones'`, cada una **sólo si no aparece en B3** (`README.md:99`; `POC-3-DISENO.md:276`) | rc=0, `CREATE DATABASE` | dura |
@@ -839,7 +1036,7 @@ Ejecutado por: <responsable> · Blob del procedimiento: <BLOB> · Salidas: <ruta
 
 | Paso | Unidad / criterio | Fecha (UTC) | HEAD | rc | Conteo / resultado | Observación | Log (sha256) |
 |---|---|---|---|---|---|---|---|
-| A0 | config Git | | | — | grep vacío sí/no | explicación si no | — |
+| A0 | ruta de ejecución y config Git | | | — | `bin-false-ok`, sin `GIT_*`, `g-efectiva-ok`, `atributos-ok`; `grep` de nombres vacío sí/no | explicación de lo que salga; `git --version` y `--exec-path` | A0-git-config-nombres.txt |
 | A3e | contenedores de la era RW (antes de A1) | | | | `proyecto-sin-contenedores` y `sin-montajes-rw` | qué contenedores se retiraron con `docker rm -f` | A3e-antes.txt, A3e1.txt, A3e2-montajes-rw.txt, A3e2.txt |
 | A1 | estado y blob | | | — | blob-ok | | — |
 | A2 | revisión de seguridad | | | — | REV=<…> | sin hallazgos / hallazgos; config Compose conforme | — |
@@ -849,7 +1046,7 @@ Ejecutado por: <responsable> · Blob del procedimiento: <BLOB> · Salidas: <ruta
 | A3f1 | `volumes-init` | | | | rc | ownership 1000:1000 | A3f1.log |
 | A3f2 | `deps` (`npm ci` en el volumen) | | | | rc | node_modules en volumen nombrado | A3f2.log |
 | A3f3 | `probe-mounts` | | | | `MOUNT_PROBE_OK` ×4 | denegaciones y allowlist | A3f3.log |
-| A4 | P3-05 axe | | | | @axe-core/playwright <v>, axe-core <v> | autorizado sí/no; lockfile conforme; audit signatures | A4a/A4b/A4c.log |
+| A4 | P3-05 axe | | | | @axe-core/playwright <v>, axe-core <v>; A4a/A4r/A4p/A4v/A4k rc | autorizado sí/no; hash del parche aprobado y responsable (`A4-aprobacion.txt`); `A4-verificacion.txt` sin desviaciones; commit sin `gpgsig`; audit signatures | A4a.stderr.log, A4-verificacion.txt, A4-aprobacion.txt, A4b0/A4b/A4c.log |
 | B1v | .env | | | — | 0 / 3 / root 600 | | — |
 | D01–D03 | U4 desde cero | | | | 3 migraciones; 2.ª sin pendientes; tablas y CHECK | | |
 | D05 | NV-15 | | | | digest coincide sí/no | | |
@@ -924,6 +1121,7 @@ Los arreglos de H-1 a H-5, H-10 y S-1 son trabajo de jz-implementer, y su priori
 | D-09 | Mecanismo antiduplicados | **PENDIENTE: la documentación no registra una recomendación explícita.** El único mecanismo diseñado e implementado es la clave HMAC del nonce del formulario en `intake_envio`, con `ON CONFLICT DO NOTHING` en la misma transacción. Los criterios de `ROADMAP-MVP.md:428` se evidencian con IN-09 (D13, D17, D27), el duplicado concurrente HTTP (D11), IN-10 y la medición (D30). Hay que tener en cuenta que cada GET emite un nonce nuevo (`POC-3-DISENO.md:94`): un reintento con el mismo formulario no duplica, pero recargar la página y reenviar crea un registro nuevo | `docs/PLAN-POC-3.md:94-96`; `docs/POC-3-DISENO.md:138,153,159`; `docs/ROADMAP-MVP.md:188,428` |
 | P3-05 | Autorizar ahora la instalación (A4) | La opción está aprobada (`@axe-core/playwright` 4.13.0); falta autorizar el acto de instalar. La alternativa, una lista manual con lector de pantalla, es «más débil» | `docs/PLAN-POC-3.md:186,197`; `poc1a/README.md:77-81` |
 | A2 | `REV`, el último commit revisado por el humano | Lo fija el humano | — |
+| A4 (aprobación) | Aprobar el parche A4 por su `sha256`, tras leerlo completo y leer `A4-verificacion.txt` | Aprobar sólo si A4r no informa desviaciones y el hash tecleado es el del parche leído. Ningún agente aprueba ni aplica | — |
 | A4 | Cómo deshacer el commit local de A4 si fallan A4b o A4c | Lo decide el humano (no hay push) | — |
 
 ## Criterio de cierre de U10 (`docs/PLAN-POC-3.md:176-182`)
@@ -954,3 +1152,4 @@ Los arreglos de H-1 a H-5, H-10 y S-1 son trabajo de jz-implementer, y su priori
 | `69e1883` | jz-architect | El HEAD de referencia del código pasa de `c8bbf0f` a `69e1883`, que sólo cambia `poc1a/contrato-driver.mjs` (el error de reset no vuelca stdout; validación de `POC_RESET_ENV`). Cabecera y A1 actualizadas: A1 acepta commits posteriores que sólo toquen `docs/` |
 | Aislamiento de escritura, ciclo de corrección 1 | jz-qa y jz-security | **QA:** `--configLoader runner` en toda invocación de vitest en contenedor (Vite escribe `node_modules/.vite-temp`); `-type f` en D12; ejecución de A4 tras A3f; tsconfig como punto fijo de `writeConfigurationDefaults` (prueba estática); órdenes contradictorias de README, EVIDENCIA y diseño. **Seguridad:** A3e, retirada de contenedores de la era RW y comprobación de montajes RW del worktree; A2d, runc ≥ 1.1.12 (CVE-2024-21626); `next-env.d.ts` creado de forma exclusiva en `init`; referencia de código vinculante `CODEREF` en A1; aclaraciones de root, Compose sin daemon, `destroy` y riesgo del `node_modules` heredado |
 | Aislamiento de escritura, ciclo de corrección 2 | jz-security | **I-1R:** A3e pasa a ser el primer paso tras A0 (antes de A1, A2 y A3d) y retira los contenedores del proyecto con `docker rm -f` sin Compose (no interpola ni lee el árbol; sin `-v`); desaparecen la retirada con Compose (`down`) y la validación previa de `.env` que exigía; K1 trata cualquier salida de `g status --short` como parada dura. **M-a:** A3e.2 y K1 listan todos los montajes RW y paran si alguno es `/`, `/home`, `/home/proyectos`, `/home/proyectos/jozeuzz`, el worktree o su `.git`. **M-2:** prueba decisiva con parche tradicional (resultado en A4) y `--check`/aplicación desde la raíz con `g -C ..`. **M-3:** A4 con `set -eu`, sin reutilizar `A4-package.json` y aplicación bloqueada si `a4_rc` ≠ 0. **A2d:** formato de versión de runc y mínimo por rama (1.2.8, 1.3.3, 1.4.0). **Guarda:** `git status` que falla es parada, no falla abierta. **A0:** `filter\.` en la búsqueda de configuración Git peligrosa. Comentario de `init` en `poc.sh` ajustado |
+| A4 I-1/I-2 | jz-security | **I-1:** A0 comprueba la ruta de ejecución de Git (`type -a`, `command -v`, `--exec-path`, propietario y permisos, `PATH`, `/bin/false`), las variables `GIT_*`, y lista sólo los **nombres** de la configuración efectiva (`--show-scope --show-origin --name-only`, falla cerrada) con un `grep` amplio de claves que ejecutan programas; la `g` endurecida anula firma (`gpg.program`, `gpg.ssh.program`, `gpg.x509.program`, `commit.gpgSign`, `tag.gpgSign`, `log.showSignature`), hooks, `fsmonitor`, el archivo global de atributos y el mantenimiento automático; verificación efectiva de cada clave y `check-attr -a` sobre los tres manifiestos, ambas con parada dura; lectura de blobs con `show --no-textconv` en A1. Prueba decisiva ejecutable con control en `test/estatico/gate-a4-git.test.ts`. **I-2:** A4 se separa en A4a (generación, con `tsconfig.json` dentro del parche), A4r (comprobación del lockfile **antes** de aplicar y aprobación por hash tecleado), A4p (aplicación condicionada al hash, a HEAD y al árbol limpio), A4v y A4k (commit sin hooks ni firma y sin `gpgsig`). Desaparece la edición manual de `tsconfig.json` |
