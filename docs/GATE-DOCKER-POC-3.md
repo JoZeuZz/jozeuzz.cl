@@ -63,11 +63,26 @@ umask 077
 S="/root/jz-gate-poc3/$(date -u +%Y%m%dT%H%M%SZ)"
 test ! -L /root/jz-gate-poc3 && install -d -m 700 /root/jz-gate-poc3 "$S" && echo salidas-ok
 # A0.1 · ruta de ejecución de Git (parada dura si algo falla)
-type -a git                                                  # una sola línea «git is /…»: sin alias ni función que lo sombree
-test "$(type -a git | wc -l)" -eq 1 && type -a git | grep -Eq '^git is /' || echo "A0 FALLÓ: git sombreado (alias, función o varias rutas): parada dura" >&2
-GIT_BIN="$(command -v git)"; echo "$GIT_BIN"
-git --version
-GIT_EXEC="$(git --exec-path)"; echo "$GIT_EXEC"
+# usr-merge puede listar /bin/git y /usr/bin/git: se admiten sólo si ambos canonicalizan al mismo ejecutable.
+a0_tipo="$(type -a git)"; printf '%s\n' "$a0_tipo"
+a0_rutas="$(printf '%s\n' "$a0_tipo" | sed -n 's/^git is \(\/.*\)$/\1/p')"
+a0_lineas="$(printf '%s\n' "$a0_tipo" | sed '/^$/d' | wc -l)"
+a0_n_rutas=0; a0_malo=0; a0_canonico=
+while IFS= read -r ruta; do
+  test -n "$ruta" || continue
+  a0_n_rutas=$((a0_n_rutas+1))
+  if test ! -x "$ruta"; then a0_malo=1; continue; fi
+  canonica="$(readlink -f -- "$ruta")" || { a0_malo=1; continue; }
+  if test ! -x "$canonica"; then a0_malo=1; continue; fi
+  if test -z "$a0_canonico"; then a0_canonico="$canonica"; elif test "$a0_canonico" != "$canonica"; then a0_malo=1; fi
+done <<EOF
+$a0_rutas
+EOF
+if test "$a0_n_rutas" -gt 0 && test "$a0_lineas" -eq "$a0_n_rutas" && test "$a0_malo" -eq 0; then
+  GIT_BIN="$a0_canonico"; echo "$GIT_BIN"; "$GIT_BIN" --version; GIT_EXEC="$("$GIT_BIN" --exec-path)"; echo "$GIT_EXEC"; echo ruta-git-ok
+else
+  echo "A0 FALLÓ: git sombreado (alias, función, ruta no ejecutable o ejecutables canónicos distintos): parada dura" >&2
+fi
 a0_malos="$(find -L "$GIT_BIN" "$GIT_EXEC" -maxdepth 1 '(' ! -user root -o -perm /022 ')')" && test -z "$a0_malos" || { echo "A0 FALLÓ: binario o exec-path no son de root, son escribibles por grupo/otros o find falló: parada dura" >&2; printf '%s\n' "$a0_malos" >&2; }
 printf '%s\n' "$PATH" | awk -F: '{for(i=1;i<=NF;i++) if ($i=="" || $i=="." || substr($i,1,1)!="/" || $i ~ "^/home(/|$)") {bad=1; print "A0: entrada de PATH no válida: [" $i "]"}} END{exit bad}' || echo "A0 FALLÓ: PATH con entradas relativas, vacías o bajo /home: parada dura" >&2
 test -x /bin/false && echo bin-false-ok || echo "A0 FALLÓ: falta /bin/false: parada dura" >&2
@@ -80,19 +95,26 @@ grep -iE 'fsmonitor|hookspath|pager|editor|sshcommand|askpass|attributesfile|git
 # A0.4 · g endurecida: la usan todas las órdenes Git del procedimiento
 g() { git -c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.attributesFile=/dev/null -c commit.gpgSign=false -c tag.gpgSign=false -c log.showSignature=false -c gpg.program=/bin/false -c gpg.ssh.program=/bin/false -c gpg.x509.program=/bin/false -c gc.auto=0 -c maintenance.auto=false --no-pager "$@"; }
 # A0.5 · configuración efectiva tras definir g: cada clave anulada debe valer lo que dice g (el último -c gana)
-a0_fallos=0
-for par in core.fsmonitor=false core.hooksPath=/dev/null core.attributesFile=/dev/null commit.gpgSign=false tag.gpgSign=false log.showSignature=false gpg.program=/bin/false gpg.ssh.program=/bin/false gpg.x509.program=/bin/false gc.auto=0 maintenance.auto=false; do
-  k="${par%%=*}"; v="${par#*=}"
-  if test "$(g config --get "$k")" = "$v"; then echo "$k=$v"; else echo "A0 FALLÓ: $k no vale $v" >&2; a0_fallos=$((a0_fallos+1)); fi
-done
-test "$a0_fallos" -eq 0 && echo g-efectiva-ok || echo "A0 FALLÓ: la configuración efectiva de g difiere: parada dura" >&2
+g_efectiva() {
+  a0_fallos=0
+  for par in core.fsmonitor=false core.hooksPath=/dev/null core.attributesFile=/dev/null commit.gpgSign=false tag.gpgSign=false log.showSignature=false gpg.program=/bin/false gpg.ssh.program=/bin/false gpg.x509.program=/bin/false gc.auto=0 maintenance.auto=false; do
+    k="${par%%=*}"; v="${par#*=}"
+    if test "$(g config --get "$k")" = "$v"; then echo "$k=$v"; else echo "A0 FALLÓ: $k no vale $v" >&2; a0_fallos=$((a0_fallos+1)); fi
+  done
+  test "$a0_fallos" -eq 0
+}
+g_efectiva && echo g-efectiva-ok || echo "A0 FALLÓ: la configuración efectiva de g difiere: parada dura" >&2
 # A0.6 · atributos: los filtros clean/smudge sólo actúan si un atributo los activa
-g check-attr -a -- poc1a/package.json poc1a/package-lock.json poc1a/tsconfig.json   # vacío
-test -z "$(g check-attr -a -- poc1a/package.json poc1a/package-lock.json poc1a/tsconfig.json)" && echo atributos-ok || echo "A0 FALLÓ: atributos sobre los manifiestos: parada dura" >&2
+atributos_limpios() {
+  a0_atributos=; a0_atributos_rc=0
+  a0_atributos="$(g check-attr -a -- poc1a/package.json poc1a/package-lock.json poc1a/tsconfig.json)" || a0_atributos_rc=$?
+  test "$a0_atributos_rc" -eq 0 && test -z "$a0_atributos"
+}
+atributos_limpios && echo atributos-ok || echo "A0 FALLÓ: atributos sobre los manifiestos o check-attr falló: parada dura" >&2
 ls -l "$(g rev-parse --git-common-dir)/hooks"   # informativo: hooks del repositorio común (g fija core.hooksPath=/dev/null y por eso rev-parse --git-path hooks devolvería /dev/null)
 ```
 
-- **Esperado:** sale `salidas-ok` (la carpeta de salidas `S` se crea aquí para que A2 pueda registrar su salida), `bin-false-ok`, `g-efectiva-ok` y `atributos-ok`; `type -a git` muestra una sola línea; `git --exec-path` y el binario son de root y no escribibles por grupo ni otros; el `PATH` sólo tiene rutas absolutas fuera de `/home`; el `env | … | grep '^GIT_'` no imprime nada; el último `grep` sobre `A0-git-config-nombres.txt` no imprime nada; `g check-attr -a` no imprime nada; y no aparece ningún `A0 FALLÓ`.
+- **Esperado:** sale `salidas-ok` (la carpeta de salidas `S` se crea aquí para que A2 pueda registrar su salida), `ruta-git-ok`, `bin-false-ok`, `g-efectiva-ok` y `atributos-ok`; `type -a git` muestra una o más rutas ejecutables que canonicalizan al mismo binario (usr-merge admite `/bin/git` y `/usr/bin/git`); no muestra alias ni función; `git --exec-path` y el binario canónico son de root y no escribibles por grupo ni otros; el `PATH` sólo tiene rutas absolutas fuera de `/home`; el `env | … | grep '^GIT_'` no imprime nada; el último `grep` sobre `A0-git-config-nombres.txt` no imprime nada; `g check-attr -a` termina con rc=0 y no imprime nada; y no aparece ningún `A0 FALLÓ`.
 - **Si no:** parada dura. Lo que imprima el `grep` de nombres lo explica el humano antes de seguir (por ejemplo `credential.helper` o un `include` global); si no puede explicarlo, es parada dura. La comprobación ya **no imprime valores**, que podrían ser secretos: la lista contiene sólo ámbito, origen y nombre de clave, y falla cerrada (si `git config` no se puede leer, imprime `A0 FALLÓ` en lugar de parecer limpia). Para ver el valor de una clave concreta, el humano lo pide a mano sólo después de comprobar que no es un secreto.
 - **Por qué `g` y por qué no basta con ella.** El humano ejecuta `g commit`, `g add` o `g apply` como root, y Git puede ejecutar programas según su configuración: `gpg.program`, `gpg.ssh.program` y `gpg.x509.program` con `commit.gpgSign` o `tag.gpgSign`; `log.showSignature` al leer el historial; hooks; `core.fsmonitor`; filtros `clean`/`smudge` (si un atributo los activa); y `gc`/`maintenance` automáticos. Esa configuración puede venir del repositorio, de `/home/proyectos/jozeuzz/.git/config` (común a todos los worktrees), de `config.worktree`, de la global, de `include`/`includeIf` o de `GIT_CONFIG_*`. `g` anula en la propia invocación los programas de firma, los hooks (`core.hooksPath=/dev/null`), `fsmonitor`, el archivo global de atributos y el mantenimiento automático. Un filtro declarado en `.gitattributes` o en `.git/info/attributes` junto con `filter.<nombre>.clean` no lo puede anular `g`: lo detiene `check-attr -a` (A0.6) y el `grep` de nombres (A0.3). Los diffs llevan `--no-ext-diff --no-textconv` y las lecturas de blobs con `show` (A1), `--no-textconv`.
 - **Ajuste respecto del diseño:** `g rev-parse --git-path hooks` devuelve `/dev/null` con la `g` endurecida; por eso el listado informativo de hooks usa `--git-common-dir`.
@@ -452,8 +474,20 @@ sha256sum "$S/A4-manifiestos.patch"
 # A4r (aprobación humana) · PARADA: no continuar a A4p sin aprobación
 A4_APROBADO=<sha256 del parche leído, tecleado por el humano>
 APROBADOR=<responsable que aprueba>
+(
+set -eu
+test "$a4a_rc" -eq 0
+test "$a4r_rc" -eq 0
+printf %s "$A4_APROBADO" | grep -Eq '^[0-9a-f]{64}$' || { echo "A4r: A4_APROBADO no es un sha256" >&2; exit 1; }
+test -n "$APROBADOR" || { echo "A4r: falta responsable humano" >&2; exit 1; }
+actual="$(sha256sum "$S/A4-manifiestos.patch" | cut -d' ' -f1)"
+test "$actual" = "$A4_APROBADO" || { echo "A4r: el parche actual no es el aprobado" >&2; exit 1; }
 ( set -C; printf 'sha256=%s\nresponsable=%s\nfecha_utc=%s\n' "$A4_APROBADO" "$APROBADOR" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$S/A4-aprobacion.txt" )
 sha256sum "$S/A4-aprobacion.txt" >> "$S/SHA256SUMS"
+)
+a4h_rc=$?
+echo "A4r aprobación rc=$a4h_rc"   # debe ser 0; si no, parada dura y no se aplica nada
+test "$a4h_rc" -eq 0 || echo "A4r aprobación FALLÓ: parada dura, no aplicar" >&2
 ```
 
 ```sh
@@ -463,6 +497,7 @@ cd /home/proyectos/jozeuzz-poc-candidata-a/poc1a
 set -eu
 test "$a4a_rc" -eq 0
 test "$a4r_rc" -eq 0
+test "$a4h_rc" -eq 0
 printf %s "$A4_APROBADO" | grep -Eq '^[0-9a-f]{64}$' || { echo "A4p: A4_APROBADO no es un sha256" >&2; exit 1; }
 actual="$(sha256sum "$S/A4-manifiestos.patch" | cut -d' ' -f1)"
 test "$actual" = "$A4_APROBADO" || { echo "A4p: el parche actual no es el aprobado" >&2; exit 1; }
@@ -470,6 +505,8 @@ grep -qx "sha256=$A4_APROBADO" "$S/A4-aprobacion.txt" || { echo "A4p: el hash no
 test "$(g rev-parse HEAD)" = "$(cat "$S/A4-base.txt")" || { echo "A4p: HEAD se movió desde A4a" >&2; exit 1; }
 st="$(g -C .. status --porcelain)" || { echo "GIT FALLÓ" >&2; exit 97; }
 test -z "$st" || { echo "A4p: el árbol no está limpio" >&2; exit 1; }
+g_efectiva || { echo "A4p: configuración efectiva de g alterada" >&2; exit 1; }
+atributos_limpios || { echo "A4p: atributos de manifiestos alterados o check-attr falló" >&2; exit 1; }
 g -C .. apply --check "$S/A4-manifiestos.patch"
 g -C .. apply "$S/A4-manifiestos.patch"
 )
@@ -483,6 +520,7 @@ test "$a4p_rc" -eq 0 || echo "A4p FALLÓ: parada dura" >&2
 cd /home/proyectos/jozeuzz-poc-candidata-a/poc1a
 (
 set -eu
+test "$a4p_rc" -eq 0
 st="$(g -C .. status --porcelain)" || { echo "GIT FALLÓ" >&2; exit 97; }
 test "$(printf '%s\n' "$st" | LC_ALL=C sort)" = "$(printf '%s\n' ' M poc1a/package.json' ' M poc1a/package-lock.json' ' M poc1a/tsconfig.json' | LC_ALL=C sort)" || { echo "A4v: el estado no son exactamente las tres rutas" >&2; exit 1; }
 cmp package.json "$S/A4-package.json"
@@ -501,11 +539,14 @@ g diff --no-ext-diff --no-textconv --stat -- package-lock.json
 cd /home/proyectos/jozeuzz-poc-candidata-a/poc1a
 (
 set -eu
+test "$a4v_rc" -eq 0
 base="$(cat "$S/A4-base.txt")"
 test "$(g rev-parse HEAD)" = "$base" || { echo "A4k: HEAD se movió desde A4a" >&2; exit 1; }
 cmp package.json "$S/A4-package.json"
 cmp package-lock.json "$S/A4-package-lock.json"
 cmp tsconfig.json "$S/A4-tsconfig.json"
+g_efectiva || { echo "A4k: configuración efectiva de g alterada" >&2; exit 1; }
+atributos_limpios || { echo "A4k: atributos de manifiestos alterados o check-attr falló" >&2; exit 1; }
 g -C .. add -- poc1a/package.json poc1a/package-lock.json poc1a/tsconfig.json
 test "$(g -C .. diff --cached --no-ext-diff --name-only | LC_ALL=C sort)" = "$(printf '%s\n' poc1a/package-lock.json poc1a/package.json poc1a/tsconfig.json | LC_ALL=C sort)" || { echo "A4k: lo preparado no son exactamente las tres rutas" >&2; exit 1; }
 g -C .. commit --no-verify --no-gpg-sign -m "chore(poc-3): add @axe-core/playwright 4.13.0 (P3-05)"
@@ -531,15 +572,15 @@ r A4c ./poc.sh deps npm audit signatures
 - **tsconfig dentro del parche (I-2).** `e2e/intake-axe.spec.ts` sale de `exclude` en `tsconfig.json` sin edición manual: el script de A4a sustituye exactamente una ocurrencia de `"node_modules"` + `"e2e/intake-axe.spec.ts"` por `"node_modules"` (falla si no hay exactamente una) y lo escribe en `$S/A4-tsconfig.json` con `wx` y modo 0600. El parche contiene los tres archivos (`package.json`, `package-lock.json` y `tsconfig.json`) con etiquetas `a/poc1a/…` y `b/poc1a/…`, así que lo que el humano revisa y aprueba es lo único que se aplica.
 - **A4r · revisión humana obligatoria, antes de cualquier aplicación (I-2).**
   1. **Comprobación automática** (`a4r_rc`), sobre los archivos de `$S` y **no sobre el árbol ya modificado**. Exige: en `package.json` sólo cambia `devDependencies`, añadiendo `"@axe-core/playwright": "4.13.0"` (todo lo demás, profundamente igual); en el lockfile, `name`, `version`, `lockfileVersion` y demás claves de primer nivel iguales; las claves nuevas de `packages` son exactamente `node_modules/@axe-core/playwright` y `node_modules/axe-core`; no se elimina ninguna clave; toda entrada preexistente es profundamente igual salvo `packages[""]`, que sólo puede ganar esa devDependency; las dos entradas nuevas tienen `resolved` que empieza por `https://registry.npmjs.org/` e `integrity` `sha512-`; y la versión de `@axe-core/playwright` es 4.13.0. Registra además la versión de `axe-core`. El informe va a `$S/A4-verificacion.txt` (con su `sha256` en `SHA256SUMS`) y se mantienen las comprobaciones de URL `git+`, `file:` y `http:` sobre `$S/A4-package-lock.json`. Cualquier desviación es parada dura y no se aplica nada.
-  2. **Lectura y aprobación.** El humano lee el parche **completo** (`cat "$S/A4-manifiestos.patch"`) y `A4-verificacion.txt`, obtiene `sha256sum "$S/A4-manifiestos.patch"` y, sólo si aprueba, **teclea el hash leído** en `A4_APROBADO=<…>` (marcador como `BLOB`/`REV`: no se calcula por script, porque un script aprobaría cualquier parche) y registra `$S/A4-aprobacion.txt` (hash, responsable y fecha UTC, con su `sha256` en `SHA256SUMS`). **PARADA: no continuar a A4p sin aprobación.**
+   2. **Lectura y aprobación.** El humano lee el parche **completo** (`cat "$S/A4-manifiestos.patch"`) y `A4-verificacion.txt`, obtiene `sha256sum "$S/A4-manifiestos.patch"` y, sólo si aprueba, **teclea el hash leído** en `A4_APROBADO=<…>` (marcador como `BLOB`/`REV`: no se calcula por script, porque un script aprobaría cualquier parche) y declara un `APROBADOR` no vacío. Antes de crear `$S/A4-aprobacion.txt`, el bloque vuelve a exigir A4a/A4r verdes, forma SHA-256 válida y coincidencia del hash actual: una confirmación ausente, incorrecta o para un parche alterado no crea registro. **PARADA: no continuar a A4p sin aprobación.**
   - **Esperado / Si no: parada dura.** Esperado: `A4r rc=0`, ninguna línea `DESVIACIÓN` en `A4-verificacion.txt` y el hash tecleado igual al del parche leído. Si no: parada dura, sin aplicar.
-- **A4p · aplicación.** Exige `a4a_rc` y `a4r_rc` en 0; `A4_APROBADO` definido (con `set -u` un valor sin definir falla cerrado) y con forma de `sha256`; el `sha256` actual del parche igual a `A4_APROBADO` y presente en `A4-aprobacion.txt`; HEAD igual a `A4-base.txt`; y `g -C .. status --porcelain` vacío (el árbol entero limpio). Sólo entonces ejecuta `g -C .. apply --check` y `g -C .. apply`.
+- **A4p · aplicación.** Exige `a4a_rc`, `a4r_rc` y aprobación verde en 0; `A4_APROBADO` definido (con `set -u` un valor sin definir falla cerrado) y con forma de `sha256`; el `sha256` actual del parche igual a `A4_APROBADO` y presente en `A4-aprobacion.txt`; HEAD igual a `A4-base.txt`; y `g -C .. status --porcelain` vacío (el árbol entero limpio). Inmediatamente antes de `apply --check` vuelve a validar la configuración efectiva endurecida de `g` y los atributos de los tres manifiestos. Sólo entonces ejecuta `g -C .. apply --check` y `g -C .. apply`.
   - **Esperado / Si no: parada dura.** Esperado: `A4p rc=0`. Si no (hash no aprobado o distinto, HEAD movido, árbol sucio): parada dura; no se aplica nada porque `git apply` es atómico.
-- **A4v · verificación previa al commit.** `g -C .. status --porcelain` debe ser exactamente ` M poc1a/package.json`, ` M poc1a/package-lock.json` y ` M poc1a/tsconfig.json`, y `cmp` de los tres archivos del árbol con los de `$S` aprobados debe ser idéntico. Los diffs para lectura llevan `--no-ext-diff --no-textconv`.
+- **A4v · verificación previa al commit.** Exige `a4p_rc=0`; `g -C .. status --porcelain` debe ser exactamente ` M poc1a/package.json`, ` M poc1a/package-lock.json` y ` M poc1a/tsconfig.json`, y `cmp` de los tres archivos del árbol con los de `$S` aprobados debe ser idéntico. Los diffs para lectura llevan `--no-ext-diff --no-textconv`.
   - **Esperado / Si no: parada dura.** Esperado: `A4v rc=0`. Si no: parada dura, sin confirmar.
-- **A4k · commit.** Repite `cmp` y HEAD igual a la base, prepara exactamente las tres rutas (`g -C .. add -- …`, con `diff --cached --name-only` exacto) y confirma con `g -C .. commit --no-verify --no-gpg-sign` (con `g` endurecida y sin hooks ni firma). Después comprueba, con fontanería que no invoca gpg, que la cabecera del commit no tiene `gpgsig` (`g cat-file commit HEAD | sed -n '/^$/q;p' | grep -c '^gpgsig'` debe dar 0), que `g diff-tree --no-commit-id --name-only -r HEAD` lista las tres rutas y que `HEAD~1` es la base. El HEAD nuevo es la referencia de código si se hace A4.
+- **A4k · commit.** Exige `a4v_rc=0`, repite `cmp` y HEAD igual a la base; inmediatamente antes de preparar cambios vuelve a validar configuración efectiva de `g` y atributos de manifiestos. Entonces prepara exactamente las tres rutas (`g -C .. add -- …`, con `diff --cached --name-only` exacto) y confirma con `g -C .. commit --no-verify --no-gpg-sign` (con `g` endurecida y sin hooks ni firma). Después comprueba, con fontanería que no invoca gpg, que la cabecera del commit no tiene `gpgsig` (`g cat-file commit HEAD | sed -n '/^$/q;p' | grep -c '^gpgsig'` debe dar 0), que `g diff-tree --no-commit-id --name-only -r HEAD` lista las tres rutas y que `HEAD~1` es la base. El HEAD nuevo es la referencia de código si se hace A4.
   - **Esperado / Si no: parada dura.** Esperado: `A4k rc=0` y el HEAD nuevo. Si no (commit firmado, rutas distintas, HEAD~1 distinto de la base): parada dura.
-- **Etiquetas del parche (M-2).** Las etiquetas `a/poc1a/package.json` y `b/poc1a/package.json` (y las del lockfile y de `tsconfig.json`) son rutas del parche relativas a la raíz del repositorio. `g` (A0) no lleva `-C`, así que A4a se ejecuta en `poc1a/`. **Prueba decisiva (ciclo 2, ejecutada con `jz-run`):** en un repositorio temporal con `sub/f` se generó el parche con GNU `diff -u --label a/sub/f --label b/sub/f sub/f nuevo > p` (parche tradicional, no `git diff`). Resultado: `(cd sub && git apply --check ../p)` rc=0 y `git apply --check p` desde la raíz rc=0; `git apply` desde `sub/` modificó `sub/f`. Es decir, las etiquetas son rutas desde la raíz y funcionan también desde el subdirectorio. Con un parche de un archivo de la raíz (`top`), en cambio, `git apply --check`/`git apply` desde `sub/` devolvieron rc=1 sin tocar nada: desde un subdirectorio `git apply` sólo aplica archivos bajo el directorio actual. Por eso la forma robusta es ejecutar `--check` y la aplicación humana desde la raíz del worktree (`g -C .. apply …`, con la ruta absoluta `$S/…`): no depende del directorio actual aunque el parche llegara a incluir otras rutas, y las etiquetas `a/poc1a/…` y `b/poc1a/…` son entonces exactamente las que se resuelven. `a/package.json` no sería correcto. Cada subshell lleva `set -eu`: cada paso fallido la termina y deja su rc ≠ 0, lo que bloquea las fases siguientes (A4p exige `a4a_rc` y `a4r_rc` en 0).
+- **Etiquetas del parche (M-2).** Las etiquetas `a/poc1a/package.json` y `b/poc1a/package.json` (y las del lockfile y de `tsconfig.json`) son rutas del parche relativas a la raíz del repositorio. `g` (A0) no lleva `-C`, así que A4a se ejecuta en `poc1a/`. **Prueba decisiva (ciclo 2, ejecutada con `jz-run`):** en un repositorio temporal con `sub/f` se generó el parche con GNU `diff -u --label a/sub/f --label b/sub/f sub/f nuevo > p` (parche tradicional, no `git diff`). Resultado: `(cd sub && git apply --check ../p)` rc=0 y `git apply --check p` desde la raíz rc=0; `git apply` desde `sub/` modificó `sub/f`. Es decir, las etiquetas son rutas desde la raíz y funcionan también desde el subdirectorio. Con un parche de un archivo de la raíz (`top`), en cambio, `git apply --check`/`git apply` desde `sub/` devolvieron rc=1 sin tocar nada: desde un subdirectorio `git apply` sólo aplica archivos bajo el directorio actual. Por eso la forma robusta es ejecutar `--check` y la aplicación humana desde la raíz del worktree (`g -C .. apply …`, con la ruta absoluta `$S/…`): no depende del directorio actual aunque el parche llegara a incluir otras rutas, y las etiquetas `a/poc1a/…` y `b/poc1a/…` son entonces exactamente las que se resuelven. `a/package.json` no sería correcto. Cada subshell lleva `set -eu`: cada paso fallido la termina y deja su rc ≠ 0; A4r exige A4a, A4p exige A4r y aprobación, A4v exige A4p y A4k exige A4v, así que una fase fallida bloquea toda mutación posterior.
 - **A4b0 (añadido por el relevo):** como `node_modules` es un volumen nombrado, instalar el parche en el repositorio no lo actualiza; `npm ci` (A4b0) lo hace antes de `npm ls` y de los E2E con axe.
 - **Sustituye a los conteos con `grep` sobre el diff:** las comprobaciones del lockfile (claves nuevas exactas, entradas preexistentes intactas, `resolved` y `integrity`) las hace A4r con un script sobre los archivos de `$S`, **antes** de aplicar nada; ya no se infieren de conteos de líneas del diff después de aplicar. El humano además lee el parche completo.
 - **`npm audit signatures`:** `./poc.sh deps` acepta cualquier orden y la ejecuta en el servicio `deps`, que tiene red externa (`poc.sh:78`; `compose.yaml:58-77`). El texto exacto de su salida no está verificado. Se registra completo.

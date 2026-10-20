@@ -52,9 +52,11 @@ async function extraerDeA0() {
   const a0 = bloque(gate, '### A0 ·', '### A3e ·')
   const def = /^g\(\) \{.*\}$/m.exec(a0)
   expect(def, 'definición de g en A0').toBeTruthy()
-  const verif = /^a0_fallos=0\n[\s\S]*?g-efectiva-ok[^\n]*$/m.exec(a0)
+  const verif = /^g_efectiva\(\) \{[\s\S]*?g_efectiva && echo g-efectiva-ok[^\n]*$/m.exec(a0)
   expect(verif, 'verificación de la configuración efectiva en A0').toBeTruthy()
-  return { definicion: def![0], verificacion: verif![0] }
+  const atributos = /^atributos_limpios\(\) \{[\s\S]*?^}/m.exec(a0)
+  expect(atributos, 'validador de atributos en A0').toBeTruthy()
+  return { definicion: def![0], verificacion: verif![0], validadores: `${verif![0].slice(0, verif![0].lastIndexOf('g_efectiva &&'))}\n${atributos![0]}` }
 }
 
 function entornoBase(home: string) {
@@ -356,12 +358,12 @@ describe('I-2: las fases del gate se ejecutan de punta a punta (docker simulado)
   type Desviacion = 'ninguna' | 'cambia-entrada' | 'paquete-extra' | 'url-git'
   const b64 = (o: unknown) => Buffer.from(`${JSON.stringify(o, null, 2)}\n`).toString('base64')
 
-  async function ejecutarA4(desviacion: Desviacion, mutador = '') {
+  async function ejecutarA4(desviacion: Desviacion, mutador = '', mutadorAntesDeK = '', mutadorAntesDeA4a = '', aprobacionInvalida = false, mutadorAntesDeV = '') {
     const gate = await leer(RUTA_GATE)
     const a4 = bloque(gate, '### A4 ·', '### Clasificación de operaciones por privilegio')
     const bs = bloquesSh(a4)
     const fase = (marca: string) => bs.find((b) => b.includes(marca))!
-    const { definicion } = await extraerDeA0()
+    const { definicion, validadores } = await extraerDeA0()
     const dir = path.join(tmpRaiz, `a4-${++contador}`)
     const repo = path.join(dir, 'repo')
     const sub = path.join(repo, 'poc1a')
@@ -405,13 +407,13 @@ describe('I-2: las fases del gate se ejecutan de punta a punta (docker simulado)
     for (const h of ['pre-commit', 'commit-msg', 'post-commit']) { writeFileSync(path.join(hooks, h), `#!/bin/sh\necho "hook-${h}" >> "${marcas}"\nexit 0\n`); chmodSync(path.join(hooks, h), 0o755) }
     g0('config commit.gpgSign true'); g0(`config gpg.program ${trampa('gpg', 'exit 1')}`); g0(`config core.hooksPath ${hooks}`)
     const aprobacion = fase('# A4r (aprobación humana)')
-      .replace(/^A4_APROBADO=.*$/m, 'A4_APROBADO="$(sha256sum "$S/A4-manifiestos.patch" | cut -d\' \' -f1)"')
+      .replace(/^A4_APROBADO=.*$/m, aprobacionInvalida ? 'A4_APROBADO=no-es-un-hash' : 'A4_APROBADO="$(sha256sum "$S/A4-manifiestos.patch" | cut -d\' \' -f1)"')
       .replace(/^APROBADOR=.*$/m, 'APROBADOR=prueba')
     const cd = (b: string) => b.replace('/home/proyectos/jozeuzz-poc-candidata-a/poc1a', sub)
     const script = [
       'set -o pipefail', 'umask 077', `S="${dir}/salidas"`, 'install -d -m 700 "$S"',
-      "GUARDA='poc.sh package.json package-lock.json tsconfig.json .npmrc'", definicion,
-      cd(fase('# A4a ·')), cd(fase('# A4r ·')), aprobacion, mutador, cd(fase('# A4p ·')), cd(fase('# A4v ·')), cd(fase('# A4k ·')),
+      "GUARDA='poc.sh package.json package-lock.json tsconfig.json .npmrc'", definicion, validadores,
+      mutadorAntesDeA4a, cd(fase('# A4a ·')), cd(fase('# A4r ·')), aprobacion, mutador, cd(fase('# A4p ·')), mutadorAntesDeV, cd(fase('# A4v ·')), mutadorAntesDeK, cd(fase('# A4k ·')),
       'echo "RC a4a=$a4a_rc a4r=$a4r_rc a4p=$a4p_rc a4v=$a4v_rc a4k=$a4k_rc"',
     ].join('\n')
     const guion = path.join(dir, 'a4.sh')
@@ -462,6 +464,49 @@ describe('I-2: las fases del gate se ejecutan de punta a punta (docker simulado)
     })
   }
 
+  it('falla de A4a/A4r/A4p/A4v bloquea todas las fases posteriores', async () => {
+    const casos: Array<[string, Desviacion, string, string, string, string]> = [
+      ['A4a', 'ninguna', '', '', 'echo ocupado > "$S/A4-package.json"', ''],
+      ['A4r', 'cambia-entrada', '', '', '', ''],
+      ['A4p', 'ninguna', 'A4_APROBADO=0000000000000000000000000000000000000000000000000000000000000000', '', '', ''],
+      ['A4v', 'ninguna', '', '', '', 'echo alterado > package.json'],
+    ]
+    for (const [nombre, desviacion, antesDeP, antesDeK, antesDeA4a, antesDeV] of casos) {
+      const e = await ejecutarA4(desviacion, antesDeP, antesDeK, antesDeA4a, false, antesDeV)
+      const rcs = [e.a4a, e.a4r, e.a4p, e.a4v, e.a4k]
+      const i = ['A4a', 'A4r', 'A4p', 'A4v'].indexOf(nombre)
+      expect(rcs[i], `${nombre}: ${e.stderr}`).not.toBe(0)
+      for (const rc of rcs.slice(i + 1)) expect(rc, `${nombre}: ${e.stderr}`).not.toBe(0)
+      expect(e.git('log --format=%s').split('\n')).not.toContain('chore(poc-3): add @axe-core/playwright 4.13.0 (P3-05)')
+    }
+  })
+
+  it('reconfiguración o atributos antes de A4p y A4k bloquean apply/add/commit', async () => {
+    const casos: Array<[string, string, string, 'p' | 'k']> = [
+      ['g antes de A4p', 'g() { git "$@"; }', '', 'p'],
+      ['atributos antes de A4p', 'printf "package.json guardado\\n" > ../.git/info/attributes', '', 'p'],
+      ['g antes de A4k', '', 'g() { git "$@"; }', 'k'],
+      ['atributos antes de A4k', '', 'printf "package.json guardado\\n" > ../.git/info/attributes', 'k'],
+    ]
+    for (const [nombre, antesDeP, antesDeK, fase] of casos) {
+      const e = await ejecutarA4('ninguna', antesDeP, antesDeK)
+      if (fase === 'p') expect(e.a4p, `${nombre}: ${e.stderr}`).not.toBe(0)
+      else {
+        expect(e.a4p, `${nombre}: ${e.stderr}`).toBe(0)
+        expect(e.a4v, `${nombre}: ${e.stderr}`).toBe(0)
+        expect(e.a4k, `${nombre}: ${e.stderr}`).not.toBe(0)
+      }
+      expect(e.git('log --format=%s').split('\n')).not.toContain('chore(poc-3): add @axe-core/playwright 4.13.0 (P3-05)')
+    }
+  })
+
+  it('aprobación humana simulada inválida no crea registro ni aplica parche', async () => {
+    const e = await ejecutarA4('ninguna', '', '', '', true)
+    expect(existsSync(path.join(e.salidas, 'A4-aprobacion.txt'))).toBe(false)
+    expect([e.a4p, e.a4v, e.a4k]).not.toContain(0)
+    expect(readFileSync(path.join(e.sub, 'package.json'), 'utf8')).not.toContain('axe-core')
+  })
+
   it('el tsconfig.json real contiene exactamente una vez el bloque que A4a sustituye', async () => {
     const real = readFileSync(path.join(raiz, 'tsconfig.json'), 'utf8')
     expect(real.split('    "node_modules",\n    "e2e/intake-axe.spec.ts"\n').length - 1).toBe(1)
@@ -482,8 +527,8 @@ describe('I-1: A0 detecta sin imprimir valores y falla cerrado', () => {
     expect(a0).toContain("env | cut -d= -f1 | grep '^GIT_'")
     expect(a0).toContain('g check-attr -a -- poc1a/package.json poc1a/package-lock.json poc1a/tsconfig.json')
     expect(a0).toContain('type -a git')
-    expect(a0).toContain('command -v git')
-    expect(a0).toContain('git --exec-path')
+    expect(a0).toContain('readlink -f --')
+    expect(a0).toContain('"$GIT_BIN" --exec-path')
     expect(a0).toContain('test -x /bin/false')
     const grep = /grep -iE '([^']+)' "\$S\/A0-git-config-nombres\.txt"/.exec(a0)
     expect(grep, 'grep sobre los nombres').toBeTruthy()
@@ -505,5 +550,56 @@ describe('I-1: A0 detecta sin imprimir valores y falla cerrado', () => {
     const lineas = gate.split('\n').filter((l) => /\bg show\b/.test(l))
     expect(lineas.length).toBeGreaterThan(0)
     for (const l of lineas) for (const m of l.matchAll(/`g show[^`]*`/g)) expect(m[0], l).toContain('--no-textconv')
+  })
+
+  it('A0.1 acepta rutas usr-merge del mismo ejecutable y rechaza alias, función y ejecutables canónicos distintos', async () => {
+    const a0 = bloque(await leer(RUTA_GATE), '### A0 ·', '### A3e ·')
+    const a01 = bloque(a0, '# A0.1 ·', '# A0.2 ·')
+    const ejecutar = (salidaType: string) => sh(`type() { if test "$1 $2" = '-a git'; then printf '%s\\n' '${salidaType}'; else builtin type "$@"; fi; }\n${a01}\necho FIN`, tmpRaiz, path.join(tmpRaiz, 'home-a01'))
+    const mismo = ejecutar('git is /usr/bin/git\ngit is /bin/git')
+    expect(mismo.stderr).not.toContain('A0 FALLÓ')
+    expect(mismo.stdout).toContain('ruta-git-ok')
+    for (const salida of ['git is aliased to `git --no-pager`', 'git is a function\ngit ()\n{\n  command git "$@"\n}', 'git is /usr/bin/git\ngit is /bin/sh']) {
+      const r = ejecutar(salida)
+      expect(r.stderr, salida).toContain('A0 FALLÓ: git sombreado')
+      expect(r.stdout, salida).not.toContain('ruta-git-ok')
+    }
+  })
+
+  it('A0.6 falla cerrado si check-attr devuelve rc no cero aunque stdout esté vacío', async () => {
+    const a0 = bloque(await leer(RUTA_GATE), '### A0 ·', '### A3e ·')
+    const a06 = bloque(a0, '# A0.6 ·', 'ls -l')
+    const r = sh(`g() { return 17; }\n${a06}`, tmpRaiz, path.join(tmpRaiz, 'home-a06'))
+    expect(r.stdout).not.toContain('atributos-ok')
+    expect(r.stderr).toContain('A0 FALLÓ: atributos')
+  })
+})
+
+describe('I-2: A4 vuelve a validar guardas y encadena cada fase', () => {
+  const a4De = async () => bloque(await leer(RUTA_GATE), '### A4 ·', '### Clasificación de operaciones por privilegio')
+  const fase = (a4: string, marca: string) => bloquesSh(a4).find((b) => b.includes(marca))!
+
+  it('A4p y A4k revalidan g y atributos inmediatamente antes de apply/add', async () => {
+    const a4 = await a4De()
+    for (const [marca, mutacion] of [['# A4p ·', 'g -C .. apply --check'], ['# A4k ·', 'g -C .. add --']] as const) {
+      const b = fase(a4, marca)
+      const i = b.indexOf(mutacion)
+      expect(b.slice(0, i)).toContain('g_efectiva')
+      expect(b.slice(0, i)).toContain('atributos_limpios')
+    }
+  })
+
+  it('A4r, A4p, A4v y A4k exigen el éxito inmediato de la fase anterior dentro de su subshell', async () => {
+    const a4 = await a4De()
+    for (const [marca, rc] of [['# A4r ·', 'a4a_rc'], ['# A4p ·', 'a4r_rc'], ['# A4v ·', 'a4p_rc'], ['# A4k ·', 'a4v_rc']] as const) {
+      expect(fase(a4, marca), marca).toContain(`test "$${rc}" -eq 0`)
+    }
+  })
+
+  it('aprobación inválida no crea A4-aprobacion.txt', async () => {
+    const a4 = await a4De()
+    const aprobacion = fase(a4, '# A4r (aprobación humana)')
+    for (const requisito of ['test "$a4a_rc" -eq 0', 'test "$a4r_rc" -eq 0', "grep -Eq '^[0-9a-f]{64}$'", 'test -n "$APROBADOR"', 'A4r: el parche actual no es el aprobado']) expect(aprobacion, requisito).toContain(requisito)
+    expect(aprobacion.indexOf('test -n "$APROBADOR"')).toBeLessThan(aprobacion.indexOf('A4-aprobacion.txt'))
   })
 })
