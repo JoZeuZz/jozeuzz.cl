@@ -1062,3 +1062,17 @@ Tras la revisión de jz-qa y jz-security. Prevalece sobre el plan y sobre E1-E9 
 - **M-7, M-8, M-9, Q-M4, Q-M6, S-M10.** Aclaraciones documentales (root, Compose sin daemon, riesgo del `node_modules` heredado, `destroy`, comandos contradictorios, runc ≥ 1.1.12).
 - **Q-M2.** `test/estatico/tsconfig-punto-fijo.test.ts` ejecuta la función real `writeConfigurationDefaults` de Next sobre una copia de `tsconfig.json` en `os.tmpdir()` (dev con `NODE_ENV=development` y `.next/dev`; build con `NODE_ENV=production` y `.next-prod`) y comprueba que no cambia; incluye un control que sí cambia.
 - **No se hizo:** M-4, `cap_drop` en servicios, bind recursive ni citas de línea masivas.
+
+### Ciclo de corrección 2
+
+Tras la re-revisión de jz-security (último ciclo permitido). Prevalece sobre el ciclo 1 donde choque (en particular sobre S-I1 y M-2).
+
+- **I-1R.** A3e pasa a ser el primer paso tras A0, antes de A1, A2 y A3d. Retira los contenedores del proyecto sin Compose: `docker ps -aq --filter label=com.docker.compose.project=jozeuzz-poc-a | xargs -r docker rm -f` (sin volúmenes), con lista previa en `$S` y verificación posterior de lista vacía (si no, parada dura). Desaparecen `down --remove-orphans` y A3e.0. K1: cualquier salida de `g status --short` es parada dura.
+- **M-a.** A3e.2 y K1 listan todos los montajes RW (`{{if .RW}}`) y paran si una `Source` es `/`, `/home`, `/home/proyectos`, `/home/proyectos/jozeuzz`, o empieza por el worktree o `/home/proyectos/jozeuzz/.git` (`awk` anclado). Enlaces, rutas alternativas del CT y otros daemons: revisión humana.
+- **M-2.** Prueba decisiva con GNU `diff -u` (parche tradicional) en un directorio temporal: desde el subdirectorio `git apply --check` rc=0 (el parche de `sub/f`), pero un parche de un archivo de la raíz falla (rc=1) desde el subdirectorio; desde la raíz rc=0. Forma robusta: `g -C .. apply --check` y `g -C .. apply` con la ruta absoluta de `$S`.
+- **M-3.** Subshell de A4 con `set -eu` (sin usarla como condición de `||`), parada si `$S` ya contiene `A4-package.json`, y aplicación humana bloqueada si `a4_rc` ≠ 0.
+- **A2d.** runc: formato `X.Y.Z` obligatorio; mínimo 1.2.8, 1.3.3, ≥ 1.4.0; versiones de distribución o no numéricas: parada y decisión humana.
+- **Guarda.** `alterado="$(g status …)" || { …GIT FALLÓ…; }` en `r()`, A4 y K1: un fallo de git ya no se lee como árbol limpio.
+- **A0.** `filter\.` en la búsqueda de configuración Git peligrosa.
+- **`poc.sh init`.** Sólo comentario: no promete más que `O_EXCL`; la garantía depende de A3e.
+- **Commits.** A toca `poc1a/` (poc.sh y prueba), por lo que B actualiza `CODEREF` y la cabecera.

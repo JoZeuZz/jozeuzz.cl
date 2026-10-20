@@ -57,7 +57,7 @@ it('A4 sólo genera parche y reserva su aplicación al humano', async () => {
   expect(gate).toContain('packageLockJson')
   expect(gate).toContain('command -v diff')
   expect(gate).toContain('diff --version')
-  expect(gate).toContain('g apply --check "$S/A4-manifiestos.patch"')
+  expect(gate).toContain('g -C .. apply --check "$S/A4-manifiestos.patch"')
   expect(gate).toContain('aplicación humana revisada')
   expect(gate).not.toContain('./poc.sh deps npm install --ignore-scripts --save-dev --save-exact @axe-core/playwright@4.13.0')
 })
@@ -121,29 +121,34 @@ it('toda invocación de vitest en contenedor lleva --configLoader runner (Q-I1)'
   expect(gate).toMatch(/cargador bundle[^\n]*EROFS|EROFS[^\n]*cargador bundle/)
 })
 
-it('A3e retira contenedores de la era RW antes de A4 y B1 como parada dura (S-I1)', async () => {
+it('A3e retira contenedores de la era RW sin Compose, como primer paso tras A0 y antes de A1 (S-I1, I-1R)', async () => {
   const gate = await leer('../docs/GATE-DOCKER-POC-3.md')
-  const a3e = gate.indexOf('**A3e')
+  const a3e = gate.indexOf('### A3e ·')
   expect(a3e).toBeGreaterThan(-1)
-  expect(gate.indexOf('### A3 ·')).toBeLessThan(a3e)
+  expect(gate.indexOf('### A0 ·')).toBeLessThan(a3e)
+  expect(a3e).toBeLessThan(gate.indexOf('### A1 ·'))
+  expect(a3e).toBeLessThan(gate.indexOf('### A2 ·'))
+  expect(a3e).toBeLessThan(gate.indexOf('### A3 ·'))
   expect(a3e).toBeLessThan(gate.indexOf('### A4 ·'))
-  expect(a3e).toBeLessThan(gate.indexOf('## B. Prerrequisitos Docker'))
-  const seccion = bloque(gate, '**A3e', '### A4 ·')
+  const seccion = bloque(gate, '### A3e ·', '### A1 ·')
   expect(seccion).toContain('docker ps -a --filter label=com.docker.compose.project=jozeuzz-poc-a')
-  const down = seccion.split('\n').find((l) => /\bdown\b/.test(l) && l.includes('docker compose')) ?? ''
-  expect(down).toContain('docker compose -p jozeuzz-poc-a -f compose.yaml -f compose.pruebas.yaml --profile prod --profile e2e --profile deps --profile volumes-init down --remove-orphans')
-  expect(down).not.toMatch(/\s-v(\s|$)|--volumes/)
-  expect(seccion).toContain("docker ps -aq | xargs -r docker inspect --format '{{.Name}}{{range .Mounts}} {{.Source}}:{{.RW}}{{end}}'")
-  expect(seccion).toContain('grep -F /home/proyectos/jozeuzz-poc-candidata-a')
-  expect(seccion).toContain("grep ':true'")
+  // Sin Compose: no interpola ni lee el árbol; conserva volúmenes (sin -v).
+  expect(seccion).toContain('docker ps -aq --filter label=com.docker.compose.project=jozeuzz-poc-a | xargs -r docker rm -f')
+  expect(seccion).not.toMatch(/docker rm -f[^\n]*\s-v(\s|$)|--volumes/)
+  expect(gate).not.toContain('down --remove-orphans')
+  expect(gate).not.toContain('A3e.0')
+  expect(seccion).not.toMatch(/docker compose/)
+  expect(seccion).toContain('A3e-antes.txt')
+  expect(seccion).toContain('A3e1.txt')
   expect(seccion).toMatch(/parada dura/i)
   expect(seccion).toMatch(/no tocar contenedores ajenos al proyecto/i)
-  expect(seccion).toContain('g status --porcelain -- $GUARDA')
-  expect(seccion).toContain('B1v')
   expect(seccion).toContain('era RW')
+  // El paso previo a A1 no puede depender de $GUARDA (se define en A3).
+  expect(seccion).not.toContain('$GUARDA')
   // Clasificación: estas órdenes son Docker root-equivalente.
   const fila = gate.split('\n').find((l) => l.startsWith('| Docker: privilegio equivalente a root')) ?? ''
   expect(fila).toContain('A3e')
+  expect(fila).toContain('docker rm')
 })
 
 it('el HEAD de código del gate es coherente entre cabecera y A1 y distingue citas de línea (M-1)', async () => {
@@ -166,6 +171,10 @@ it('A4 usa etiquetas coherentes con g apply, subshell sin exit suelto y se ejecu
   expect(a4).toContain('--label a/poc1a/package.json --label b/poc1a/package.json')
   expect(a4).toContain('--label a/poc1a/package-lock.json --label b/poc1a/package-lock.json')
   expect(a4).toContain('rutas del parche relativas a la raíz del repositorio')
+  // M-2 (ciclo 2): --check y aplicación desde la raíz; ningún `g apply` desnudo.
+  expect(a4).toContain('g -C .. apply --check "$S/A4-manifiestos.patch"')
+  expect(a4).toContain('g -C .. apply "$S/A4-manifiestos.patch"')
+  expect(a4.split('\n').filter((l) => /\bg apply\b/.test(l) && !l.trim().startsWith('#'))).toEqual([])
   expect(a4).toMatch(/A4 completo[^\n]*después de B1[^\n]*A3f/)
   const lineas = a4.split('\n')
   const abre = lineas.indexOf('(')
@@ -240,6 +249,87 @@ it('S-M10: A2 registra versiones y exige runc >= 1.1.12; README escribe en $S', 
   expect(a2).toContain('CVE-2024-21626')
   expect(a2).toContain('1.1.12')
   expect(a2).toMatch(/runc[^\n]*inferior[^\n]*parada dura|parada dura[^\n]*runc/i)
+  // Ciclo 2: formato validado y mínimo por rama.
+  expect(a2).toContain("printf %s \"$RUNC\" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+$'")
+  for (const v of ['1.2.8', '1.3.3', '1.4.0', 'CVE-2025-31133', 'CVE-2025-52565', 'CVE-2025-52881']) expect(a2, v).toContain(v)
+  expect(a2).toMatch(/retroportes[^\n]*decisión humana/i)
   expect(readme).toContain('> "$S/A4-manifiestos.json"')
   expect(readme).not.toContain('/root/jz-gate-poc3/A4-manifiestos.json')
+})
+
+// ---- Ciclo de corrección 2 (re-revisión jz-security) ----
+
+const RW_INSPECT = "docker ps -aq | xargs -r docker inspect --format '{{.Name}}{{range .Mounts}}{{if .RW}} {{.Source}}{{end}}{{end}}'"
+
+it('M-a: A3e.2 y K1 listan todos los montajes RW y paran si alguno toca raíz, /home o el worktree', async () => {
+  const gate = await leer('../docs/GATE-DOCKER-POC-3.md')
+  const a3e = bloque(gate, '### A3e ·', '### A1 ·')
+  const k1 = bloque(gate, '# K1 ·', '# K2 ·')
+  for (const t of [a3e, k1]) {
+    expect(t).toContain(RW_INSPECT)
+    expect(t).toContain('awk ')
+    for (const ruta of ['"/"', '"/home"', '"/home/proyectos"', '"/home/proyectos/jozeuzz"', '/home/proyectos/jozeuzz-poc-candidata-a', '/home/proyectos/jozeuzz/.git']) expect(t, ruta).toContain(ruta)
+    expect(t).not.toContain("grep ':true'")
+  }
+  expect(a3e).toContain('A3e2-montajes-rw.txt')
+  expect(a3e).toMatch(/enlaces[^\n]*rutas alternativas[^\n]*revisión humana/i)
+  expect(a3e).toMatch(/otros daemons/i)
+})
+
+it('K1: cualquier salida de g status --short es parada dura y la guarda falla cerrada (I-1R, ciclo 2)', async () => {
+  const gate = await leer('../docs/GATE-DOCKER-POC-3.md')
+  const k1 = bloque(gate, '# K1 ·', '# K2 ·')
+  expect(k1).toContain('g status --short')
+  expect(gate).not.toContain('Si `g status --short` muestra otros cambios, se registran')
+  expect(gate).not.toContain('registrar lo que aparezca')
+  expect(gate).toMatch(/K1:[^\n]*g status --short[^\n]*cualquier[^\n]*parada dura/)
+  expect(k1).toContain('GIT FALLÓ')
+})
+
+it('M-3: A4 corre con set -eu, no reutiliza A4-package.json y bloquea la aplicación si a4_rc != 0', async () => {
+  const gate = await leer('../docs/GATE-DOCKER-POC-3.md')
+  const a4 = bloque(gate, '### A4 ·', '### Clasificación de operaciones por privilegio')
+  const lineas = a4.split('\n')
+  const abre = lineas.indexOf('(')
+  expect(lineas[abre + 1]).toBe('set -eu')
+  expect(a4).toContain('A4-package.json de un intento anterior')
+  expect(a4).toContain('|| diff_rc=$?')
+  expect(a4).toContain('|| rc=$?')
+  expect(a4).toContain('test "$a4_rc" -eq 0 || { echo "A4 falló: no aplicar"; }')
+  expect(a4).toContain('test "$a4_rc" -eq 0 && g -C .. apply --check "$S/A4-manifiestos.patch" && g -C .. apply "$S/A4-manifiestos.patch"')
+  // La comprobación de a4_rc va antes de cualquier aplicación.
+  expect(a4.indexOf('test "$a4_rc" -eq 0 ||')).toBeLessThan(a4.indexOf('g -C .. apply "$S'))
+})
+
+it('M-2: la justificación de las etiquetas cita la prueba con diff tradicional y el comportamiento real de git apply', async () => {
+  const gate = await leer('../docs/GATE-DOCKER-POC-3.md')
+  const a4 = bloque(gate, '### A4 ·', '### Clasificación de operaciones por privilegio')
+  expect(a4).toContain('diff -u --label a/sub/f --label b/sub/f')
+  expect(a4).toContain('sólo aplica archivos bajo el directorio actual')
+  expect(a4).not.toContain('Por eso `a/poc1a/…` es correcto desde `poc1a/` y desde la raíz')
+})
+
+it('guarda: git status que falla es parada (no falla abierta) en r() y en A4', async () => {
+  const gate = await leer('../docs/GATE-DOCKER-POC-3.md')
+  const lineas = gate.split('\n').filter((l) => l.includes('alterado="$(g status'))
+  expect(lineas.length).toBeGreaterThanOrEqual(2)
+  for (const l of lineas) {
+    expect(l).toContain('|| {')
+    expect(l).toContain('GIT FALLÓ')
+  }
+  const r = bloque(gate, 'r() {', 'tls_ok()')
+  expect(r).toMatch(/GIT FALLÓ[^\n]*return/)
+})
+
+it('A0 incluye filter\\. en la búsqueda de configuración Git peligrosa', async () => {
+  const gate = await leer('../docs/GATE-DOCKER-POC-3.md')
+  const a0 = bloque(gate, '### A0 ·', '### A3e ·')
+  expect(a0).toContain("grep -iE 'fsmonitor|hookspath|textconv|external|pager|sshcommand|alias|filter\\.'")
+})
+
+it('poc.sh init: el comentario no promete más que O_EXCL y depende de A3e', async () => {
+  const pocsh = await readFile(path.join(raiz, 'poc.sh'), 'utf8')
+  expect(pocsh).toContain('un enlace a un archivo no regular creado a la vez se detecta después con -L')
+  expect(pocsh).toContain('depende de que A3e haya retirado los escritores concurrentes')
+  expect(pocsh).not.toContain('incluido un enlace colgante creado tras la comprobación -L.')
 })

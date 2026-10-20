@@ -35,8 +35,8 @@
   - fallos de seguridad: aislamiento de red, IP forjada, fugas en logs, inyección en el build o NV-8;
   - fallos de integridad: `ARBOL ALTERADO` (rc=99), `TLS ALTERADO`, blob del documento distinto o configuración Git sin explicar;
   - fallos de aislamiento de escritura (stop conditions de montajes):
-    - A2 no coincide exactamente con la matriz, o runc es inferior a 1.1.12 (A2d);
-    - A3e: el proyecto conserva contenedores tras `down --remove-orphans` o algún contenedor del host monta el worktree en RW;
+    - A2 no coincide exactamente con la matriz, o runc no cumple el mínimo de su rama o no tiene formato `X.Y.Z` (A2d);
+    - A3e: el proyecto conserva contenedores tras `docker rm -f` o algún contenedor del host tiene un montaje RW sobre `/`, `/home`, `/home/proyectos`, `/home/proyectos/jozeuzz`, el worktree o su `.git`;
     - A3f1-A3f3 divergen de ownership, UID, denegaciones o allowlist; la salida del `find` host A3d no bloquea;
     - cualquier contenedor escribe bajo el bind `/app`: se conserva la evidencia y no se ejecuta ningún script del árbol;
     - EROFS/EACCES de `next-env.d.ts` o de un punto de montaje es parada dura; prohibido resolverlo abriendo el bind del repositorio (ni con un bind RW, ni quitando `read_only`);
@@ -62,12 +62,36 @@ set -o pipefail
 umask 077
 S="/root/jz-gate-poc3/$(date -u +%Y%m%dT%H%M%SZ)"
 test ! -L /root/jz-gate-poc3 && install -d -m 700 /root/jz-gate-poc3 "$S" && echo salidas-ok
-git config --show-origin -l | grep -iE 'fsmonitor|hookspath|textconv|external|pager|sshcommand|alias'   # vacío
+git config --show-origin -l | grep -iE 'fsmonitor|hookspath|textconv|external|pager|sshcommand|alias|filter\.'   # vacío
 g() { git -c core.fsmonitor=false -c core.hooksPath=/dev/null --no-pager "$@"; }
 ```
 
 - **Esperado:** sale `salidas-ok` (la carpeta de salidas `S` se crea aquí para que A2 pueda registrar su salida) y el `grep` no imprime nada.
 - **Si imprime algo:** el humano lo explica antes de seguir, y si no puede explicarlo es parada dura. En cualquier caso, todas las órdenes Git de este procedimiento usan `g`, que anula `fsmonitor`, los hooks y el paginador, y los diffs llevan `--no-ext-diff --no-textconv`.
+
+### A3e · Retirada de contenedores de la era RW (primer paso tras A0, parada dura)
+
+Antes de A1, A2 y A3d, y antes de ejecutar nada del árbol, hay que comprobar que ningún contenedor creado antes del aislamiento sigue existiendo: un contenedor viejo conserva su bind RW de `poc1a/` y de nada sirve que el `compose.yaml` actual lo monte RO; además podría alterar el árbol mientras el humano lo revisa. Por eso es el primer paso tras A0 y **no usa Compose**: Compose interpolaría `.env` y leería el árbol. Se usan sólo `docker ps`, `docker rm -f` y `docker inspect` por etiqueta (Docker root-equivalente; ver la clasificación; lo ejecuta el humano). No depende de `GUARDA` (se define en A3) ni de `poc1a/`.
+
+```sh
+# A3e.1 · registrar los contenedores del proyecto (incluidos los parados), retirarlos y verificar que no quedan
+docker ps -a --filter label=com.docker.compose.project=jozeuzz-poc-a --format '{{.ID}} {{.Names}} {{.Image}} {{.Status}}' > "$S/A3e-antes.txt" 2>&1
+sha256sum "$S/A3e-antes.txt" >> "$S/SHA256SUMS"
+docker ps -aq --filter label=com.docker.compose.project=jozeuzz-poc-a | xargs -r docker rm -f   # no borra volúmenes (db incluido): no lleva la opción de volúmenes
+docker ps -a --filter label=com.docker.compose.project=jozeuzz-poc-a --format '{{.ID}} {{.Names}} {{.Status}}' > "$S/A3e1.txt" 2>&1
+sha256sum "$S/A3e1.txt" >> "$S/SHA256SUMS"
+test ! -s "$S/A3e1.txt" && echo proyecto-sin-contenedores
+# A3e.2 · listar todos los montajes RW de todos los contenedores y parar si alguno toca raíz, /home o el worktree
+docker ps -aq | xargs -r docker inspect --format '{{.Name}}{{range .Mounts}}{{if .RW}} {{.Source}}{{end}}{{end}}' > "$S/A3e2-montajes-rw.txt" || echo "A3e.2 FALLÓ: parada dura" >&2
+awk '{for(i=2;i<=NF;i++){s=$i; if (s=="/"||s=="/home"||s=="/home/proyectos"||s=="/home/proyectos/jozeuzz"||index(s,"/home/proyectos/jozeuzz-poc-candidata-a")==1||index(s,"/home/proyectos/jozeuzz/.git")==1) print $1, s}}' "$S/A3e2-montajes-rw.txt" > "$S/A3e2.txt"
+sha256sum "$S/A3e2-montajes-rw.txt" "$S/A3e2.txt" >> "$S/SHA256SUMS"
+test ! -s "$S/A3e2.txt" && echo sin-montajes-rw
+```
+
+- **A3e.1:** el registro previo (`A3e-antes.txt`) conserva qué se retiró. `docker rm -f` nunca lleva `-v`. Si tras retirarlos `A3e1.txt` no queda vacío, **parada dura**. Sólo se retiran contenedores con la etiqueta del proyecto `jozeuzz-poc-a`.
+- **A3e.2:** es **parada dura** si alguna `Source` RW es exactamente `/`, `/home`, `/home/proyectos` o `/home/proyectos/jozeuzz`, o empieza por `/home/proyectos/jozeuzz-poc-candidata-a` o `/home/proyectos/jozeuzz/.git` (comparación anclada con `awk`). Un fallo de `docker` o de `xargs` también lo es (`pipefail` de A0). Limitación: enlaces simbólicos, rutas alternativas del CT (por ejemplo otro punto de montaje del mismo directorio) y otros daemons Docker quedan como **revisión humana**; no los detecta esta comprobación. Si sale algo: no tocar contenedores ajenos al proyecto `jozeuzz-poc-a`; el humano decide cómo retirarlo.
+- **A3e.3:** no hay repetición de la guarda aquí. A1 (incluido `g status --short`) y A3 comprueban el árbol justo después; tras B1 se repite B1v. Cualquier salida distinta es parada dura.
+- Es **parada dura** si, tras `docker rm -f`, A3e.1 sigue sin quedar vacío, o si A3e.2 no queda vacío.
 
 ### A1 · Estado del repositorio y blob del procedimiento
 
@@ -163,11 +187,17 @@ docker version > "$S/A2-docker-version.txt" 2>&1
 runc --version > "$S/A2-runc-version.txt" 2>&1 || true   # puede no estar en PATH: entonces vale la versión de runc que informa docker version
 RUNC="$(docker version --format '{{range .Server.Components}}{{.Name}} {{.Version}}{{"\n"}}{{end}}' | sed -n 's/^runc //p')"
 sha256sum "$S/A2-docker-version.txt" "$S/A2-runc-version.txt" >> "$S/SHA256SUMS"
-test -n "$RUNC" && test "$(printf '%s\n' 1.1.12 "$RUNC" | sort -V | head -n 1)" = 1.1.12 && echo "runc-ok $RUNC"
+{ test -n "$RUNC" \
+  && printf %s "$RUNC" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+  && printf %s "$RUNC" | awk -F. '{ ok = ($1 > 1) || ($1 == 1 && $2 >= 4) || ($1 == 1 && $2 == 3 && $3 >= 3) || ($1 == 1 && $2 == 2 && $3 >= 8); exit !ok }' \
+  && echo "runc-ok $RUNC"; } || echo "RUNC-PARADA: versión ausente, no numérica o inferior al mínimo de su rama"
 ```
 
-- **Esperado:** `runc-ok <versión>` con versión ≥ 1.1.12. Se anotan `docker version` y `runc --version` en la fila A2.
-- **Parada dura** si runc es inferior a 1.1.12, si no se puede determinar su versión o si no sale `runc-ok`: sin esa corrección, un contenedor puede alcanzar el árbol del host aunque el bind sea RO.
+- **Esperado:** `runc-ok <versión>` y ningún `RUNC-PARADA`. Se anotan `docker version` y `runc --version` en la fila A2.
+- **Formato:** `X.Y.Z` numérico (sin sufijos como `-rc1`, `+dfsg` ni `~`). Cualquier otra cosa es parada dura.
+- **Mínimo por rama de runc:** 1.2.x ≥ 1.2.8; 1.3.x ≥ 1.3.3; ≥ 1.4.0 pasa; inferior a 1.2 es parada dura. Cubre CVE-2024-21626 (fuga de descriptores, corregida en runc 1.1.12; las ramas 1.1.x ya no se aceptan), CVE-2025-31133, CVE-2025-52565 y CVE-2025-52881 (escapes por montajes y `/proc` en runc, corregidos en 1.2.8, 1.3.3 y 1.4.0-rc.3).
+- **Parada dura** si runc es inferior al mínimo de su rama, si no se puede determinar su versión o si no sale `runc-ok`: sin esas correcciones, un contenedor puede alcanzar el árbol del host aunque el bind sea RO.
+- **Versiones de distribución con retroportes o no numéricas** (por ejemplo `1.1.12+ds1-1`): parada y decisión humana documentada; la comprobación no las acepta automáticamente aunque la distribución afirme haber retroportado las correcciones.
 
 Parada dura ante cualquier cosa no explicada.
 
@@ -182,7 +212,7 @@ GUARDA='poc.sh contrato-driver.mjs driver scripts test/docker test/build medicio
 r() {
   id="$1"; shift
   if [ -e "$S/$id.log" ]; then echo "ID REPETIDO: $id (usar $id-r2, …)" >&2; return 98; fi
-  alterado="$(g status --porcelain -- $GUARDA)"
+  alterado="$(g status --porcelain -- $GUARDA)" || { echo "GIT FALLÓ" >&2; return 97; }
   if [ -n "$alterado" ]; then
     { echo "# $(date -u +%Y-%m-%dT%H:%M:%SZ) :: $*"; echo "ARBOL ALTERADO"; printf '%s\n' "$alterado"; echo "rc=99"; } | tee "$S/$id.log"
     sha256sum "$S/$id.log" >> "$S/SHA256SUMS"; return 99
@@ -212,29 +242,7 @@ r A3d find . -maxdepth 2 '(' -user 1000 -o -perm -0002 ')' -not -path './node_mo
 
 **A3f (parada dura)** es el comprobante efectivo de montajes. Se ejecuta en la sección B, después de B1/B1v (`./poc.sh init`, que prepara los puntos de montaje) y antes de `db-up`. El `node_modules` del host no es prerrequisito de nada.
 
-**A3e (parada dura) · contenedores de la era RW.** Antes de A4 y de B1 hay que comprobar que ningún contenedor creado antes del aislamiento sigue existiendo: un contenedor viejo conserva su bind RW de `poc1a/` y de nada sirve que el `compose.yaml` actual lo monte RO. `docker ps` y `docker inspect` son Docker root-equivalente (ver la clasificación); `down` lo ejecuta el humano. Se hace desde `poc1a/`.
-
-```sh
-cd /home/proyectos/jozeuzz-poc-candidata-a/poc1a
-# A3e.0 · si .env ya existe (herencia de la era RW), valídalo con el bloque B1v (sólo lectura, sin imprimir valores) antes de cualquier orden compose que interpole
-# A3e.1 · el proyecto no debe tener contenedores (ni parados): la salida debe quedar vacía
-docker ps -a --filter label=com.docker.compose.project=jozeuzz-poc-a --format '{{.ID}} {{.Names}} {{.Status}}' > "$S/A3e1.txt" 2>&1
-sha256sum "$S/A3e1.txt" >> "$S/SHA256SUMS"
-test ! -s "$S/A3e1.txt" && echo proyecto-sin-contenedores
-# Si no está vacío: retirarlos (SIN -v: los volúmenes, incluido db, se conservan) y repetir A3e.1 hasta que quede vacío
-docker compose -p jozeuzz-poc-a -f compose.yaml -f compose.pruebas.yaml --profile prod --profile e2e --profile deps --profile volumes-init down --remove-orphans
-# A3e.2 · ningún contenedor del host monta el worktree en RW: la salida debe quedar vacía
-{ docker ps -aq | xargs -r docker inspect --format '{{.Name}}{{range .Mounts}} {{.Source}}:{{.RW}}{{end}}' | grep -F /home/proyectos/jozeuzz-poc-candidata-a | grep ':true'; } > "$S/A3e2.txt" 2>&1
-sha256sum "$S/A3e2.txt" >> "$S/SHA256SUMS"
-test ! -s "$S/A3e2.txt" && echo sin-montajes-rw
-# A3e.3 · repetir la guarda de integridad
-g status --porcelain -- $GUARDA   # vacío
-```
-
-- **A3e.1:** `down --remove-orphans` solo se ejecuta si la salida no está vacía. Nunca lleva `-v`. Interpola `.env`, por eso A3e.0 lo valida antes (M-8).
-- **A3e.2:** `grep ':true'` es conservador: marca cualquier montaje RW de un contenedor que también monte el worktree. Lo que salga se analiza a mano. Si sale algo, **parada dura**: no tocar contenedores ajenos al proyecto `jozeuzz-poc-a`; el humano decide cómo retirarlo.
-- **A3e.3:** después de A3e se repite `g status --porcelain -- $GUARDA`, y tras B1 se repite B1v. Cualquier salida distinta es parada dura.
-- Es **parada dura** si, tras `down --remove-orphans`, A3e.1 sigue sin quedar vacío, o si A3e.2 no queda vacío.
+**A3e (parada dura)** se ejecuta antes de A1, justo después de A0 (véase «A3e · retirada de contenedores de la era RW»). La guarda de integridad de este apartado y B1v se repiten después, no dentro de A3e.
 
 **Guarda de `.tls` (S1).** `tls_ok` se encadena tras cada orden que regenera `.tls`. Es **parada dura** si imprime `TLS ALTERADO` (enlace simbólico o propietario distinto de root).
 
@@ -258,13 +266,17 @@ g status --porcelain -- $GUARDA   # vacío
 
 **Orden de ejecución.** A4 completo (generación del parche, aplicación humana, commit y los pasos A4b0, A4b y A4c) se ejecuta **después de B1/B1v y de A3f1-A3f3**, aunque figure en la sección A por legibilidad: A4b0, A4b y A4c usan el servicio `deps`, que necesita los puntos de montaje de `init` (B1) y el ownership de los volúmenes (A3f1-A3f3). Los pasos de generación sólo usan `docker run` de `manifest-patch-axe`, pero se mantiene un único orden para no mezclar HEADs.
 
-**Salidas de error.** El primer bloque corre en una subshell `( … )`: una salida por error (guarda alterada, `diff` inválido, `manifest-patch-axe` con rc≠0) termina sólo la subshell y no cierra la sesión interactiva ni se pierde `$S`. Tras la subshell, `a4_rc` debe ser 0; si no, es parada dura.
+**Salidas de error.** El primer bloque corre en una subshell `( … )`: una salida por error (guarda alterada, `diff` inválido, `manifest-patch-axe` con rc≠0) termina sólo la subshell y no cierra la sesión interactiva ni se pierde `$S`. La subshell abre con `set -eu` (sólo funciona porque no se usa como condición de `||`/`&&`) y se detiene si `$S` ya contiene archivos A4 de un intento anterior. Tras la subshell, `a4_rc` debe ser 0; si no, es parada dura y la aplicación humana queda bloqueada.
 
 ```sh
 cd /home/proyectos/jozeuzz-poc-candidata-a/poc1a
 (
+set -eu
+for f in "$S/A4-package.json" "$S/A4-package-lock.json" "$S/A4-manifiestos.json" "$S/A4-manifiestos.patch"; do
+  if [ -e "$f" ] || [ -L "$f" ]; then echo "A4: $f ya existe (A4-package.json de un intento anterior): parada, no reutilizar" >&2; exit 1; fi
+done
 grep -c '^ignore-scripts=true$' .npmrc          # 1 (EVIDENCIA.md:167); no se imprime .npmrc
-alterado="$(g status --porcelain -- $GUARDA)"
+alterado="$(g status --porcelain -- $GUARDA)" || { echo "GIT FALLÓ" >&2; exit 97; }
 test -z "$alterado" || { echo "ARBOL ALTERADO" >&2; exit 99; }
 command -v node
 node --version
@@ -273,8 +285,8 @@ command -v diff
 diff_version="$(diff --version | head -n 1)"
 printf '%s\n' "$diff_version"
 case "$diff_version" in *'GNU diffutils'*) ;; *) echo "diff host no es GNU diffutils" >&2; exit 1 ;; esac
-./poc.sh manifest-patch-axe > "$S/A4-manifiestos.json" 2> "$S/A4a.stderr.log"
-rc=$?
+rc=0
+./poc.sh manifest-patch-axe > "$S/A4-manifiestos.json" 2> "$S/A4a.stderr.log" || rc=$?
 printf 'rc=%s\n' "$rc" >> "$S/A4a.stderr.log"
 sha256sum "$S/A4a.stderr.log" "$S/A4-manifiestos.json" >> "$S/SHA256SUMS"
 test "$rc" -eq 0 || exit "$rc"
@@ -294,22 +306,22 @@ decodificar('A4-package.json', datos.packageJson)
 decodificar('A4-package-lock.json', datos.packageLockJson)
 NODE
 : > "$S/A4-manifiestos.patch"
-diff -u --label a/poc1a/package.json --label b/poc1a/package.json package.json "$S/A4-package.json" >> "$S/A4-manifiestos.patch"
-diff_rc=$?
+diff_rc=0
+diff -u --label a/poc1a/package.json --label b/poc1a/package.json package.json "$S/A4-package.json" >> "$S/A4-manifiestos.patch" || diff_rc=$?
 test "$diff_rc" -eq 1 || { echo "A4 package.json sin diff válido: rc=$diff_rc" >&2; exit 1; }
-diff -u --label a/poc1a/package-lock.json --label b/poc1a/package-lock.json package-lock.json "$S/A4-package-lock.json" >> "$S/A4-manifiestos.patch"
-diff_rc=$?
+diff_rc=0
+diff -u --label a/poc1a/package-lock.json --label b/poc1a/package-lock.json package-lock.json "$S/A4-package-lock.json" >> "$S/A4-manifiestos.patch" || diff_rc=$?
 test "$diff_rc" -eq 1 || { echo "A4 package-lock.json sin diff válido: rc=$diff_rc" >&2; exit 1; }
 sha256sum "$S/A4-package.json" "$S/A4-package-lock.json" "$S/A4-manifiestos.patch" >> "$S/SHA256SUMS"
 test -s "$S/A4-manifiestos.patch"
-g apply --check "$S/A4-manifiestos.patch"
+g -C .. apply --check "$S/A4-manifiestos.patch"
 )
 a4_rc=$?
 echo "A4-generacion rc=$a4_rc"   # debe ser 0; si no, parada dura (se conservan $S/A4a.stderr.log y los demás archivos)
+test "$a4_rc" -eq 0 || { echo "A4 falló: no aplicar"; }
 cat "$S/A4-manifiestos.patch"
-# Tras revisar el parche completo: aplicación humana revisada (paso separado; nunca un agente)
-g apply --check "$S/A4-manifiestos.patch"
-g apply "$S/A4-manifiestos.patch"
+# Tras revisar el parche completo: aplicación humana revisada (paso separado; nunca un agente). Bloqueada si a4_rc != 0
+test "$a4_rc" -eq 0 && g -C .. apply --check "$S/A4-manifiestos.patch" && g -C .. apply "$S/A4-manifiestos.patch"
 # Editar tsconfig.json: quitar "e2e/intake-axe.spec.ts" de "exclude" (tsconfig.json:47; README.md)
 g status --short                                  # sólo package.json, package-lock.json, tsconfig.json
 g diff --no-ext-diff --no-textconv -- package.json   # una línea nueva: "@axe-core/playwright": "4.13.0"
@@ -330,7 +342,7 @@ r A4c ./poc.sh deps npm audit signatures
 ```
 
 - **A4 genera un parche, no instala ni aplica nada por sí mismo.** `node --version` debe informar Node 20 o superior. `diff --version` debe identificar GNU diffutils; si falta o no se identifica, A4 se detiene antes de Docker. `manifest-patch-axe` usa red y Docker sólo en la ejecución humana futura, corre como uid 1000 con la imagen fijada, dirige npm a stderr y emite sólo JSON por stdout. El host valida claves, base64 canónico y JSON, escribe salidas root 600 y genera el parche con la herramienta host ya comprobada. No existe bind RW ni dependencia de `diff` dentro de la imagen. Ningún agente aplica el parche.
-- **Etiquetas del parche (M-2).** Las etiquetas `a/poc1a/package.json` y `b/poc1a/package.json` (y las del lockfile) son rutas del parche relativas a la raíz del repositorio. `g` (A0: `g() { git -c core.fsmonitor=false -c core.hooksPath=/dev/null --no-pager "$@"; }`) no lleva `-C`, así que A4 la ejecuta en `poc1a/`; aun así `git apply` resuelve las rutas del parche desde la raíz del repositorio también cuando se invoca desde un subdirectorio. Por eso `a/poc1a/…` es correcto desde `poc1a/` y desde la raíz; `a/package.json` no lo sería. Comprobado con un repositorio temporal (`git apply --check` y `git apply` desde el subdirectorio, rc=0).
+- **Etiquetas del parche (M-2).** Las etiquetas `a/poc1a/package.json` y `b/poc1a/package.json` (y las del lockfile) son rutas del parche relativas a la raíz del repositorio. `g` (A0: `g() { git -c core.fsmonitor=false -c core.hooksPath=/dev/null --no-pager "$@"; }`) no lleva `-C`, así que A4 se ejecuta en `poc1a/`. **Prueba decisiva (ciclo 2, ejecutada con `jz-run`):** en un repositorio temporal con `sub/f` se generó el parche con GNU `diff -u --label a/sub/f --label b/sub/f sub/f nuevo > p` (parche tradicional, no `git diff`). Resultado: `(cd sub && git apply --check ../p)` rc=0 y `git apply --check p` desde la raíz rc=0; `git apply` desde `sub/` modificó `sub/f`. Es decir, las etiquetas son rutas desde la raíz y funcionan también desde el subdirectorio. Con un parche de un archivo de la raíz (`top`), en cambio, `git apply --check`/`git apply` desde `sub/` devolvieron rc=1 sin tocar nada: desde un subdirectorio `git apply` sólo aplica archivos bajo el directorio actual. Por eso la forma robusta es ejecutar `--check` y la aplicación humana desde la raíz del worktree (`g -C .. apply …`, con la ruta absoluta `$S/…`): no depende del directorio actual aunque el parche llegara a incluir otras rutas, y las etiquetas `a/poc1a/…` y `b/poc1a/…` son entonces exactamente las que se resuelven. `a/package.json` no sería correcto. La subshell lleva `set -eu`: cada paso fallido la termina y deja `a4_rc` ≠ 0, lo que bloquea la aplicación humana.
 - **A4b0 (añadido por el relevo):** como `node_modules` es un volumen nombrado, instalar el parche en el repositorio no lo actualiza; `npm ci` (A4b0) lo hace antes de `npm ls` y de los E2E con axe.
 - **Lectura de los conteos:** `grep -c` devuelve rc=1 cuando cuenta 0, y eso es lo esperado. El conteo de 6 es una deducción del formato v3 del lockfile. Si difiere, se inspecciona el diff completo antes de seguir.
 - **`npm audit signatures`:** `./poc.sh deps` acepta cualquier orden y la ejecuta en el servicio `deps`, que tiene red externa (`poc.sh:78`; `compose.yaml:58-77`). El texto exacto de su salida no está verificado. Se registra completo.
@@ -348,17 +360,17 @@ r A4c ./poc.sh deps npm audit signatures
 | Clase | Operaciones | Regla |
 |---|---|---|
 | setpriv UID 1000, sin grupo docker | Sólo D21b (`node --test test/build/comprobar-build.test.mjs`) y D30 (`env POC_BASE_URL=https://127.0.0.1:3444 node medicion/intake-latencia.mjs`), porque no invocan `poc.sh` ni Docker | Lanzar con `setpriv --reuid=1000 --regid=1000 --clear-groups`. D30 hereda `NODE_EXTRA_CA_CERTS` y necesita leer `.tls/ca.crt`, no socket. Si cualquiera empieza a invocar `poc.sh`, cambia automáticamente a la clase Docker |
-| Docker: privilegio equivalente a root | Todo `docker compose up/run/exec/logs/down`, `docker version`, `docker ps` y `docker inspect` (A2d y A3e: retirada de contenedores de la era RW), `docker image inspect`, `docker stats`, `init-volumes`, `deps`, `probe-mounts`, `run-prod-en`, `manifest-patch-axe` y los pasos D01-D29 que los usan. D13, D16, D17, D26 y D27 también pertenecen aquí: el driver llama `poc.sh exec-en` para resetear cada caso | Sólo humano autorizado. Pertenecer al grupo Docker o usar el socket como no-root sigue siendo root-equivalente sobre el CT. No delegar a agentes |
+| Docker: privilegio equivalente a root | Todo `docker compose up/run/exec/logs/down`, `docker version`, `docker ps`, `docker inspect` y `docker rm -f` (A2d y A3e: retirada de contenedores de la era RW sin Compose), `docker image inspect`, `docker stats`, `init-volumes`, `deps`, `probe-mounts`, `run-prod-en`, `manifest-patch-axe` y los pasos D01-D29 que los usan. D13, D16, D17, D26 y D27 también pertenecen aquí: el driver llama `poc.sh exec-en` para resetear cada caso | Sólo humano autorizado. Pertenecer al grupo Docker o usar el socket como no-root sigue siendo root-equivalente sobre el CT. No delegar a agentes |
 | root real: `.env`, `.tls` y salidas | `./poc.sh init`, creación/validación de `.env` 600, generación/reemplazo de `.tls` root-owned, creación de `/root/jz-gate-poc3`, `SHA256SUMS`, búsqueda por valores secretos y captura del parche A4 | Ejecutar como root humano con `umask 077`. No abrir ni copiar valores secretos |
-| Compose sin daemon | El comando literal `docker compose -p jozeuzz-poc-a -f compose.yaml -f compose.pruebas.yaml --profile volumes-init --profile prod --profile e2e --profile deps config --no-interpolate` de A2c | Usa el parser Compose y no necesita socket. Corre como **root humano** (necesita leer `.env` root 600 aunque no interpola) y no necesita estar en el grupo Docker. `--no-interpolate` no exige variables: Compose no sustituye `${…}`, así que A2c no depende de que `.env` sea válido y no hace falta reordenarlo tras B1v. Toda orden compose que **sí** interpole (`down` de A3e y cualquier `./poc.sh`) va después de validar `.env` con B1v (A3e.0 lo hace si el archivo ya existe). Aun así se revisa como configuración que luego consumirá el daemon |
+| Compose sin daemon | El comando literal `docker compose -p jozeuzz-poc-a -f compose.yaml -f compose.pruebas.yaml --profile volumes-init --profile prod --profile e2e --profile deps config --no-interpolate` de A2c | Usa el parser Compose y no necesita socket. Corre como **root humano** (necesita leer `.env` root 600 aunque no interpola) y no necesita estar en el grupo Docker. `--no-interpolate` no exige variables: Compose no sustituye `${…}`, así que A2c no depende de que `.env` sea válido y no hace falta reordenarlo tras B1v. Toda orden compose que **sí** interpole (cualquier `./poc.sh`) va después de validar `.env` con B1v. A3e ya no interpola: retira los contenedores con `docker rm -f` sin Compose. Aun así se revisa como configuración que luego consumirá el daemon |
 
 ## B. Prerrequisitos Docker
 
-Todos desde `poc1a/`, con el entorno de A0 y A3. **A3e (sin contenedores de la era RW y sin montajes RW del worktree) debe haber pasado antes de B1.**
+Todos desde `poc1a/`, con el entorno de A0 y A3. **A3e (sin contenedores de la era RW y sin montajes RW peligrosos; primer paso tras A0) debe haber pasado antes de B1.**
 
 | Paso | Orden | Esperado | Parada |
 |---|---|---|---|
-| B1 | `r B1 ./poc.sh init` | rc=0; sin salida. `./poc.sh init` prepara los puntos de montaje (directorios `node_modules`, `.npm-cache`, `.next`, `.next-prod`, `media-store`, `media-store-test`, `media-store-prod`, `test-results`, `playwright-report` y `blob-report`, y un `next-env.d.ts` vacío si no existe, creado de forma exclusiva con `set -C` (no sigue un enlace creado tras la comprobación); un enlace simbólico en cualquiera de ellos es error y `exit 1`) y después crea `.env` si falta y añade `INTAKE_SECRETO` si no está (`poc.sh:41-54`). No abrir `.env`. A3f depende de ello: runc no puede crear destinos dentro de un bind RO | dura |
+| B1 | `r B1 ./poc.sh init` | rc=0; sin salida. `./poc.sh init` prepara los puntos de montaje (directorios `node_modules`, `.npm-cache`, `.next`, `.next-prod`, `media-store`, `media-store-test`, `media-store-prod`, `test-results`, `playwright-report` y `blob-report`, y un `next-env.d.ts` vacío si no existe, creado de forma exclusiva con `set -C` (`O_EXCL` cubre también un enlace colgante creado tras la comprobación; un enlace a un archivo no regular creado a la vez se detecta después con `-L`; la garantía depende de que A3e haya retirado los escritores concurrentes); un enlace simbólico en cualquiera de ellos es error y `exit 1`) y después crea `.env` si falta y añade `INTAKE_SECRETO` si no está (`poc.sh:41-54`). No abrir `.env`. A3f depende de ello: runc no puede crear destinos dentro de un bind RO | dura |
 | B1v | validación de `.env` sin imprimir valores (S5), abajo | `0`, `3` y `root 600` | dura |
 | A3f | `r A3f1 ./poc.sh init-volumes`, `r A3f2 ./poc.sh deps` y `r A3f3 ./poc.sh probe-mounts` (abajo) | tres rc=0; A3f3 imprime `MOUNT_PROBE_OK` cuatro veces | dura |
 | A4 | Si el humano lo autoriza: A4 completo (generación, aplicación humana, commit, A4b0, A4b y A4c), **después de A3f y antes de B2** | ver A4 | dura |
@@ -780,8 +792,13 @@ Se hace después de J, para que los logs de limpieza también entren en `SHA256S
 
 ```sh
 # K1 · guarda final y estado del árbol
-g status --porcelain -- $GUARDA        # vacío
-g status --short                       # registrar lo que aparezca (con /app RO no debería aparecer nada nuevo; cualquier cambio es parada dura)
+alterado="$(g status --porcelain -- $GUARDA)" || { echo "GIT FALLÓ: parada dura" >&2; }
+test -z "$alterado" && echo guarda-ok  # si no sale guarda-ok: parada dura
+test -z "$(g status --short)" && echo arbol-limpio   # A1 lo exigía vacío; si no sale arbol-limpio (o git falla): parada dura
+docker ps -aq | xargs -r docker inspect --format '{{.Name}}{{range .Mounts}}{{if .RW}} {{.Source}}{{end}}{{end}}' > "$S/K1-montajes-rw.txt" 2>&1 || echo "K1 FALLÓ: parada dura" >&2
+awk '{for(i=2;i<=NF;i++){s=$i; if (s=="/"||s=="/home"||s=="/home/proyectos"||s=="/home/proyectos/jozeuzz"||index(s,"/home/proyectos/jozeuzz-poc-candidata-a")==1||index(s,"/home/proyectos/jozeuzz/.git")==1) print $1, s}}' "$S/K1-montajes-rw.txt" > "$S/K1-prohibidos.txt"
+sha256sum "$S/K1-montajes-rw.txt" "$S/K1-prohibidos.txt" >> "$S/SHA256SUMS"
+test ! -s "$S/K1-prohibidos.txt" && echo sin-montajes-rw   # mismo criterio que A3e.2
 # K2 · fugas: sólo nombres de archivo, nunca líneas
 P='"password"|PAYLOAD_SECRET=|INTAKE_SECRETO=|POC_DB_PASSWORD=|PRIVATE KEY|E2E_RESET=|postgres://[^:@]*:[^@]*@'
 grep -lE "$P" "$S"/*.log                                       # sólo D22a.log
@@ -792,7 +809,7 @@ sha256sum -c --quiet "$S/SHA256SUMS"   # sin salida, rc=0
 sha256sum "$S/SHA256SUMS"              # anotar este hash fuera del host
 ```
 
-- **K1:** es parada dura si la guarda no sale vacía, porque significa que un contenedor alteró el árbol durante el último paso. Si `g status --short` muestra otros cambios, se registran.
+- **K1:** es parada dura si la guarda no sale vacía, porque significa que un contenedor alteró el árbol durante el último paso. `g status --short` con cualquier salida (cualquier cambio respecto a A1) es también parada dura. Si `git` falla (`GIT FALLÓ`) o si la comprobación de montajes RW imprime algo, también es parada dura.
 - **K2, por patrón:** la única coincidencia admisible es `D22a.log`, por la cabecera con el valor falso `INTAKE_SECRETO=abcd`.
 - **K2, por valor:** la búsqueda usa como patrones los valores de `.env`. La sustitución de procesos los pasa por un descriptor, así que no aparecen en la línea de órdenes ni en pantalla, y `-l` sólo imprime nombres de archivo.
 - **Si K2 encuentra algo:** el archivo afectado se retira del material compartido, se avisa y se trata como parada dura de seguridad. No se abre el log en pantalla compartida.
@@ -823,12 +840,12 @@ Ejecutado por: <responsable> · Blob del procedimiento: <BLOB> · Salidas: <ruta
 | Paso | Unidad / criterio | Fecha (UTC) | HEAD | rc | Conteo / resultado | Observación | Log (sha256) |
 |---|---|---|---|---|---|---|---|
 | A0 | config Git | | | — | grep vacío sí/no | explicación si no | — |
+| A3e | contenedores de la era RW (antes de A1) | | | | `proyecto-sin-contenedores` y `sin-montajes-rw` | qué contenedores se retiraron con `docker rm -f` | A3e-antes.txt, A3e1.txt, A3e2-montajes-rw.txt, A3e2.txt |
 | A1 | estado y blob | | | — | blob-ok | | — |
 | A2 | revisión de seguridad | | | — | REV=<…> | sin hallazgos / hallazgos; config Compose conforme | — |
 | A2 (compose) | matriz de montajes | | | — | coincide sí/no | `A2-compose-resuelto.yaml` | — |
-| A2d | versión de Docker y runc | | | | runc-ok <versión> (≥ 1.1.12) | `A2-docker-version.txt`, `A2-runc-version.txt` | — |
+| A2d | versión de Docker y runc | | | | runc-ok <versión> (≥ mínimo de su rama) | `A2-docker-version.txt`, `A2-runc-version.txt` | — |
 | A3d | find diagnóstico no vinculante | | | | rutas listadas | no bloquea | A3d.log |
-| A3e | contenedores de la era RW | | | | `proyecto-sin-contenedores` y `sin-montajes-rw` | si hubo `down --remove-orphans`, qué se retiró | A3e1.txt, A3e2.txt |
 | A3f1 | `volumes-init` | | | | rc | ownership 1000:1000 | A3f1.log |
 | A3f2 | `deps` (`npm ci` en el volumen) | | | | rc | node_modules en volumen nombrado | A3f2.log |
 | A3f3 | `probe-mounts` | | | | `MOUNT_PROBE_OK` ×4 | denegaciones y allowlist | A3f3.log |
@@ -936,3 +953,4 @@ Los arreglos de H-1 a H-5, H-10 y S-1 son trabajo de jz-implementer, y su priori
 | 2 | jz-qa y jz-security | **QA:** D11 pasa a verificar H-1/H-2 (corregidos en `c8bbf0f`) y `D11-diag` queda obsoleta; citas de `poc.sh` actualizadas (`exec-en` 79-84, `e2e-en` 89-97, `E2E_RESET` 96 y 107, proxy de `e2e-prod-en` 102-103, `build_ms` 123, `up-prod-pruebas-en` 139-143, `down-prod` 144, `stats` 145-148, `destroy` 149); duración con el coste de `verificar-db.ts` por caso. **Seguridad:** S1, montaje escribible, con la comprobación A3f, la guarda `ARBOL ALTERADO` en `r()`, `tls_ok` y el hallazgo S-1; S2, revisión A2 obligatoria y ampliada, y blob del documento en A1; S3, A4 con `--ignore-scripts`, revisión del lockfile, versión de `axe-core` y `npm audit signatures`; S4, `config --no-interpolate` en A2c; S5, validación de `.env` en B1v; S6, búsqueda de fugas por valor y por URL de Postgres en K2; S7, carpeta 700, `SHA256SUMS` incremental y hash fuera del host; S8, comprobación de `git config` y la función `g` en A0. Regla de no pasar secretos en línea a `r()`. Añadidos propios: `.npmrc` en `GUARDA`, rechazo de identificadores repetidos en `r()`, `source:` en el `grep` de A2c, la observación H-10 y la reordenación de la limpieza (J) antes del cierre (K) |
 | `69e1883` | jz-architect | El HEAD de referencia del código pasa de `c8bbf0f` a `69e1883`, que sólo cambia `poc1a/contrato-driver.mjs` (el error de reset no vuelca stdout; validación de `POC_RESET_ENV`). Cabecera y A1 actualizadas: A1 acepta commits posteriores que sólo toquen `docs/` |
 | Aislamiento de escritura, ciclo de corrección 1 | jz-qa y jz-security | **QA:** `--configLoader runner` en toda invocación de vitest en contenedor (Vite escribe `node_modules/.vite-temp`); `-type f` en D12; ejecución de A4 tras A3f; tsconfig como punto fijo de `writeConfigurationDefaults` (prueba estática); órdenes contradictorias de README, EVIDENCIA y diseño. **Seguridad:** A3e, retirada de contenedores de la era RW y comprobación de montajes RW del worktree; A2d, runc ≥ 1.1.12 (CVE-2024-21626); `next-env.d.ts` creado de forma exclusiva en `init`; referencia de código vinculante `CODEREF` en A1; aclaraciones de root, Compose sin daemon, `destroy` y riesgo del `node_modules` heredado |
+| Aislamiento de escritura, ciclo de corrección 2 | jz-security | **I-1R:** A3e pasa a ser el primer paso tras A0 (antes de A1, A2 y A3d) y retira los contenedores del proyecto con `docker rm -f` sin Compose (no interpola ni lee el árbol; sin `-v`); desaparecen la retirada con Compose (`down`) y la validación previa de `.env` que exigía; K1 trata cualquier salida de `g status --short` como parada dura. **M-a:** A3e.2 y K1 listan todos los montajes RW y paran si alguno es `/`, `/home`, `/home/proyectos`, `/home/proyectos/jozeuzz`, el worktree o su `.git`. **M-2:** prueba decisiva con parche tradicional (resultado en A4) y `--check`/aplicación desde la raíz con `g -C ..`. **M-3:** A4 con `set -eu`, sin reutilizar `A4-package.json` y aplicación bloqueada si `a4_rc` ≠ 0. **A2d:** formato de versión de runc y mínimo por rama (1.2.8, 1.3.3, 1.4.0). **Guarda:** `git status` que falla es parada, no falla abierta. **A0:** `filter\.` en la búsqueda de configuración Git peligrosa. Comentario de `init` en `poc.sh` ajustado |

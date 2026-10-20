@@ -46,7 +46,8 @@ case "$cmd" in
     for dir in node_modules .npm-cache .next .next-prod media-store media-store-test media-store-prod test-results playwright-report blob-report; do
       mkdir -p "$dir"
     done
-    # Creación exclusiva (noclobber = O_EXCL): falla si la ruta existe, incluido un enlace colgante creado tras la comprobación -L.
+    # Creación exclusiva (noclobber = O_EXCL): falla si la ruta existe, incluido un enlace colgante; un enlace a un archivo no regular creado a la vez se detecta después con -L.
+    # La garantía depende de que A3e haya retirado los escritores concurrentes (contenedores de la era RW).
     [ -e next-env.d.ts ] || [ -L next-env.d.ts ] || ( set -C; : > next-env.d.ts )
     if [ -L next-env.d.ts ]; then echo "punto de montaje es enlace simbólico: next-env.d.ts" >&2; exit 1; fi
     if [ ! -f .env ]; then
