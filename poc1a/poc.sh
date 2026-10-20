@@ -39,11 +39,42 @@ nombre_poc1b() {
 }
 case "$cmd" in
   init)
+    # Puntos de montaje de los destinos que Docker no puede crear dentro del bind /app de sólo lectura.
+    for punto in node_modules .npm-cache .next .next-prod media-store media-store-test media-store-prod test-results playwright-report blob-report next-env.d.ts; do
+      if [ -L "$punto" ]; then echo "punto de montaje es enlace simbólico: $punto" >&2; exit 1; fi
+    done
+    for dir in node_modules .npm-cache .next .next-prod media-store media-store-test media-store-prod test-results playwright-report blob-report; do
+      mkdir -p "$dir"
+    done
+    [ -e next-env.d.ts ] || : > next-env.d.ts
     if [ ! -f .env ]; then
       umask 077
       printf 'POC_DB_PASSWORD=%s\nPAYLOAD_SECRET=%s\n' "$(openssl rand -hex 24)" "$(openssl rand -hex 32)" > .env
     fi
     grep -q '^INTAKE_SECRETO=' .env || printf 'INTAKE_SECRETO=%s\n' "$(openssl rand -hex 32)" >> .env ;;
+  init-volumes)
+    [ "$#" -eq 0 ] || { echo "uso: init-volumes" >&2; exit 2; }
+    $C --profile volumes-init run --rm --no-deps volumes-init ;;
+  probe-mounts)
+    [ "$#" -eq 0 ] || { echo "uso: probe-mounts" >&2; exit 2; }
+    PROBE='fallar() { echo "MOUNT_PROBE_FAIL:$1" >&2; exit 1; }
+[ "$(id -u)" -eq 1000 ] || fallar "uid-no-1000"
+denegar() { ruta="$1"; if touch "$ruta/.jz-write-probe" 2>/tmp/.jz-write-error; then rm -f "$ruta/.jz-write-probe"; fallar "escribible:$ruta"; fi; }
+permitir() { ruta="$1"; touch "$ruta/.jz-write-probe" || fallar "no-escribible:$ruta"; rm -f "$ruta/.jz-write-probe"; }
+denegar /app
+for manifiesto in /app/package.json /app/package-lock.json /app/poc.sh /app/compose.yaml /app/next-env.d.ts; do [ ! -w "$manifiesto" ] || fallar "manifiesto-escribible:$manifiesto"; done
+modo="$1"; shift
+if [ "$modo" = ro ]; then denegar /app/node_modules; else permitir /app/node_modules; fi
+for ruta in "$@"; do permitir "$ruta"; done
+echo MOUNT_PROBE_OK'
+    # deps rw /app/node_modules /app/.npm-cache /tmp
+    $C --profile deps run --rm --no-deps deps sh -ceu "$PROBE" sh rw /app/.npm-cache /tmp
+    # app ro /app/node_modules /app/.next /app/media-store /app/media-store-test /app/media-store-prod /tmp
+    $C run --rm --no-deps app sh -ceu "$PROBE" sh ro /app/.next /app/media-store /app/media-store-test /app/media-store-prod /tmp
+    # app-prod ro /app/node_modules /app/.next-prod /app/media-store-prod /tmp
+    $C --profile prod run --rm --no-deps app-prod sh -ceu "$PROBE" sh ro /app/.next-prod /app/media-store-prod /tmp
+    # e2e ro /app/node_modules /app/test-results /app/playwright-report /app/blob-report /tmp
+    $C --profile e2e run --rm --no-deps e2e sh -ceu "$PROBE" sh ro /app/test-results /app/playwright-report /app/blob-report /tmp ;;
   deps) $C --profile deps run --rm deps "$@" ;;
   up) tls_efimera; $C up -d db app; $C up -d --force-recreate proxy ;;
   db-up) $C up -d db ;;
@@ -121,7 +152,13 @@ case "$cmd" in
   build-en)
     base="${1:?uso: build-en <base-poc1b>}"; nombre_poc1b "$base"
     POC_DATABASE_NAME="$base" POC_DB_SCHEMA=poc_prod POC_NO_PUSH=1 $C --profile prod run --rm app-prod sh -c 's=$(date +%s%N); npm run build; c=$?; e=$(date +%s%N); echo "build_ms=$(( (e-s)/1000000 )) codigo=$c"; exit $c' ;;
-  migrate-create) $C --profile prod run --rm app-prod npm run payload -- migrate:create "${1:-inicial}" ;;
+  run-prod-en)
+    base="${1:?uso: run-prod-en <base-poc1b> <comando>}"; nombre_poc1b "$base"
+    shift
+    [ "$#" -gt 0 ] || { echo "uso: run-prod-en <base-poc1b> <comando>" >&2; exit 2; }
+    POC_DATABASE_NAME="$base" POC_DB_SCHEMA=poc_prod POC_NO_PUSH=1 $C --profile prod run --rm --no-deps app-prod "$@" ;;
+  migrate-create)
+    echo "migrate-create deshabilitada: /app es sólo lectura; las migraciones se crean fuera de los contenedores con revisión humana" >&2; exit 2 ;;
   migrate) $C --profile prod run --rm app-prod npm run payload -- migrate ;;
   migrate-en)
     base="${1:?uso: migrate-en <base-poc1b>}"; nombre_poc1b "$base"
@@ -142,10 +179,28 @@ case "$cmd" in
     POC_DATABASE_NAME="$base" POC_DB_SCHEMA=poc_prod POC_NO_PUSH=1 $CP --profile prod up -d db app-prod
     POC_DATABASE_NAME="$base" $CP --profile prod up -d --force-recreate proxy ;;
   down-prod) $C --profile prod stop app-prod && $C --profile prod rm -f app-prod ;;
+  # Emite (no aplica) los dos manifiestos con @axe-core/playwright como JSON base64; el parche lo genera el host.
+  manifest-patch-axe)
+    [ "$#" -eq 0 ] || { echo "uso: manifest-patch-axe" >&2; exit 2; }
+    docker run --rm --read-only --user 1000:1000 \
+      --cap-drop ALL --security-opt no-new-privileges:true \
+      --tmpfs /tmp:rw,nosuid,nodev,noexec,uid=1000,gid=1000,mode=0700,size=64m \
+      --mount type=bind,src="$PWD/package.json",dst=/source/package.json,readonly \
+      --mount type=bind,src="$PWD/package-lock.json",dst=/source/package-lock.json,readonly \
+      --env HOME=/tmp/home --env NPM_CONFIG_CACHE=/tmp/npm-cache \
+      --workdir /tmp \
+      node:24.22.0-trixie-slim@sha256:7f486cabe892bff8fef04c0f7da8dba84a560be3e4e2740b7a86afc57ebec315 \
+      sh -ceu '
+        mkdir -p "$HOME" "$NPM_CONFIG_CACHE" /tmp/work
+        cp /source/package.json /source/package-lock.json /tmp/work/
+        cd /tmp/work
+        npm install --package-lock-only --ignore-scripts --save-exact --save-dev @axe-core/playwright@4.13.0 >&2
+        node -e '"'"'const fs = require("node:fs"); const salida = { packageJson: fs.readFileSync("package.json").toString("base64"), packageLockJson: fs.readFileSync("package-lock.json").toString("base64") }; process.stdout.write(JSON.stringify(salida))'"'"'
+      ' ;;
   stats)
     ids="$($C ps -q)"
     if [ -z "$ids" ]; then echo "sin contenedores del proyecto jozeuzz-poc-a; nada que medir" >&2; exit 1; fi
     docker stats --no-stream $ids ;;
   destroy) $C down -v --remove-orphans ;;
-  *) echo "uso: ./poc.sh init|deps [cmd]|up|db-up|up-en <base>|up-pruebas-en <base>|up-fallos-en <base>|up-prod-en <base>|up-prod-pruebas-en <base>|e2e-en <base> [args]|e2e-prod-en <base> [args]|sonda-red|medir-web <base> [args]|comprobar-en <base>|down|build|build-en <base>|migrate-create|migrate|migrate-en <base>|psql-en <base> [args]|up-prod|down-prod|ps|logs [n]|logs-since <t>|restart|psql [args]|resetdb|exec <cmd>|exec-en <base> <cmd>|stats|destroy" >&2; exit 2 ;;
+  *) echo "uso: ./poc.sh init|init-volumes|probe-mounts|deps [cmd]|run-prod-en <base> <cmd>|manifest-patch-axe|up|db-up|up-en <base>|up-pruebas-en <base>|up-fallos-en <base>|up-prod-en <base>|up-prod-pruebas-en <base>|e2e-en <base> [args]|e2e-prod-en <base> [args]|sonda-red|medir-web <base> [args]|comprobar-en <base>|down|build|build-en <base>|migrate-create|migrate|migrate-en <base>|psql-en <base> [args]|up-prod|down-prod|ps|logs [n]|logs-since <t>|restart|psql [args]|resetdb|exec <cmd>|exec-en <base> <cmd>|stats|destroy" >&2; exit 2 ;;
 esac
