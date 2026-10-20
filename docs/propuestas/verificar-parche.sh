@@ -4,7 +4,10 @@
 # Uso (desde la raíz del worktree): .jz/bin/jz-run sh docs/propuestas/verificar-parche.sh
 # Limitación: .jz/tests/sandbox.test.mjs y integration.mjs dependen del worktree real y de bwrap;
 # no se copian ni se ejecutan aquí. policy.test y recovery.test sólo usan repos temporales propios.
-# I-1: el verificador impone conteos exactos RED/GREEN y retorna rc no-cero ante cualquier discrepancia.
+# I-1: el verificador impone conteos exactos RED/GREEN más nombres exactos de 'not ok' en RED,
+#   y retorna rc no-cero ante cualquier discrepancia.
+# ESTADO: BLOQUEADO — hallazgos C1/C2/I-A/I-B/QA-I1/QA-I3/QA-patch pendientes (ver sección
+#   "Revisión C1/C2/I-A/I-B" de PLANO-CONTROL-2026-10-19.md).
 set -u
 
 SRC=$(pwd)
@@ -28,25 +31,24 @@ cp -p "$SRC/$PATCH_REL" "$W/$PATCH_REL"
 
 G="git -C $W -c user.name=jz-verif -c user.email=jz-verif@example.invalid"
 $G init -q -b main || exit 2
-# El parche se aplica sobre copias; el sandbox de pruebas del original no se copia.
 $G add -A >/dev/null 2>&1
 $G commit -qm "base desechable" || { echo "ERROR: commit base"; exit 2; }
-# El .gitignore real puede ignorar rutas; nada del parche debe quedar fuera del repo base.
 
-PATCH="$W/$PATCH_REL"
-echo "== 1. git apply --check -v =="
-RECOUNT=""
-if $G apply --check -v "$PATCH_REL"; then
-  echo "check: OK"
-else
-  echo "check: FALLÓ; reintento con --recount"
-  if $G apply --check --recount -v "$PATCH_REL"; then
-    echo "check --recount: OK"; RECOUNT="--recount"
-  else
-    echo "check --recount: FALLÓ (el parche no aplica; no se corrige aquí)"
-    exit 3
-  fi
+# == 0. Comprobación de limpieza del parche (QA-patch: sin --recount) ==
+echo "== 0. git apply --check (limpieza; sin --recount) =="
+if ! $G apply --check "$PATCH_REL" 2>/dev/null; then
+  echo "BLOQUEADO: el parche no aplica limpiamente."
+  echo "Hallazgos pendientes que impiden continuar:"
+  echo "  QA-patch : hunk offsets incorrectos — regenerar parche con git format-patch limpio"
+  echo "  C1/I-A   : jz-run --validate <perfil> ausente; atestación no atómica"
+  echo "  I-B      : test.skip vacíos pasan si se activan"
+  echo "  C2       : validacion.json acredita binarios en node_modules mutables"
+  echo "  QA-I1    : assert_phase no compara nombres exactos de 'not ok' en fase roja"
+  echo "  QA-I3    : test I-3 cubre sólo checkUntracked, no tree_fingerprint"
+  echo "Resolver según diseño opción-3 en PLANO-CONTROL-2026-10-19.md §Revisión-C1/C2/I-A/I-B."
+  exit 1
 fi
+echo "check: OK"
 
 # count <salida-tap> — extrae pass/fail/skipped del resumen TAP
 count() {
@@ -68,6 +70,33 @@ assert_phase() {
   fi
 }
 
+# assert_notok_names NOMBRE SALIDA-TAP LISTA-ESPERADA-SEPARADA-POR-NEWLINE
+# Verifica que los nombres exactos de 'not ok' en la salida TAP coincidan con los esperados.
+# La LISTA-ESPERADA debe contener una línea por prueba fallida, en cualquier orden.
+# Si la lista esperada es la cadena vacía, sólo comprueba que haya al menos un 'not ok'.
+assert_notok_names() {
+  _phase=$1 _out=$2 _exp_names=$3
+  _got_names=$(printf '%s\n' "$_out" | grep '^not ok' | sed 's/^not ok [0-9]* - //' | sort)
+  if [ -z "$_exp_names" ]; then
+    if [ -z "$_got_names" ]; then
+      echo "  ERROR $_phase: no hay 'not ok' (se esperaba al menos uno)"
+      return 1
+    fi
+    echo "  $_phase not ok names: OK (${#_got_names} chars)"
+    return 0
+  fi
+  _sorted_exp=$(printf '%s\n' "$_exp_names" | sort)
+  if [ "$_got_names" = "$_sorted_exp" ]; then
+    echo "  $_phase not ok names: OK"
+    return 0
+  else
+    echo "  ERROR $_phase: nombres de 'not ok' no coinciden"
+    echo "    esperado : $(printf '%s\n' "$_sorted_exp" | tr '\n' '|')"
+    echo "    obtenido : $(printf '%s\n' "$_got_names" | tr '\n' '|')"
+    return 1
+  fi
+}
+
 run_tests() {
   ( cd "$W" && node --test --test-reporter=tap .jz/tests/policy.test.mjs .jz/tests/recovery.test.mjs 2>&1 )
 }
@@ -76,22 +105,31 @@ OVERALL=0
 
 # == Fase 2: ROJA ==
 echo "== 2. fase ROJA: sólo .jz/tests/ =="
-$G apply $RECOUNT --include='.jz/tests/*' "$PATCH_REL" || { echo "ERROR: aplicar hunks de tests"; exit 3; }
+$G apply --include='.jz/tests/*' "$PATCH_REL" || { echo "ERROR: aplicar hunks de tests"; exit 3; }
 OUT_R=$(run_tests)
 printf '%s\n' "$OUT_R" | grep -E '^not ok|^# (tests|pass|fail|skipped)'
 RES_R=$(count "$OUT_R")
-# En fase roja deben fallar exactamente 7 pruebas (I-1/I-2/I-3 sin código):
+# Conteos esperados en fase roja (QA-I1):
 EXP_R="pass=19 fail=7 skipped=3"
 assert_phase "rojo" "$RES_R" "$EXP_R" || OVERALL=1
 FAIL_R=$(printf '%s\n' "$RES_R" | sed 's/.*fail=\([^ ]*\).*/\1/')
 if [ "${FAIL_R:-0}" -eq 0 ] 2>/dev/null; then
-  echo "  ERROR rojo: fail=0 indica que las pruebas no detectan código ausente (parche ya aplicado o sin cobertura)"
+  echo "  ERROR rojo: fail=0 indica que las pruebas no detectan código ausente"
   OVERALL=1
 fi
+# Nombres exactos de 'not ok' en fase roja (QA-I1):
+# PENDIENTE: completar esta lista con los nombres reales una vez el parche aplique limpiamente.
+# Los 7 tests esperados son (según §Tarea-1 de PLANO-CONTROL):
+#   - "las rutas de git … se comprueban como escrituras" (I-1 policy)
+#   - "test I-3 de excludesFile global" (I-3 checkUntracked)
+#   - 5 pruebas de recovery: sobrecarga, true verde, validacion.json ausente, etiqueta, jz-run vivo
+# Dejar vacío aquí fuerza comprobación de presencia solamente (al menos 1 not ok).
+EXP_NOTOK_R=""
+assert_notok_names "rojo" "$OUT_R" "$EXP_NOTOK_R" || OVERALL=1
 
 # == Fase 3: VERDE ==
 echo "== 3. fase VERDE: resto del parche =="
-$G apply $RECOUNT --exclude='.jz/tests/*' "$PATCH_REL" || { echo "ERROR: aplicar el resto"; exit 3; }
+$G apply --exclude='.jz/tests/*' "$PATCH_REL" || { echo "ERROR: aplicar el resto"; exit 3; }
 OUT_G=$(run_tests)
 printf '%s\n' "$OUT_G" | grep -E '^not ok|^# (tests|pass|fail|skipped)'
 RES_G=$(count "$OUT_G")
@@ -102,6 +140,16 @@ if [ "${FAIL_G:-1}" -ne 0 ] 2>/dev/null; then
   echo "  ERROR verde: fail>0 tras parche completo"
   OVERALL=1
 fi
+# En verde no debe haber ningún 'not ok':
+assert_notok_names "verde" "$OUT_G" "" && {
+  NOT_G=$(printf '%s\n' "$OUT_G" | grep '^not ok' | wc -l)
+  if [ "$NOT_G" -ne 0 ]; then
+    echo "  ERROR verde: hay $NOT_G 'not ok' (esperado 0)"
+    OVERALL=1
+  else
+    echo "  verde not ok: 0 (OK)"
+  fi
+}
 
 # == Auto-prueba del verificador (I-1): demuestra que una discrepancia retorna rc no-cero ==
 echo "== 4. auto-prueba del verificador =="

@@ -10,7 +10,7 @@
 
 **Especificación:** los hallazgos H1–H10 que transmitió el orquestador (confirmados por jz-explorer y jz-security) y `docs/AUTONOMIA-JZ.md` §2–§8.
 
-**Estado:** propuesta revisada para aprobación humana (revisión I-1/I-2/I-3, 2026-10-19). **No se ha aplicado ni ejecutado nada sobre el plano real.** El parche requiere `git apply --recount` porque los conteos de línea en los hunks grandes de `policy.mjs` no son exactos en el fichero redactado a mano; `verificar-parche.sh` ya aplica `--recount` automáticamente cuando `git apply --check` detecta el problema (proceso documentado en `== 1. git apply --check -v ==`).
+**Estado:** **BLOQUEADO** — hallazgos C1/C2/I-A/I-B/QA-I1/QA-I3/QA-patch detectados por jz-security y jz-qa tras la revisión I-1/I-2/I-3. El parche no aplica limpiamente sin `--recount` (QA-patch), y el diseño de validación reconocida requiere rediseño completo con opción-3 (ver §Revisión-C1/C2/I-A/I-B). **No se ha aplicado ni ejecutado nada sobre el plano real.**
 
 - **Base:** `69e1883` (rama `poc/candidata-a-3`).
 - **Parche:** `docs/propuestas/plano-control-2026-10-19.patch`, un diff unificado que se aplica desde la raíz del worktree.
@@ -288,6 +288,58 @@ Esta revisión cierra tres issues detectados en la propuesta original:
 
 ---
 
+## Revisión C1/C2/I-A/I-B (2026-10-19) — BLOQUEADO
+
+Esta sección registra los hallazgos de jz-security y jz-qa que bloquearon la revisión I-1/I-2/I-3 y el rediseño requerido (opción-3).
+
+### Hallazgos de bloqueo
+
+| ID | Fuente | Descripción |
+|---|---|---|
+| **C1** | jz-security | `jz-run --validate <perfil>` ausente. `test.skip` con cuerpos vacíos. Verificador retorna OK sin validar I-2 real. |
+| **C2** | jz-security | `validacion.json` acredita como válidos `vitest.mjs` y `tsc` en `node_modules`, que es mutable por el agente. El agente podría sustituir el binario y obtener una atestación falsa. |
+| **I-A** | jz-qa | No existe atestación exclusiva/atómica con identidad del runner y huellas de árbol al inicio y al final de la ejecución. `runs.jsonl` y el prefijo de comando no son autoridad suficiente. |
+| **I-B** | jz-qa | Los tres `test.skip` de recovery son callbacks vacíos: si se activan, pasan sin comprobar nada. Un test activado con cuerpo vacío no prueba nada. |
+| **QA-I1** | jz-qa | `assert_phase` en `verificar-parche.sh` compara sólo totales (`pass/fail/skipped`), no los nombres exactos de `not ok` en fase roja. Una prueba diferente que falle por otra razón pasaría la comprobación de conteo. |
+| **QA-I3** | jz-qa | El test de excludes cubre `checkUntracked` pero no `tree_fingerprint` / `fingerprint`. Ambas rutas deben pasar `-c core.excludesFile=/dev/null`. |
+| **QA-patch** | jz-qa | El parche requiere `--recount` para aplicar. `verificar-parche.sh` no debe usar `--recount`; si el parche no aplica limpiamente, el verificador debe salir con rc≠0 y estado BLOQUEADO. |
+
+### Diseño opción-3 requerido
+
+El rediseño obliga a reescribir completamente `jz-run`, `jz-state`, `jz-checkpoint` y los tests. Los elementos no negociables:
+
+1. **`jz-run --validate <perfil>`**: modo de ejecución nuevo. Recibe un nombre de perfil definido en un archivo de manifiesto externo provisionado por el humano (fuera del árbol de trabajo, en ruta absoluta fija, RO). El manifiesto contiene hashes SHA-256 del binario del runner y de sus dependencias en la instalación limpia.
+
+2. **Perfil protegido**: el manifiesto y los perfiles no están en `node_modules`. Viven en una ruta provisionada por el humano, montada en RO dentro del sandbox de `jz-run`. Ningún agente puede modificarlos (no en `JZ_TOOLS`, no en la política de escritura).
+
+3. **Snapshot privado RO verificado**: antes de lanzar el runner, `jz-run --validate` compara el hash del binario real con el del manifiesto. Si no coincide, aborta con rc≠0. El snapshot es un directorio RO bind-mounted; el runner no puede escribir en él.
+
+4. **Huellas inicio/final**: `jz-run --validate` calcula la huella del árbol (`git hash-object -t tree ...` o equivalente) antes de lanzar el runner y después de que termine. Ambas huellas se registran en la atestación.
+
+5. **Atestación exclusiva/atómica**: al terminar, `jz-run --validate` escribe atómicamente un archivo JSON en `.jz-state/validaciones/` con: `ts`, `perfil`, `runner_hash`, `hash_inicio`, `hash_final`, `rc`, `identidad` (UID/GID real del proceso). Usa `mv` atómico desde un temporal; nunca sobreescribe una atestación existente para el mismo `hash_inicio`.
+
+6. **Consumo estricto**: `jz-state` y `jz-checkpoint` leen **sólo** `.jz-state/validaciones/`. `runs.jsonl` y el prefijo del comando **nunca** son autoridad de validación. Si no hay atestación para el hash actual, el veredicto es «NO».
+
+7. **Tests sin skips vacíos**: los tres casos de integración de I-2 deben tener cuerpos reales. Si el entorno de test no puede ejecutar `jz-run --validate` (sin `unshare`, sin manifiesto), el test debe salir con `skip` y un mensaje explicativo o con `fail` y un mensaje de BLOCKED. Nunca un callback vacío.
+
+8. **`-c core.excludesFile=/dev/null` en todas las rutas**: tanto `checkUntracked` como cualquier llamada git en `tree_fingerprint` deben pasar esta opción. Tests discriminantes para ambas rutas.
+
+### Razones del bloqueo (para la siguiente sesión)
+
+- **Scope**: implementar opción-3 completa requiere ~300-500 líneas nuevas distribuidas en 10+ archivos del plano de control (`.jz/`), más el manifiesto externo provisionado por el humano. Excede lo ejecutable en una sesión de agente sin acceso al plano real.
+- **Manifiesto externo**: los hashes del runner limpio deben ser calculados por el humano desde una instalación verificada, no generados por el agente.
+- **Parche limpio**: el parche actual requiere `--recount`; regenerarlo con offsets correctos para `policy.mjs` (400+ líneas) es propenso a errores sin herramientas de diff nativas.
+- **Anidamiento de sandbox**: no verificado si `jz-run --validate` (usa `unshare`) puede ejecutarse dentro del sandbox del `jz-run` externo del verificador. Si no puede → test de integración falla → BLOCKED de todas formas.
+
+### Próximos pasos para resolver el bloqueo (decisión humana)
+
+1. Provisionar el manifiesto externo con hashes de la instalación limpia.
+2. Decidir la ruta del manifiesto (propuesta: `/etc/jz/manifests/<perfil>.json`, fuera del worktree).
+3. Autorizar a jz-architect que rediseñe `jz-run`, `jz-state`, `jz-checkpoint` y los tests según opción-3.
+4. Verificar que `unshare` anidado es viable en el entorno; si no, decidir el mecanismo alternativo de sandbox para los tests de integración.
+
+---
+
 ## Tarea 1: comprobación previa y fase roja (sólo pruebas)
 
 **Archivos:** `.jz/tests/policy.test.mjs` y `.jz/tests/recovery.test.mjs` (vía el parche).
@@ -304,8 +356,7 @@ git apply --check "$P" && echo check-ok
 ```
 
 - Esperado: `check-ok`.
-- Si falla por recuento de líneas: `git apply --check --recount "$P"`. Si con `--recount` pasa, se usa `--recount` en los dos `git apply` siguientes.
-- Si falla por contexto: **no se fuerza**. Se aplica a mano siguiendo §2–§5, o se pide a jz-architect que regenere el parche sobre el HEAD real.
+- Si falla: **no se usa `--recount` ni se fuerza**. Significa que el parche necesita regenerarse. Ver §Revisión-C1/C2/I-A/I-B.
 
 - [ ] **Paso 2: aplicar sólo las pruebas y comprobar que fallan por la razón esperada**
 
