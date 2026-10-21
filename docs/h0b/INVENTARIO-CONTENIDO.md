@@ -123,7 +123,7 @@
 | SEO-03 | Valores de los datos estructurados (DC-10) | Oblig. (MVP-13.4); los tipos están pendientes | Según el tipo | Coinciden con el contenido visible | R | H3 | Pendiente |
 | SEO-04 | Idioma del sitio y, si lo hay, idioma secundario | Oblig. | Etiqueta de idioma | DC-07 | R | H3 | Pendiente |
 
-### 2.11 Marca (dirección visual en `DIRECCION-VISUAL.md`, pendiente)
+### 2.11 Marca (dirección visual en `DIRECCION-VISUAL.md`, propuesta en [DIRECCION-VISUAL.md](DIRECCION-VISUAL.md))
 | ID | Pieza y descripción | MVP | Formato | Verificación | Aporta | Hito | Estado |
 |---|---|---|---|---|---|---|---|
 | MAR-01 | Logotipo gráfico de jozeuzz.cl, favicon e iconos | Opc. el logotipo (basta NAV-01); Oblig. el favicon | SVG | Diseño propio o con licencia; vive en el repositorio, no en el panel (§3.5) [Propuesto] | R | H3 | Pendiente |

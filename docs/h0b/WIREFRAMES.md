@@ -5,7 +5,7 @@
 > **Etiquetas:** **[Definido]** lo fija una fuente citada (que puede seguir en borrador) · **[Propuesto]** recomendación sin aprobar · **[Pendiente]** decide el responsable.
 > **Abreviaturas:** `INV` = [INVENTARIO-CONTENIDO.md](INVENTARIO-CONTENIDO.md) · `UX` = [UX-ARQUITECTURA-INFORMACION.md](../UX-ARQUITECTURA-INFORMACION.md) · `RM` = [ROADMAP-MVP.md](../ROADMAP-MVP.md) · `ESP` = [ESPECIFICACION-FUNCIONAL.md](../ESPECIFICACION-FUNCIONAL.md) · `EST` = [ESTADO-PROYECTO.md](../ESTADO-PROYECTO.md) · `ARQ` = [ARQUITECTURA.md](../ARQUITECTURA.md).
 
-**Propósito.** Este documento es el «siguiente artefacto antes de implementación» que pide UX › §6: fija rutas, jerarquía, orden de bloques, estados y componentes del sitio público, y se revisa contra los criterios de UX › §6 y RM › §2 MVP-14. Cierra C-10 y DC-08 como propuesta (RM › §11.1; INV › §4). No fija estética (eso es `DIRECCION-VISUAL.md`, pendiente), ni el formulario de solicitud ([RECORRIDO-SOLICITUD.md](RECORRIDO-SOLICITUD.md)), ni el panel ([PANEL-ADMIN.md](PANEL-ADMIN.md)).
+**Propósito.** Este documento es el «siguiente artefacto antes de implementación» que pide UX › §6: fija rutas, jerarquía, orden de bloques, estados y componentes del sitio público, y se revisa contra los criterios de UX › §6 y RM › §2 MVP-14. Cierra C-10 y DC-08 como propuesta (RM › §11.1; INV › §4). No fija estética (eso es `DIRECCION-VISUAL.md`, propuesta en [DIRECCION-VISUAL.md](DIRECCION-VISUAL.md)), ni el formulario de solicitud ([RECORRIDO-SOLICITUD.md](RECORRIDO-SOLICITUD.md)), ni el panel ([PANEL-ADMIN.md](PANEL-ADMIN.md)).
 
 ## 0. Convenciones
 

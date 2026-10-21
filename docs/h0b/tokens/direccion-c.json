@@ -1,0 +1,42 @@
+{
+  "nombre": "Dirección C — Contraste alto minimal (propuesta, no aprobada)",
+  "colores": {
+    "fondo": "#ffffff",
+    "superficie": "#f2f2f2",
+    "texto": "#0a0a0a",
+    "texto-secundario": "#3d3d3d",
+    "borde-control": "#595959",
+    "acento": "#000000",
+    "acento-texto": "#ffffff",
+    "foco": "#7c3aed",
+    "enlace": "#5b21b6",
+    "exito": "#0f5b25",
+    "error": "#a10e0e",
+    "aviso": "#6e4200",
+    "acento-tecnico": "#0a3d8f"
+  },
+  "pares": [
+    { "primero": "texto", "fondo": "fondo", "nivel": "texto-aaa", "uso": "texto de cuerpo sobre el fondo (objetivo AAA)" },
+    { "primero": "texto", "fondo": "superficie", "nivel": "texto-aaa", "uso": "texto de cuerpo en tarjetas y bloques (objetivo AAA)" },
+    { "primero": "texto-secundario", "fondo": "fondo", "nivel": "texto-aaa", "uso": "metadatos, leyendas y ayudas sobre el fondo" },
+    { "primero": "texto-secundario", "fondo": "superficie", "nivel": "texto-aaa", "uso": "metadatos y leyendas en tarjetas" },
+    { "primero": "enlace", "fondo": "fondo", "nivel": "texto-aaa", "uso": "enlaces subrayados en el texto" },
+    { "primero": "enlace", "fondo": "superficie", "nivel": "texto-aaa", "uso": "enlaces subrayados en tarjetas" },
+    { "primero": "acento-texto", "fondo": "acento", "nivel": "texto-aaa", "uso": "rótulo del botón primario" },
+    { "primero": "acento", "fondo": "fondo", "nivel": "ui", "uso": "límite del botón primario frente al fondo" },
+    { "primero": "error", "fondo": "fondo", "nivel": "texto-aaa", "uso": "mensajes de error de formulario" },
+    { "primero": "error", "fondo": "superficie", "nivel": "texto-aaa", "uso": "mensajes de error dentro de un bloque" },
+    { "primero": "exito", "fondo": "fondo", "nivel": "texto-aaa", "uso": "confirmaciones" },
+    { "primero": "exito", "fondo": "superficie", "nivel": "texto-aaa", "uso": "confirmaciones dentro de un bloque" },
+    { "primero": "aviso", "fondo": "fondo", "nivel": "texto-aaa", "uso": "avisos escritos con el color de aviso" },
+    { "primero": "aviso", "fondo": "superficie", "nivel": "texto-aaa", "uso": "avisos dentro de un bloque" },
+    { "primero": "borde-control", "fondo": "fondo", "nivel": "ui", "uso": "borde de campos y botones secundarios sobre el fondo" },
+    { "primero": "borde-control", "fondo": "superficie", "nivel": "ui", "uso": "borde de campos sobre una superficie" },
+    { "primero": "foco", "fondo": "fondo", "nivel": "ui", "uso": "contorno de foco sobre el fondo" },
+    { "primero": "foco", "fondo": "superficie", "nivel": "ui", "uso": "contorno de foco sobre una superficie" },
+    { "primero": "foco", "fondo": "acento", "nivel": "ui", "uso": "contorno de foco pegado a un botón primario negro" },
+    { "primero": "acento-tecnico", "fondo": "fondo", "nivel": "texto-aaa", "uso": "subtítulo y marcas del área técnica" },
+    { "primero": "acento-tecnico", "fondo": "superficie", "nivel": "texto-aaa", "uso": "subtítulo del área técnica en un bloque" },
+    { "primero": "acento-texto", "fondo": "acento-tecnico", "nivel": "texto-aaa", "uso": "rótulo sobre la banda del área técnica" }
+  ]
+}

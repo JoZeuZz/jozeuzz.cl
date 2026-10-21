@@ -1,0 +1,41 @@
+{
+  "nombre": "Dirección A — Editorial sobria (propuesta, no aprobada)",
+  "colores": {
+    "fondo": "#faf8f3",
+    "superficie": "#f1ede4",
+    "texto": "#1d1b18",
+    "texto-secundario": "#57524a",
+    "borde-control": "#7a7468",
+    "acento": "#172338",
+    "acento-texto": "#ffffff",
+    "foco": "#c9541a",
+    "enlace": "#1d4f91",
+    "exito": "#26662f",
+    "error": "#a3221b",
+    "aviso": "#8a5a00",
+    "acento-tecnico": "#1e5a6b"
+  },
+  "pares": [
+    { "primero": "texto", "fondo": "fondo", "nivel": "texto", "uso": "texto de cuerpo sobre el fondo" },
+    { "primero": "texto", "fondo": "superficie", "nivel": "texto", "uso": "texto de cuerpo en tarjetas y bloques" },
+    { "primero": "texto-secundario", "fondo": "fondo", "nivel": "texto", "uso": "metadatos, leyendas y ayudas sobre el fondo" },
+    { "primero": "texto-secundario", "fondo": "superficie", "nivel": "texto", "uso": "metadatos y leyendas en tarjetas" },
+    { "primero": "enlace", "fondo": "fondo", "nivel": "texto", "uso": "enlaces subrayados en el texto" },
+    { "primero": "enlace", "fondo": "superficie", "nivel": "texto", "uso": "enlaces subrayados en tarjetas" },
+    { "primero": "acento-texto", "fondo": "acento", "nivel": "texto", "uso": "rótulo del botón primario" },
+    { "primero": "acento", "fondo": "fondo", "nivel": "ui", "uso": "límite del botón primario frente al fondo" },
+    { "primero": "error", "fondo": "fondo", "nivel": "texto", "uso": "mensajes de error de formulario" },
+    { "primero": "error", "fondo": "superficie", "nivel": "texto", "uso": "mensajes de error dentro de un bloque" },
+    { "primero": "exito", "fondo": "fondo", "nivel": "texto", "uso": "confirmaciones" },
+    { "primero": "exito", "fondo": "superficie", "nivel": "texto", "uso": "confirmaciones dentro de un bloque" },
+    { "primero": "aviso", "fondo": "fondo", "nivel": "texto", "uso": "avisos escritos con el color de aviso" },
+    { "primero": "aviso", "fondo": "superficie", "nivel": "texto", "uso": "avisos dentro de un bloque" },
+    { "primero": "borde-control", "fondo": "fondo", "nivel": "ui", "uso": "borde de campos y botones secundarios sobre el fondo" },
+    { "primero": "borde-control", "fondo": "superficie", "nivel": "ui", "uso": "borde de campos sobre una superficie" },
+    { "primero": "foco", "fondo": "fondo", "nivel": "ui", "uso": "contorno de foco sobre el fondo" },
+    { "primero": "foco", "fondo": "superficie", "nivel": "ui", "uso": "contorno de foco sobre una superficie" },
+    { "primero": "foco", "fondo": "acento", "nivel": "ui", "uso": "contorno de foco pegado a un botón primario" },
+    { "primero": "acento-tecnico", "fondo": "fondo", "nivel": "texto", "uso": "subtítulo y marcas del área técnica" },
+    { "primero": "acento-tecnico", "fondo": "superficie", "nivel": "texto", "uso": "subtítulo del área técnica en un bloque" }
+  ]
+}
