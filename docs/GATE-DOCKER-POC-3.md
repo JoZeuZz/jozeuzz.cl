@@ -1,10 +1,11 @@
 # Gate Docker de POC-3 (U2–U9): procedimiento para ejecución humana
 
-- **Estado:** procedimiento para ejecución humana. **No se ha ejecutado.** Lo redactó jz-architect el 2026-10-19 leyendo el código y lo revisó en dos ciclos (ver «Historial de revisiones»). Ningún resultado esperado de este documento está verificado en ejecución: son deducciones del código, con su cita.
-- **HEAD de referencia del código:** `0231888` (rama `poc/candidata-a-3`). Es la **referencia vinculante de código** del gate: el último commit que cambia código o pruebas. A1 la copia en `CODEREF` y exige que, entre ella y HEAD, sólo cambie `docs/`.
-  - `0231888` es el commit A de la corrección A0/A4 (`fix(poc-3): close A0 and A4 gate failures`): cambia el gate y las pruebas estáticas `gate-a4-git.test.ts`. El commit siguiente, sólo de `docs/`, escribe su hash en esta cabecera y en `CODEREF` de A1. Antes la referencia era `e7fc5e8` (corrección A4 I-1/I-2), anterior a ella `ce500a7` (commit A del ciclo de corrección 2, `fix(poc-3): harden gate container retirement and A4 apply`, que cambió `poc1a/poc.sh` —sólo un comentario de `init`— y una prueba estática), anterior a ella `14278c1` (commit A del ciclo 1, `fix(poc-3): close review findings for write isolation`) y, antes de ése, `69e1883`.
-  - Las citas de línea no actualizadas siguen refiriéndose a `69e1883`; **la referencia vinculante de código es el commit A**, no esas líneas.
-  - Se acepta como HEAD de ejecución el commit que confirme este documento y `docs/adr/0001-stack.md`, o uno posterior que sólo cambie `docs/` (A1 lo comprueba). Si se hace el paso A4 (instalación de axe), la referencia pasa a ser el commit que deja A4. Ese HEAD se anota en cada fila de evidencia.
+- **Estado:** procedimiento para ejecución humana. **Ejecución parcial; el gate está detenido en D07.** Según declara el responsable (no lo han verificado agentes), la ejecución 1 llegó hasta D06 sobre `de692a4`, A4 incluido; D07 falló, sigue oficialmente fallido y el gate no se ha reanudado. La corrección está en `df576ed..42d7229` (rama `fix/poc3-drizzle-parametros`) y la reanudación sigue la sección «Ejecución 1 (`de692a4`) y reanudación (`42d7229`)». Redactado por jz-architect leyendo el código (ver «Historial de revisiones»). Salvo lo declarado de la ejecución 1, ningún resultado esperado está verificado en ejecución: son deducciones del código, con su cita.
+- **HEAD de referencia del código:** `42d7229` (rama `fix/poc3-drizzle-parametros`; el humano la integra en `poc/candidata-a-3` por fast-forward en RP6). Es la **referencia vinculante de código** del gate: el último commit que cambia código o pruebas. A1 la copia en `CODEREF` y exige que, entre ella y HEAD, sólo cambie `docs/`.
+  - `42d7229` cierra la corrección D07 (`df576ed`, `986d7f3`, `42d7229`). Entre `de692a4` y `42d7229` sólo cambian `poc1a/src/lib/drizzle-kit/correccion-push.ts`, `poc1a/src/lib/drizzle-kit/correccion-push.test.ts`, `poc1a/src/payload.config.ts` y `poc1a/test/estatico/drizzle-kit-correccion.test.ts`, ninguna en `GUARDA`.
+  - Historial de referencias: `c8bbf0f` → `69e1883` → `14278c1` → `ce500a7` → `e7fc5e8` → `0231888` → `de692a4` (commit de A4 en la ejecución 1; pasó a ser la referencia por la regla de A4 sin que se actualizara el literal de A1) → `42d7229`.
+  - Las citas de línea no actualizadas siguen refiriéndose a `69e1883`; **la referencia vinculante de código es `CODEREF`**, no esas líneas.
+  - HEAD de ejecución: `DOCREF`, el commit sólo de `docs/` que confirma esta revisión sobre `42d7229`, o uno posterior que sólo cambie `docs/` (A1 lo comprueba). En la reanudación A4 **no** se repite. `r()` escribe el prefijo corto de ese HEAD en la cabecera de cada log.
 - **Quién lo ejecuta:** el responsable del proyecto, como root en el host de la POC, con Docker y Compose v2 y con Node ≥ 20 en el host (`poc1a/README.md:34-36`). Los agentes no tienen Docker (`docs/PLAN-POC-3.md:157`, P3-07 `:199`). Mientras dure el gate, ningún agente escribe en este worktree.
 - **Duración:** no está medida. La estimación orientativa del ciclo 1 era de 1,5 a 3 h sin contar descargas de imágenes, y **puede quedarse corta**:
   - Referencias: una batería de 56 casos tardó 232 s en POC-1a (`poc1a/EVIDENCIA.md:20`), aunque sólo tenía 13 activos; el build tardó 16 s (`poc1a/EVIDENCIA.md:152`).
@@ -18,9 +19,12 @@
 2. **Los contenedores no deben poder escribir en `poc1a/`.** Los servicios `app`, `app-prod`, `deps` y `e2e` montan `./` (`poc1a/`) en `/app` como bind **de sólo lectura**, con raíz `read_only: true`, uid 1000 y `/tmp` en `tmpfs`. Sólo escriben en volúmenes nombrados de la lista cerrada de A2 y en `/tmp` (corrección del hallazgo S-1, **pendiente de verificación Docker**: A2 y A3f la comprueban). `next-env.d.ts` se monta como bind de archivo RO desde `contenedor/next-env.dev.txt` (`app`) y `contenedor/next-env.prod.txt` (`app-prod`), porque Next 16.4.1 lo reescribe si difiere y `/app` es RO. Por eso `r()` sigue comprobando la integridad del árbol antes de cada orden (A3) y se comprueba `.tls` tras cada orden que lo regenera. `../contrato` no se monta en ningún contenedor (deducción de `compose.yaml`). Los scripts Node del host sólo importan módulos `node:` (deducción por lectura de sus `import`), así que no cargan `node_modules`. `volumes-init` (A3f1) es el único servicio root con acceso a volúmenes de aplicación: sin red, sin bind, sin socket y con `cap_drop`. `db` y `proxy` son root de imagen sin bind RW del repositorio (`db` sólo monta su volumen; `proxy`, binds RO de configuración y `.tls`), así que no tienen camino de escritura al árbol.
 3. Sólo se usan bases `poc3_*`: `poc3_intake` y `poc3_migraciones` (`docs/POC-3-DISENO.md:8`). La guarda de `poc.sh:31-39` y la del driver (`poc1a/contrato-driver.mjs:15`) rechazan cualquier otra base.
 4. **No usar la base `poc` (contaminada).** Quedan prohibidas las órdenes heredadas que la usan: `up`, `up-prod`, `migrate`, `migrate-create`, `build`, `exec`, `resetdb` (hace `DROP SCHEMA` de `poc`, `poc.sh:77`), `e2e` y `destroy` (`poc1a/README.md:8`). `./poc.sh psql` se conecta a `poc` (`poc.sh:74`); aquí sólo se usa para listar y crear bases (`poc1a/README.md:10,99`).
-5. No tocar otros servicios del host. Todas las órdenes Docker pasan por `./poc.sh`, que fija el proyecto Compose `jozeuzz-poc-a` (`poc.sh:2-6`). Hay dos excepciones documentadas, ambas de sólo lectura:
+5. No tocar otros servicios del host. Todas las órdenes Docker pasan por `./poc.sh`, que fija el proyecto Compose `jozeuzz-poc-a` (`poc.sh:2-6`). Las excepciones documentadas, todas de sólo lectura, son:
    - `docker compose -p jozeuzz-poc-a … config --no-interpolate` en A2c;
-   - `docker image inspect` en D05 (`docs/POC-3-DISENO.md:264`).
+   - `docker image inspect` en D05 (`docs/POC-3-DISENO.md:264`);
+   - en la preparación de la reanudación (RP4), y **sólo** si el host no tiene un `pg_restore` capaz de leer el volcado: `docker compose -p jozeuzz-poc-a -f compose.yaml exec -T db pg_restore --list` y `--file=/dev/null`, con el volcado por la entrada estándar. Es el mismo `$C` y el mismo servicio que `./poc.sh psql`; sin `-d`, `pg_restore` no se conecta a ninguna base y sólo lee.
+
+   Además usan Docker fuera de `./poc.sh` A3e (`docker ps`, `docker inspect` y `docker rm -f`, que **no** es de sólo lectura: retira contenedores del proyecto; también en RP5), A2d (`docker version`) y K1 (`docker inspect`). Están en la clase Docker de «Clasificación de operaciones por privilegio».
 
    Prohibidos: `docker system prune`, `docker volume rm`, `./poc.sh destroy` (borra con `down -v` los once volúmenes: el volumen `db` con todas las bases y los diez de aplicación, `poc.sh:149`) y cualquier `docker stop` fuera del proyecto. Si alguna vez se ejecutara `destroy` por decisión humana, hay que repetir después `init-volumes`, `deps` y `probe-mounts` (A3f1-A3f3), porque los volúmenes se recrean como root y vacíos.
 6. No exportar `POC_BASE_URL`, `POC_TARGET_DATABASE`, `POC_RESET_ENV`, `INTAKE_SECRETO` ni `E2E_RESET`: se pasan siempre en línea. La única variable exportada es `NODE_EXTRA_CA_CERTS`.
@@ -47,6 +51,359 @@
 - **Fallo registrable:** se registra la salida completa y se sigue con el paso siguiente, que es independiente. El gate no se cierra mientras quede un fallo registrable. Aplica a vitest, a las baterías y a E2E.
 - Si se repite un paso, se registran **todos** los intentos (`D11`, `D11-r2`, …) con identificadores distintos (`r()` rechaza un identificador repetido). No se elige el intento verde.
 
+## Ejecución 1 (`de692a4`) y reanudación (`42d7229`)
+
+### Qué consta de la ejecución 1
+
+**Declarado por el responsable** (no lo han verificado agentes; ni la carpeta de salidas de la ejecución 1, en adelante `S1`, ni sus logs están en el repositorio):
+
+- Ejecución parcial: D01–D06 se ejecutaron sobre HEAD `de692a4` y **D07 falló**. El gate está detenido, no se ha reanudado y D07 sigue oficialmente fallido. D08 y los pasos posteriores no se ejecutaron.
+- PostgreSQL 18.6 está *healthy* en el proyecto `jozeuzz-poc-a`. `poc3_intake` tiene 19 tablas en `public` y conserva las restricciones de `intake_limite` e `intake_envio`.
+- Respaldo de `poc3_intake`: `/root/jz-d07-respaldos/20261021T060116Z/poc3_intake.dump`, SHA-256 `01da9edc2fe32c4f072099329086added69d5f0ba78f496c296a45a012a5b7f7`, con una lectura completa de `pg_restore` rc=0. **No se ha probado una restauración real.**
+- Regresión de la corrección: 25/25, rc=0, con Node 24.22.0, en Docker aislado sin red y con montaje RO. **No es un paso del gate y no sustituye a D07 ni a D08.** No hay log en el repositorio.
+
+**Deducido de Git:** `de692a4` es el commit de A4k (tiene su mensaje literal y su padre es `0faf138`, la base de A4a). Por el orden del procedimiento, los pasos hasta A4k registraron HEAD `0faf138` y los posteriores, `de692a4`.
+
+**Causa del fallo de D07.** En este documento D07 es la sonda de red (`./poc.sh sonda-red`) y D08 es la comprobación de `push`. El repositorio no contiene la salida de D07. Los commits de la corrección llevan la etiqueta «(D07)», y `df576ed` describe el defecto: el `pushSchema` pg de drizzle-kit 0.31.7 descarta los parámetros de `db.query`, y la introspección de la PK compuesta (`$1::regnamespace`) falla con 42P02 (`poc1a/src/lib/drizzle-kit/correccion-push.ts:9-11`). La relación entre ese defecto y el fallo de D07 es una **causa diagnosticada por el responsable y por la corrección; la salida no está registrada en el repositorio**. Tampoco consta por qué pasó D06, que también arranca Payload con `push` habilitado (H-10). La reanudación lo repite.
+
+**Verificado por agentes sobre `42d7229`** con `jz-run` (sin Docker; Node 20.19 del host y `node_modules` del worktree, no el volumen nombrado; logs locales en `.jz-state/runs/`, no versionados): `tsc --noEmit` rc=0 (`20261021T050718Z`), `node --test contrato/` rc=0 (`20261021T050726Z`) y vitest de la corrección rc=0 (`20261021T050739Z`). El vitest de `src test/estatico` da rc=1 (`20261021T050639Z`): incidencia I-A4T.
+
+### Clasificación de la evidencia
+
+| Categoría | Qué incluye | Regla |
+|---|---|---|
+| (a) Aprobado y con evidencia propia para `42d7229` | **Ningún paso del gate.** Las verificaciones de agentes de arriba no son pasos del gate | No sustituyen a ningún paso Docker |
+| (b) Pendiente | Todos los pasos de la reanudación: RP0–RP7, A0, R0, A3e, A1, A2, A3, B1, B1v, A3f1–A3f3, R7, B2–B4, B4c, R9, D01–D30, J1–J3 y K1–K3. En particular, **D07 (fallido en la ejecución 1)** y **D08 (nunca ejecutado)**. También, fuera del alcance de la reanudación, I-A4T y OB2 | Un paso sólo pasa a (a) con log propio en `S_R`, el prefijo corto de `DOCREF` en la cabecera del log (`r()` escribe `rev-parse --short`) y rc conforme |
+| (c) Evidencia anterior no reutilizable | Ejecución 1: A0–A3f3, B1, B1v, A4 (A4a–A4k, A4b0, A4b y A4c), B2–B4, D01–D06 y D07 fallido | Se conserva en `S1` sin editarla, y nunca se cita como resultado de `42d7229`. De A4 sólo se hereda el commit `de692a4`, por historial; RP2 comprueba que sus tres archivos no cambian hasta `DOCREF` |
+
+La regresión 25/25 declarada no figura en (a): no es un paso del gate y su evidencia no está en el repositorio.
+
+### Decisiones de la reanudación
+
+1. **Carpeta `S` nueva por sesión, no sufijos `-r2` en `S1`.** La preparación usa `S_P` y la reanudación `S_R`, cada una con su `SHA256SUMS` y su hash fuera del host; `S_R/R0-referencias.txt` cita `S1` y `S_P` con sus hashes. Motivos: A0, A2c, A2d y A3e escriben con `>` archivos de nombre fijo que en `S1` se sobrescribirían y harían fallar K3; un único `SHA256SUMS` mezclaría dos HEADs de código; y `S1` nunca llegó a K3 (RP1 congela su hash). Dentro de `S_R` los identificadores son los de este documento (`D04`, `D07`…) y la regla `-r2` sigue valiendo. `S1` y `S_P` no se editan ni se borran, y no se añade nada a sus `SHA256SUMS`.
+2. **A4 no se repite.** Consta en `de692a4` y sus artefactos pertenecen a la ejecución 1. `package.json`, `package-lock.json` y `tsconfig.json` no cambian entre `de692a4` y `DOCREF` (RP2 lo exige).
+3. **A3f2 (`npm ci`) se repite**, aunque el lockfile no cambió: `S_R` necesita evidencia propia de que el volumen `node_modules` corresponde al lockfile (R7 sólo cubre `api.js`). El riesgo (instalación con red) es el ya asumido en A4b0 con el mismo lockfile.
+4. **D01–D03 se repiten sobre una base nueva.** `migrate-en` arranca Payload con el `payload.config.ts` modificado (con `POC_NO_PUSH=1` no carga `api.js`, `correccion-push.ts:113-126`), y «desde cero» exige una base sin migraciones. El nombre (`DBMIG`) lo decide el humano: una `poc3_*` que no aparezca en B3.
+5. **D05 se repite:** es una lectura barata y mantiene la sección D bajo un único HEAD.
+6. **D04, D06, D07 y D08 se repiten obligatoriamente.** D04 levanta `app` (`next dev`); D06 ejecuta el primer `push` con la corrección y D07, el de `next dev` (R11); D08 nunca se ejecutó. Después se sigue D09…K según el documento.
+
+### Sesión RP · preparación (antes de integrar)
+
+La ejecuta el humano como root en una shell nueva. De los pasos del gate sólo ejecuta A0, A3 (para definir `GUARDA` y `r()`; `r A3d` es diagnóstico) y A3e (en RP5). **Cada punto termina en parada dura** si no sale lo esperado: se detiene, se conserva lo que haya y se avisa al orquestador. Las marcas que imprime cada punto (`docref-ok`, `s1-ok`…) se transcriben a la plantilla; sólo tiene hash lo que se escribe en `S_P`. Ningún agente escribe en `/home/proyectos/jozeuzz-poc-candidata-a` ni en `/home/proyectos/jozeuzz-poc-drizzle-fix` durante esta sesión.
+
+**RP0 · Sesión y variables.** Se ejecuta A0 completo, que crea `S` (aquí, `S_P`). Después:
+
+```sh
+ORIG=/home/proyectos/jozeuzz-poc-candidata-a
+S1=<carpeta S de la ejecución 1, anotada por el responsable>
+DOCREF=<SHA completo (40 hex) del commit de docs/ sobre 42d7229 que contiene esta revisión>
+BASE_SHA=de692a43dbc2e43b099580e101f8e6f8eb0a1d37   # de692a4 (RP2 lo contrasta)
+CODE_SHA=42d7229950951c3ce2a3af626feec7341487ff7a   # 42d7229 (RP2 lo contrasta)
+DUMP=/root/jz-d07-respaldos/20261021T060116Z/poc3_intake.dump
+DUMP_SHA=01da9edc2fe32c4f072099329086added69d5f0ba78f496c296a45a012a5b7f7
+printf %s "$DOCREF" | grep -Eq '^[0-9a-f]{40}$' && echo docref-ok
+g show --no-textconv "$DOCREF":docs/GATE-DOCKER-POC-3.md | LESS= LESSSECURE=1 LESSOPEN= less   # el humano lee esta revisión desde Git
+g rev-parse "$DOCREF":docs/GATE-DOCKER-POC-3.md                     # anotar como BLOB para A1 de la sesión R
+```
+
+- **Esperado:** `docref-ok`. **Si no:** parada dura.
+
+**RP1 · Congelar la ejecución 1 y comprobar fugas en `S1`.**
+
+```sh
+test -d "$S1" && test ! -L "$S1" && test "$S1" != "$S" && echo s1-ok
+sha256sum -c --quiet "$S1/SHA256SUMS" && echo s1-integro
+test -s "$S1/D07.log" && echo d07-registrado
+sha256sum "$S1/SHA256SUMS" > "$S/RP1-s1-sha256sums.txt"
+cat "$S/RP1-s1-sha256sums.txt"   # anotar este hash fuera del host, como en K3
+sha256sum "$S/RP1-s1-sha256sums.txt" >> "$S/SHA256SUMS"
+# K2 sobre S1: todos los archivos salvo SHA256SUMS; sólo nombres de archivo, nunca líneas
+k2_dir="$S1"
+P='"password"|PAYLOAD_SECRET=|INTAKE_SECRETO=|POC_DB_PASSWORD=|PRIVATE KEY|E2E_RESET=|postgres://[^:@]*:[^@]*@'
+mapfile -d '' k2_f < <(find "$k2_dir" -maxdepth 1 -type f ! -name SHA256SUMS -print0)
+test "${#k2_f[@]}" -gt 0 && echo k2-archivos-ok || echo "K2 FALLÓ: ningún archivo que revisar (grep leería la entrada estándar): parada dura" >&2
+grep -lE "$P" -- "${k2_f[@]}"                                                        # a lo sumo A2-compose-resuelto.yaml
+test ! -e "$k2_dir/A2-compose-resuelto.yaml" || grep -E "$P" "$k2_dir/A2-compose-resuelto.yaml" | grep -vcF '${'   # 0
+# B1v no se ha ejecutado en esta sesión: misma comprobación antes de buscar por valor (sin imprimir valores)
+test -s "$ORIG/poc1a/.env" && test "$(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' "$ORIG/poc1a/.env" | grep -c .)" -eq 3 && echo k2-env-ok || echo "K2 FALLÓ: .env falta, está vacío o no da exactamente 3 valores: parada dura" >&2
+grep -lFf <(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' "$ORIG/poc1a/.env") -- "${k2_f[@]}"   # vacío
+```
+
+- **Esperado:** `s1-ok`, `s1-integro` y `d07-registrado`. A partir de aquí `S1` sólo se lee.
+- **K2 de `S1`:** por patrón, como mucho `A2-compose-resuelto.yaml`, cuyas coincidencias son los `${…}` sin interpolar de A2c (conteo `0`); `S1` no tiene `D22a.log`. Por valor, vacío, y sólo vale si antes salieron `k2-archivos-ok` y `k2-env-ok`: sin ellos una búsqueda vacía no prueba nada (falla abierta) y es parada dura; si se prefiere, el responsable ejecuta además las tres órdenes de B1v sobre `$ORIG/poc1a/.env`. Cualquier otra coincidencia: ese archivo no se comparte ni se abre en pantalla compartida, y es parada dura de seguridad.
+- **Si no:** parada dura. Si falta `D07.log`, el responsable explica dónde quedó registrado el fallo antes de seguir.
+
+**RP2 · Integridad de ramas, HEADs, árbol y diff.** Todo desde `$ORIG`: la rama `fix/…` se lee por su referencia (los worktrees comparten referencias) y no se ejecuta Git en el worktree de la corrección.
+
+```sh
+cd "$ORIG"
+test "$(g branch --show-current)" = poc/candidata-a-3 && echo rama-orig-ok
+test "$(g rev-parse --verify 'de692a4^{commit}')" = "$BASE_SHA" && test "$(g rev-parse --verify refs/heads/poc/candidata-a-3)" = "$BASE_SHA" && echo head-orig-ok
+test "$(g rev-parse --verify '42d7229^{commit}')" = "$CODE_SHA" && echo code-sha-ok
+test "$(g rev-parse --verify refs/heads/fix/poc3-drizzle-parametros)" = "$DOCREF" && echo head-fix-ok
+rp2_st="$(g status --porcelain)" && test -z "$rp2_st" && echo arbol-orig-limpio
+g merge-base --is-ancestor "$BASE_SHA" "$DOCREF" && g merge-base --is-ancestor "$CODE_SHA" "$DOCREF" && echo ancestros-ok
+g diff --no-renames --name-only "$BASE_SHA" "$DOCREF" | LC_ALL=C sort > "$S/RP2-rutas.txt"
+printf '%s\n' docs/GATE-DOCKER-POC-3.md poc1a/src/lib/drizzle-kit/correccion-push.test.ts poc1a/src/lib/drizzle-kit/correccion-push.ts poc1a/src/payload.config.ts poc1a/test/estatico/drizzle-kit-correccion.test.ts | LC_ALL=C sort > "$S/RP2-rutas-esperadas.txt"
+sha256sum "$S/RP2-rutas.txt" "$S/RP2-rutas-esperadas.txt" >> "$S/SHA256SUMS"
+cmp -s "$S/RP2-rutas.txt" "$S/RP2-rutas-esperadas.txt" && echo rutas-ok
+test "$(g diff --no-renames --name-only "$CODE_SHA" "$DOCREF")" = docs/GATE-DOCKER-POC-3.md && echo docref-solo-docs
+rp2_attr="$(g check-attr -a -- $(cat "$S/RP2-rutas.txt"))" && test -z "$rp2_attr" && echo atributos-rp2-ok
+```
+
+- **Esperado:** las siete marcas `*-ok`, `arbol-orig-limpio` y `docref-solo-docs`. `RP2-rutas.txt` contiene exactamente las cuatro rutas de código más `docs/GATE-DOCKER-POC-3.md`, así que ningún manifiesto ni ninguna ruta de `GUARDA` cambia. Con `--no-renames`, un renombrado lista la ruta de origen y la de destino.
+- `BASE_SHA` y `CODE_SHA` los aportó el orquestador; `head-orig-ok` y `code-sha-ok` los contrastan con los prefijos cortos.
+- Todas las comparaciones fallan cerradas: si `git` falla, no sale la marca.
+- **Si no:** parada dura. No se integra nada.
+
+**RP3 · Revisión A2 de la corrección con `REV=de692a4`, antes de integrar.** Es la lectura de A2a y A2b sobre `DOCREF`, que aún no es HEAD.
+
+```sh
+REV="$BASE_SHA"
+g log --format='%h %an %ad %s' --date=short "$REV".."$DOCREF" -- poc1a contrato .gitattributes
+g diff --no-ext-diff --no-textconv "$REV" "$DOCREF" -- \
+  poc1a/poc.sh 'poc1a/compose*.yaml' poc1a/proxy poc1a/scripts poc1a/package.json poc1a/package-lock.json poc1a/.npmrc \
+  poc1a/test/docker poc1a/test/build poc1a/medicion poc1a/contrato-driver.mjs poc1a/driver \
+  contrato poc1a/playwright.config.ts poc1a/playwright.medicion.config.ts .gitattributes poc1a/.gitattributes poc1a/contenedor
+g diff --no-ext-diff --stat "$REV" "$DOCREF" -- poc1a/e2e poc1a/src poc1a/test poc1a/vitest.config.ts poc1a/tsconfig.json 'poc1a/next.config*'
+g diff --no-ext-diff --no-textconv "$REV" "$DOCREF" -- poc1a/src/lib/drizzle-kit/correccion-push.ts poc1a/src/payload.config.ts
+g diff --no-ext-diff --no-textconv "$REV" "$DOCREF" -- poc1a/src/lib/drizzle-kit/correccion-push.test.ts poc1a/test/estatico/drizzle-kit-correccion.test.ts
+```
+
+- **Esperado:**
+  - el `log` muestra sólo `df576ed`, `986d7f3` y `42d7229`;
+  - el diff de A2a sale vacío;
+  - el resumen de A2b lista las cuatro rutas de código;
+  - los dos diffs completos se leen enteros. Son obligatorios: `correccion-push.ts` y `payload.config.ts` se ejecutan en `app`, `app-prod` y en cada `exec-en`, y las dos pruebas se ejecutan dentro de `app` en D11 (`vitest.config.ts:9`: `src/**/*.test.ts` incluye `correccion-push.test.ts` y `test/**/*.test.ts`, `drizzle-kit-correccion.test.ts`).
+- **Qué comprueba el humano en `correccion-push.ts`:**
+  - sólo lee `node_modules/drizzle-kit/package.json` y `node_modules/drizzle-kit/api.js` bajo la raíz que le pasa `payload.config.ts` (`/app` en los contenedores);
+  - falla cerrado si la versión no es `0.31.7`, si el sha256 de `api.js` no es `c87f9e8db2d4948521fd557d8f3945d4e4db482b06d5a2305dd51cdc410b0574` o si el bloque que sustituye no aparece exactamente una vez;
+  - compila con `vm.compileFunction` el texto de `api.js` con sólo ese bloque cambiado. No es un sandbox: corre en el mismo proceso y con los privilegios de Payload, y la huella fijada es lo que garantiza qué código se ejecuta;
+  - las consultas con parámetros van a `$client.query(consulta, params)`;
+  - no escribe archivos, no lanza procesos y no abre red.
+- **En `payload.config.ts`:** sólo cambian el `import` y el envoltorio `conCorreccionPushSchema(…, { raiz: path.resolve(dirname, '..') })`.
+- **Si no:** parada dura ante cualquier otra cosa no explicada.
+
+**RP4 · Respaldo: validación de lectura.**
+
+```sh
+test -f "$DUMP" && test ! -L "$DUMP" && test "$(stat -c '%U %a' "$DUMP")" = "root 600" && echo respaldo-modo-ok
+rp4_dir="$(dirname "$DUMP")" && test ! -L "$rp4_dir" && test "$(stat -c '%U %a' "$rp4_dir")" = "root 700" && echo respaldo-dir-ok
+printf '%s  %s\n' "$DUMP_SHA" "$DUMP" | sha256sum -c - && echo respaldo-hash-ok
+command -v pg_restore && pg_restore --version
+pg_restore --list "$DUMP" > "$S/RP4-respaldo-lista.txt" && echo respaldo-lista-ok && pg_restore --file=/dev/null "$DUMP" && echo respaldo-lectura-ok && sha256sum "$S/RP4-respaldo-lista.txt" >> "$S/SHA256SUMS"
+grep -c ' TABLE public ' "$S/RP4-respaldo-lista.txt"   # informativo: tablas de public en el volcado
+```
+
+- **Esperado:** `respaldo-modo-ok`, `respaldo-dir-ok`, `respaldo-hash-ok`, `respaldo-lista-ok` y `respaldo-lectura-ok`. El hash de la lista sólo se registra si la lista y la lectura salieron bien. La cifra de tablas es informativa: el responsable declara 19; otra cifra se explica antes de seguir.
+- Si el modo del volcado o de su directorio no es el exigido: parada dura. La corrección (`chmod 0600 -- "$DUMP"`, `chmod 0700 -- "$rp4_dir"`, sin `-R`) la decide el responsable, se registra y se repite RP4.
+- **Si el host no tiene `pg_restore`, o no lee el formato del volcado** (por ejemplo, un volcado de PostgreSQL 18 con un `pg_restore` más antiguo), se usa la excepción de sólo lectura de la advertencia 5. Necesita `db` en marcha y, como Compose interpola `.env`, las tres órdenes de B1v antes. **Propuesta no verificada:** que `pg_restore` lea el formato del volcado por la entrada estándar (el formato *custom* lo admite; el de directorio, no). Si tampoco sirve, el responsable repite la lectura con el método que usó al crearlo y anota cuál fue. Una `RP4-respaldo-lista.txt` de un intento fallido del host queda sin hash y no se cita.
+
+```sh
+cd "$ORIG/poc1a"
+docker compose -p jozeuzz-poc-a -f compose.yaml exec -T db pg_restore --list < "$DUMP" > "$S/RP4-respaldo-lista-db.txt" && echo respaldo-lista-ok && docker compose -p jozeuzz-poc-a -f compose.yaml exec -T db pg_restore --file=/dev/null < "$DUMP" && echo respaldo-lectura-ok && sha256sum "$S/RP4-respaldo-lista-db.txt" >> "$S/SHA256SUMS"
+grep -c ' TABLE public ' "$S/RP4-respaldo-lista-db.txt"   # informativo
+```
+
+- **Si no:** parada dura. Sin respaldo validado no se integra ni se levanta `app` con la corrección. D04 sólo arranca `next dev`: `src/instrumentation.ts:1-10` no inicializa Payload y `push` corre en `connect()`, con la primera `getPayload` de cada proceso (`node_modules/@payloadcms/db-postgres/dist/connect.js:110-112`). El primer `push` sobre `poc3_intake` con el código nuevo es el de D06 (`comprobar-en`, un proceso `tsx` aparte dentro de `app`: `poc.sh:100`, `scripts/verificar-db.ts:11`); el de `next dev` llega con la primera petición que llama a `getPayload`, el `GET /solicitar` de D07 (`src/lib/intake/formulario.ts:1,10` → `listarServiciosPublicos` de `src/lib/publico.ts`).
+- **Restauración: no probada, decisión humana y fuera de este procedimiento.** Sólo ante un daño comprobado en `poc3_intake` y con decisión registrada del responsable: en una base **nueva** cuyo nombre cumpla la expresión de R8 (`^poc3_[a-z0-9_]+$`) y no aparezca en B3, creada con `./poc.sh psql -c 'CREATE DATABASE …'`; justo antes, `printf '%s  %s\n' "$DUMP_SHA" "$DUMP" | sha256sum -c -` (si no sale `OK`, no se restaura); con `pg_restore -U poc -d <esa base> --no-owner --exit-on-error --single-transaction`, desde el contenedor `db` y con el volcado por la entrada estándar; nunca sobre `poc3_intake`, `poc` ni `poc1b_*`, ni con `--clean` o `--create`; después se comparan las tablas con la lista de RP4. Escribe en la base, así que no es una excepción de sólo lectura (advertencia 5), y usar la base restaurada en el gate exige revisar este documento (las órdenes D citan `poc3_intake`).
+
+**RP5 · Retirada de contenedores antes de integrar.** El gate se detuvo con los servicios en marcha. `app` ejecuta `next dev` con el bind RO de `poc1a/`: al hacer el fast-forward, su observador de archivos recompilaría con un árbol a medio actualizar y antes de comprobar la huella (R7), y la siguiente petición podría ejecutar `push` sobre `poc3_intake`. Por eso los contenedores se retiran **antes** de integrar.
+
+```sh
+cd "$ORIG/poc1a"
+grep -cvE '^(POC_DB_PASSWORD|PAYLOAD_SECRET|INTAKE_SECRETO)=[0-9a-f]+$' .env   # 0 (rc=1 es lo esperado)
+grep -cE '^(POC_DB_PASSWORD|PAYLOAD_SECRET|INTAKE_SECRETO)=' .env             # 3
+stat -c '%U %a' .env                                                          # root 600
+# a continuación: el bloque de A3 completo (define GUARDA, r y tls_ok; r A3d es diagnóstico)
+r RP5a ./poc.sh down
+# a continuación: el bloque de A3e completo, sin cambios
+```
+
+- **Esperado:** las tres salidas de B1v y, en A3e, `proyecto-sin-contenedores` y `sin-montajes-rw`. El rc de `RP5a` se registra, pero **no bloquea** si A3e sale limpio: A3e es el control vinculante, y `down` (J2) sólo busca parar PostgreSQL con SIGTERM en lugar del SIGKILL de `docker rm -f` (que obligaría a una recuperación de caída). No se antepone `down-prod`: `app-prod` previsiblemente no existe (se levanta a partir de D19) y, si existiera y `down` no lo retirase, lo retira A3e.
+- **Si no:** parada dura. No se integra.
+- Compose es aceptable aquí (A3e lo evita porque interpola `.env` y lee el árbol): el árbol es `de692a4` limpio (RP2), `.env` acaba de validarse y los contenedores son de la era RO. Si el responsable prefiere no usar Compose, ejecuta sólo A3e en este punto (tras RP4, cuya excepción necesita `db` en marcha) y lo anota en la fila RP5.
+
+**RP6 · Integración humana: fast-forward con `umask 022`.** A0 fija `umask 077`. Git crea los archivos del árbol con los permisos de la `umask` vigente, tanto los nuevos como los que reescribe al actualizar. Con `umask 077` quedarían en 600 de root, y el uid 1000 de los contenedores no podría leerlos por el bind RO (`EACCES` en `next dev` y en Payload). Por eso el fast-forward va en una subshell con `umask 022`, y después se comprueban los permisos.
+
+```sh
+cd "$ORIG"
+(
+set -eu
+umask 022
+test "$(g branch --show-current)" = poc/candidata-a-3
+test "$(g rev-parse --verify HEAD)" = "$BASE_SHA"
+rp6_st="$(g status --porcelain)"
+test -z "$rp6_st"
+g_efectiva
+rp6_attr="$(g check-attr -a -- $(cat "$S/RP2-rutas.txt"))"
+test -z "$rp6_attr"
+g merge --ff-only "$DOCREF"
+test "$(g rev-parse --verify HEAD)" = "$DOCREF"
+) > "$S/RP6-merge.txt" 2>&1
+rp6_rc=$?
+cat "$S/RP6-merge.txt"
+sha256sum "$S/RP6-merge.txt" >> "$S/SHA256SUMS"
+echo "RP6 rc=$rp6_rc"
+test "$rp6_rc" -eq 0 || echo "RP6 FALLÓ: parada dura" >&2
+test "$(umask)" = 0077 && echo umask-077
+rp6_st="$(g status --porcelain)" && test -z "$rp6_st" && echo arbol-limpio-tras-ff
+stat -c '%a %U:%G %n' poc1a/src/lib/drizzle-kit $(cat "$S/RP2-rutas.txt") > "$S/RP6-permisos.txt"
+cat "$S/RP6-permisos.txt"
+sha256sum "$S/RP6-permisos.txt" >> "$S/SHA256SUMS"
+rp6_malos="$(awk '($3=="poc1a/src/lib/drizzle-kit" && $1!="755") || ($3!="poc1a/src/lib/drizzle-kit" && $1!="644")' "$S/RP6-permisos.txt")" && test -z "$rp6_malos" && echo permisos-ok
+rp6_ilegibles="$(g ls-files -z -- poc1a | xargs -0 -r stat -c '%a %n' | awk '{d=substr($1,length($1),1)} d!~/[4-7]/')" && test -z "$rp6_ilegibles" && echo legibles-ok
+rp6_dirs="$(find poc1a/src poc1a/test -type d ! -perm -005)" && test -z "$rp6_dirs" && echo directorios-ok
+```
+
+- **Esperado:**
+  - `RP6 rc=0`, `umask-077` (la sesión conserva su `umask`) y `arbol-limpio-tras-ff`;
+  - en `RP6-permisos.txt`, `755` para `poc1a/src/lib/drizzle-kit` y `644` para las cinco rutas. El propietario (previsiblemente `root:root`) se registra sin bloquear;
+  - `legibles-ok`, es decir, ningún archivo versionado de `poc1a/` sin lectura para otros, y `directorios-ok`.
+- `legibles-ok` también detectaría archivos que se reescribieron con `umask 077` en la ejecución 1 (por ejemplo, en la aplicación de A4p). No se sabe si los hay; si aparecen, se tratan igual.
+- **Si no:** parada dura. No se corrige con un `chmod` silencioso. Si el responsable decide corregir, lo registra y lo hace ruta a ruta, sólo sobre las listadas, sin `-R` ni modos simbólicos, con `stat` antes y después en `S_P` (`RP6-permisos-r2.txt`, con su hash en `SHA256SUMS`); después repite `permisos-ok`, `legibles-ok` y `directorios-ok`:
+
+```sh
+p=<ruta listada>
+# archivo: el modo sale del índice (100755 → 0755, 100644 → 0644); cualquier otro (o ninguno), parada dura
+if test -f "$p" && test ! -L "$p"; then
+  rp6_idx="$(g ls-files -s -- "$p" | cut -d' ' -f1)"
+  case "$rp6_idx" in 100755) chmod 0755 -- "$p" ;; 100644) chmod 0644 -- "$p" ;; *) echo "RP6 FALLÓ: modo de índice [$rp6_idx] no admitido para $p: parada dura" >&2 ;; esac
+fi
+test -d "$p" && test ! -L "$p" && chmod 0755 -- "$p"   # directorio
+```
+
+- El fast-forward es un `merge`: es una operación humana (`docs/AUTONOMIA-JZ.md` §3). `g` anula los hooks (`post-merge`, `post-checkout`), `fsmonitor` y el mantenimiento automático. Los filtros `clean`/`smudge` los descarta el `check-attr -a` previo.
+
+**RP7 · Cierre de la sesión RP.** K2 sobre `S_P` (aquí `S`), desde `poc1a/`, y comprobación de hashes.
+
+```sh
+cd "$ORIG/poc1a"
+k2_dir="$S"
+P='"password"|PAYLOAD_SECRET=|INTAKE_SECRETO=|POC_DB_PASSWORD=|PRIVATE KEY|E2E_RESET=|postgres://[^:@]*:[^@]*@'
+mapfile -d '' k2_f < <(find "$k2_dir" -maxdepth 1 -type f ! -name SHA256SUMS -print0)
+test "${#k2_f[@]}" -gt 0 && echo k2-archivos-ok || echo "K2 FALLÓ: ningún archivo que revisar (grep leería la entrada estándar): parada dura" >&2
+grep -lE "$P" -- "${k2_f[@]}"                                          # vacío
+test -s .env && test "$(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' .env | grep -c .)" -eq 3 && echo k2-env-ok || echo "K2 FALLÓ: .env falta, está vacío o no da exactamente 3 valores: parada dura" >&2
+grep -lFf <(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' .env) -- "${k2_f[@]}"   # vacío
+sha256sum -c --quiet "$S/SHA256SUMS" && echo sp-integro
+sha256sum "$S/SHA256SUMS"   # anotar fuera del host, junto con la ruta de S_P
+```
+
+- **Esperado:** `k2-archivos-ok`, `k2-env-ok`, las dos búsquedas de K2 vacías y `sp-integro`. Una coincidencia de K2 es parada dura de seguridad (como en K). Después se cierra la shell: la sesión R empieza en una shell nueva, con su propio A0.
+
+### Sesión R · reanudación sobre `42d7229`
+
+Se hace en una shell nueva, sobre `poc/candidata-a-3` en `DOCREF`. Cada paso se ejecuta como lo define su sección, con sus propias paradas, salvo lo que indica esta tabla.
+
+| # | Paso | En la reanudación |
+|---|---|---|
+| R0 | A0 y referencias | A0 crea `S` (aquí, `S_R`). Después, el bloque R0 de abajo |
+| R1 | A3e | Esperado: `A3e-antes.txt` vacío (RP5 ya retiró todo). Si aparece algún contenedor, alguien levantó servicios entre RP y R: parada dura |
+| R2 | A1 | `BLOB` anotado en RP0, `CODEREF=42d7229` y HEAD = `DOCREF` |
+| R3 | A2 | `REV=de692a4`. A2a sale vacío y el resumen de A2b lista tres rutas (`correccion-push.ts`, `correccion-push.test.ts` y `payload.config.ts`): su pathspec incluye `poc1a/test/http` y `poc1a/test/integracion`, pero no `poc1a/test/estatico`, a diferencia del de RP3 (`poc1a/test`). Los diffs completos ya se leyeron en RP3, sobre el mismo `DOCREF`. A2c y A2d se repiten completos |
+| R4 | A3 | Completo |
+| R5 | B1 y B1v | Completos |
+| R6 | A3f1, A3f2 y A3f3 | Completos; A3f2 se repite (decisión 3) |
+| — | A4 | **No se repite** (decisión 2). La fila A4 de la tabla B no aplica |
+| R7 | Huella de `api.js` en el volumen | Bloque R7 de abajo, antes de cualquier arranque de `app` |
+| R8 | B2, B3 y B4 | B4 no recrea bases existentes: B4a y B4b se omiten para cada base que liste B3. Que existan se deduce de B3, no se presupone (el responsable sólo declaró `poc3_intake`). Se crea `DBMIG` con el bloque R8 |
+| R9 | Respaldo intacto | Bloque R9, antes de D01 |
+| R10 | D01–D03 | Sobre `DBMIG` (decisión 4), bloque R10 |
+| R11 | D04, D05, D06, D07 y D08 | Como en la sección D, con los controles del bloque R11 tras D04, D06 y D07 |
+| R12 | D09…D30, J y K | Como en el documento. D11 previsiblemente reproducirá los fallos de I-A4T (ver «Incidencias abiertas») |
+
+**R0 · Referencias de la reanudación.**
+
+```sh
+S1=<carpeta S de la ejecución 1>
+S1_HASH=<hash de S1/SHA256SUMS anotado en RP1>
+SP=<carpeta S de la sesión RP>
+SP_HASH=<hash de SP/SHA256SUMS anotado en RP7>
+DOCREF=<SHA completo de DOCREF, el mismo de RP0>
+DUMP=/root/jz-d07-respaldos/20261021T060116Z/poc3_intake.dump
+DUMP_SHA=01da9edc2fe32c4f072099329086added69d5f0ba78f496c296a45a012a5b7f7
+test "$(g rev-parse --verify HEAD)" = "$DOCREF" && echo head-docref-ok
+test "$(sha256sum "$S1/SHA256SUMS" | cut -d' ' -f1)" = "$S1_HASH" && echo s1-sin-cambios
+test "$(sha256sum "$SP/SHA256SUMS" | cut -d' ' -f1)" = "$SP_HASH" && echo sp-sin-cambios
+sha256sum -c --quiet "$S1/SHA256SUMS" && echo s1-integro
+sha256sum -c --quiet "$SP/SHA256SUMS" && echo sp-integro
+( set -C; printf 'S1=%s\nS1_SHA256SUMS=%s\nS_P=%s\nS_P_SHA256SUMS=%s\nDOCREF=%s\nCODEREF=42d7229\n' "$S1" "$S1_HASH" "$SP" "$SP_HASH" "$DOCREF" > "$S/R0-referencias.txt" )
+sha256sum "$S/R0-referencias.txt" >> "$S/SHA256SUMS"
+```
+
+- **Esperado:** `head-docref-ok`, `s1-sin-cambios`, `sp-sin-cambios`, `s1-integro` y `sp-integro`. **Si no:** parada dura.
+
+**R7 · Huella de `api.js` en el volumen nombrado.** Se comprueba en el volumen que ven los contenedores, no en el `node_modules` del host. Va después de A3f2, que acaba de reinstalarlo, y antes de B2 y de cualquier proceso que cargue Payload con `push`. Se lanza en `app-prod` porque allí `node_modules` es RO, el servicio no tiene red externa y `POC_NO_PUSH=1`.
+
+```sh
+r R7 ./poc.sh run-prod-en poc3_intake node -e 'const c=require("node:crypto"),f=require("node:fs"),d="/app/node_modules/drizzle-kit/";console.log("drizzle-kit "+JSON.parse(f.readFileSync(d+"package.json","utf8")).version);console.log("api.js "+c.createHash("sha256").update(f.readFileSync(d+"api.js")).digest("hex"))'
+tr -d '\r' < "$S/R7.log" | grep -qx 'drizzle-kit 0.31.7' && tr -d '\r' < "$S/R7.log" | grep -qx 'api.js c87f9e8db2d4948521fd557d8f3945d4e4db482b06d5a2305dd51cdc410b0574' && echo huella-api-ok
+```
+
+- **Esperado:** `R7` rc=0 y `huella-api-ok`.
+- **Si no:** parada dura antes de levantar nada. La corrección también fallaría cerrada (`correccion_push_version_inesperada` o `correccion_push_huella_inesperada`), pero aquí se detiene antes.
+- **Propuesta no verificada en ejecución:** el orden exacto (tras A3f3 y antes de B2), la ruta `/app/node_modules` del volumen en `app-prod`, el paso de las comillas a través de `r`, `poc.sh` y `compose run`, y los `\r` si Compose asigna TTY (por eso el `tr`).
+
+**R8 · Base nueva para U4.**
+
+```sh
+DBMIG=<base poc3_* nueva para U4, decidida por el humano; no listada en B3>
+test -s "$S/B3.log" && grep -qx 'rc=0' "$S/B3.log" && printf %s "$DBMIG" | grep -Eq '^poc3_[a-z0-9_]+$' && ! grep -qx "$DBMIG" "$S/B3.log" && echo dbmig-nueva && r B4c ./poc.sh psql -c "CREATE DATABASE $DBMIG"
+```
+
+- **Esperado:** `dbmig-nueva` y `B4c` rc=0 con `CREATE DATABASE`. Falla cerrado si falta `B3.log` o si B3 no terminó con rc=0. **Si no:** parada dura. No se reutiliza ni se borra ninguna base.
+
+**R9 · Respaldo intacto antes de tocar bases.**
+
+```sh
+r R9 sha256sum "$DUMP"
+grep -q "^$DUMP_SHA " "$S/R9.log" && echo respaldo-ok
+```
+
+- **Esperado:** `respaldo-ok`. **Si no:** parada dura. No se ejecuta D01 ni D04.
+
+**R10 · D01–D03 sobre `DBMIG`.** Son las órdenes de la sección C, con `"$DBMIG"` en lugar de `poc3_migraciones`, y con los mismos esperados y paradas.
+
+```sh
+r D01 ./poc.sh migrate-en "$DBMIG"
+r D02 ./poc.sh migrate-en "$DBMIG"
+r D03a ./poc.sh psql-en "$DBMIG" -Atc "SELECT tablename FROM pg_tables WHERE schemaname='poc_prod' AND tablename LIKE 'intake_%' ORDER BY 1"
+r D03b ./poc.sh psql-en "$DBMIG" -Atc "SELECT conrelid::regclass, contype, count(*) FROM pg_constraint WHERE conrelid IN ('poc_prod.intake_envio'::regclass,'poc_prod.intake_limite'::regclass) AND contype IN ('c','p') GROUP BY 1,2 ORDER BY 1,2"
+```
+
+**R11 · D04–D08 y detección de fallos de `push`.** D04, D05, D06, D07 y D08 se ejecutan como en la sección D. Dónde corre `push` está en RP4: D04 no lo ejecuta; el primero es el de D06 (proceso `tsx` aparte) y el de `next dev` llega con D07.
+
+Tras D04, cuando `./poc.sh logs 50` muestra `Ready`, y antes de D05, **control de arranque** (no prueba `push`):
+
+```sh
+r D04L ./poc.sh logs 300
+tr -d '\r' < "$S/D04L.log" | grep -nE 'ENOENT|EACCES|EROFS'   # vacío o sólo el EACCES de /app/.env
+```
+
+- **Esperado:** ninguna línea, o sólo `Failed to load env from .env` con `EACCES`. Es previsible y está explicado: `@next/env` 16.4.1 registra con ese texto todo error distinto de `ENOENT` al leer los `.env` (`node_modules/@next/env/dist/index.js`), y `/app/.env` es root 600 (B1v) frente al uid 1000 de `next dev`. Cualquier otro `ENOENT`/`EACCES`/`EROFS` es parada dura (criterio de «Tipos de parada»), igual que si `app` no llega a `Ready`.
+
+Tras D06, **primer `push`** con la corrección. `tsx` imprime en `D06.log` el error de `getPayload`, incluido el de `push`:
+
+```sh
+grep -qx 'rc=0' "$S/D06.log" && tr -d '\r' < "$S/D06.log" | grep -qx 'DATABASE_OK:poc3_intake' && echo d06-ok
+d06_rc=0; tr -d '\r' < "$S/D06.log" | grep -nE 'correccion_push_|42P02|ENOENT.*drizzle-kit' || d06_rc=$?
+test "$d06_rc" -eq 1 && echo sin-error-push
+```
+
+- **Esperado:** `d06-ok` y `sin-error-push` (la búsqueda sale vacía).
+- **Parada dura** si falta cualquiera de las dos marcas, o si D06 no termina: puede ser una pregunta interactiva o un aviso de pérdida de datos de `push` (`docs/POC-3-DISENO.md:142`; el texto exacto de Payload 3.90.2 no está verificado). Ante una pregunta de `push` no se responde y no se ejecuta `resetdb`.
+
+Tras D07, **`push` de `next dev`**: `FALLO: proxy TLS: HTTP 500` (`scripts/sonda-red.mjs:14-21`) se trata como fallo de `push` y es parada dura. `GET /solicitar` llama a `getPayload`; si falla, `src/lib/intake/manejador.ts:126-134` descarta el error y responde 500 sin registro útil, y `src/lib/intake/log.ts:64-72` sustituye los mensajes de error por «mensaje omitido». Por eso `./poc.sh logs` no sirve para diagnosticarlo.
+
+**Si D04, D06, D07 o D08 vuelven a fallar (o si falla R11):**
+
+1. **Parada dura.** No se ejecutan `./poc.sh down`, `resetdb` ni `destroy`, y los servicios se quedan como están.
+2. **Diagnóstico:** `r D06-r2 ./poc.sh comprobar-en poc3_intake` (o el siguiente identificador libre), salvo que el fallo sea que D06 no termina. **No es de sólo lectura:** vuelve a ejecutar `push` sobre `poc3_intake` (escribe en la base), así que exige decisión humana registrada y, antes, comprobar que el respaldo sigue validado (R9). `tsx` imprime el error en el log, que no se abre en pantalla compartida. Si `D06-r2` sale conforme y D07 sigue en 500, el fallo es propio de `next dev` y no queda registrado: se anota así.
+3. Se cierra la evidencia sin J: K1, K2 y K3 sobre `S_R`, y el hash de `SHA256SUMS` se anota fuera del host. Sin D22 no hay `D22a.log`: K2 por patrón sólo admite `A2-compose-resuelto.yaml`, y la línea de `D22a.log` no aplica.
+4. **No se restaura** el respaldo sin decisión humana (RP4).
+5. Se avisa al orquestador. Un nuevo intento es otra unidad de corrección, con su propia revisión y una nueva revisión de este documento.
+
 ---
 
 ## A. Antes de empezar (sin Docker, salvo A2c)
@@ -59,6 +416,7 @@ El procedimiento asume `bash`, por `pipefail` y la sustitución de procesos de K
 bash
 cd /home/proyectos/jozeuzz-poc-candidata-a
 set -o pipefail
+{ test "${BASH_VERSINFO[0]}" -gt 4 || { test "${BASH_VERSINFO[0]}" -eq 4 && test "${BASH_VERSINFO[1]}" -ge 4; }; } && echo bash-ok || echo "A0 FALLÓ: bash anterior a 4.4 (K2 usa mapfile -d ''): parada dura" >&2
 umask 077
 S="/root/jz-gate-poc3/$(date -u +%Y%m%dT%H%M%SZ)"
 test ! -L /root/jz-gate-poc3 && install -d -m 700 /root/jz-gate-poc3 "$S" && echo salidas-ok
@@ -93,11 +451,11 @@ git config --show-scope --show-origin --name-only -l > "$S/A0-git-config-nombres
 sha256sum "$S/A0-git-config-nombres.txt" >> "$S/SHA256SUMS"
 grep -iE 'fsmonitor|hookspath|pager|editor|sshcommand|askpass|attributesfile|gitproxy|textconv|\.command|driver|process|clean|smudge|program|helper|external|gpg|gpgsign|signingkey|showsignature|alias|filter\.|include|includeif|credential|sequence\.editor|difffilter|uploadpack|receivepack|maintenance|gc\.auto|submodule|url\.|protocol|tool' "$S/A0-git-config-nombres.txt"   # vacío o explicado
 # A0.4 · g endurecida: la usan todas las órdenes Git del procedimiento
-g() { git -c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.attributesFile=/dev/null -c commit.gpgSign=false -c tag.gpgSign=false -c log.showSignature=false -c gpg.program=/bin/false -c gpg.ssh.program=/bin/false -c gpg.x509.program=/bin/false -c gc.auto=0 -c maintenance.auto=false --no-pager "$@"; }
+g() { git -c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.attributesFile=/dev/null -c commit.gpgSign=false -c tag.gpgSign=false -c log.showSignature=false -c gpg.program=/bin/false -c gpg.ssh.program=/bin/false -c gpg.x509.program=/bin/false -c gc.auto=0 -c maintenance.auto=false -c status.showUntrackedFiles=normal -c diff.renames=false --no-pager "$@"; }
 # A0.5 · configuración efectiva tras definir g: cada clave anulada debe valer lo que dice g (el último -c gana)
 g_efectiva() {
   a0_fallos=0
-  for par in core.fsmonitor=false core.hooksPath=/dev/null core.attributesFile=/dev/null commit.gpgSign=false tag.gpgSign=false log.showSignature=false gpg.program=/bin/false gpg.ssh.program=/bin/false gpg.x509.program=/bin/false gc.auto=0 maintenance.auto=false; do
+  for par in core.fsmonitor=false core.hooksPath=/dev/null core.attributesFile=/dev/null commit.gpgSign=false tag.gpgSign=false log.showSignature=false gpg.program=/bin/false gpg.ssh.program=/bin/false gpg.x509.program=/bin/false gc.auto=0 maintenance.auto=false status.showUntrackedFiles=normal diff.renames=false; do
     k="${par%%=*}"; v="${par#*=}"
     if test "$(g config --get "$k")" = "$v"; then echo "$k=$v"; else echo "A0 FALLÓ: $k no vale $v" >&2; a0_fallos=$((a0_fallos+1)); fi
   done
@@ -114,9 +472,9 @@ atributos_limpios && echo atributos-ok || echo "A0 FALLÓ: atributos sobre los m
 ls -l "$(g rev-parse --git-common-dir)/hooks"   # informativo: hooks del repositorio común (g fija core.hooksPath=/dev/null y por eso rev-parse --git-path hooks devolvería /dev/null)
 ```
 
-- **Esperado:** sale `salidas-ok` (la carpeta de salidas `S` se crea aquí para que A2 pueda registrar su salida), `ruta-git-ok`, `bin-false-ok`, `g-efectiva-ok` y `atributos-ok`; `type -a git` muestra una o más rutas ejecutables que canonicalizan al mismo binario (usr-merge admite `/bin/git` y `/usr/bin/git`); no muestra alias ni función; `git --exec-path` y el binario canónico son de root y no escribibles por grupo ni otros; el `PATH` sólo tiene rutas absolutas fuera de `/home`; el `env | … | grep '^GIT_'` no imprime nada; el último `grep` sobre `A0-git-config-nombres.txt` no imprime nada; `g check-attr -a` termina con rc=0 y no imprime nada; y no aparece ningún `A0 FALLÓ`.
+- **Esperado:** sale `bash-ok` (bash ≥ 4.4), `salidas-ok` (la carpeta de salidas `S` se crea aquí para que A2 pueda registrar su salida), `ruta-git-ok`, `bin-false-ok`, `g-efectiva-ok` y `atributos-ok`; `type -a git` muestra una o más rutas ejecutables que canonicalizan al mismo binario (usr-merge admite `/bin/git` y `/usr/bin/git`); no muestra alias ni función; `git --exec-path` y el binario canónico son de root y no escribibles por grupo ni otros; el `PATH` sólo tiene rutas absolutas fuera de `/home`; el `env | … | grep '^GIT_'` no imprime nada; el último `grep` sobre `A0-git-config-nombres.txt` no imprime nada; `g check-attr -a` termina con rc=0 y no imprime nada; y no aparece ningún `A0 FALLÓ`.
 - **Si no:** parada dura. Lo que imprima el `grep` de nombres lo explica el humano antes de seguir (por ejemplo `credential.helper` o un `include` global); si no puede explicarlo, es parada dura. La comprobación ya **no imprime valores**, que podrían ser secretos: la lista contiene sólo ámbito, origen y nombre de clave, y falla cerrada (si `git config` no se puede leer, imprime `A0 FALLÓ` en lugar de parecer limpia). Para ver el valor de una clave concreta, el humano lo pide a mano sólo después de comprobar que no es un secreto.
-- **Por qué `g` y por qué no basta con ella.** El humano ejecuta `g commit`, `g add` o `g apply` como root, y Git puede ejecutar programas según su configuración: `gpg.program`, `gpg.ssh.program` y `gpg.x509.program` con `commit.gpgSign` o `tag.gpgSign`; `log.showSignature` al leer el historial; hooks; `core.fsmonitor`; filtros `clean`/`smudge` (si un atributo los activa); y `gc`/`maintenance` automáticos. Esa configuración puede venir del repositorio, de `/home/proyectos/jozeuzz/.git/config` (común a todos los worktrees), de `config.worktree`, de la global, de `include`/`includeIf` o de `GIT_CONFIG_*`. `g` anula en la propia invocación los programas de firma, los hooks (`core.hooksPath=/dev/null`), `fsmonitor`, el archivo global de atributos y el mantenimiento automático. Un filtro declarado en `.gitattributes` o en `.git/info/attributes` junto con `filter.<nombre>.clean` no lo puede anular `g`: lo detiene `check-attr -a` (A0.6) y el `grep` de nombres (A0.3). Los diffs llevan `--no-ext-diff --no-textconv` y las lecturas de blobs con `show` (A1), `--no-textconv`.
+- **Por qué `g` y por qué no basta con ella.** El humano ejecuta `g commit`, `g add` o `g apply` como root, y Git puede ejecutar programas según su configuración: `gpg.program`, `gpg.ssh.program` y `gpg.x509.program` con `commit.gpgSign` o `tag.gpgSign`; `log.showSignature` al leer el historial; hooks; `core.fsmonitor`; filtros `clean`/`smudge` (si un atributo los activa); y `gc`/`maintenance` automáticos. Esa configuración puede venir del repositorio, de `/home/proyectos/jozeuzz/.git/config` (común a todos los worktrees), de `config.worktree`, de la global, de `include`/`includeIf` o de `GIT_CONFIG_*`. `g` anula en la propia invocación los programas de firma, los hooks (`core.hooksPath=/dev/null`), `fsmonitor`, el archivo global de atributos y el mantenimiento automático. Un filtro declarado en `.gitattributes` o en `.git/info/attributes` junto con `filter.<nombre>.clean` no lo puede anular `g`: lo detiene `check-attr -a` (A0.6) y el `grep` de nombres (A0.3). Los diffs llevan `--no-ext-diff --no-textconv` y las lecturas de blobs con `show` (A1), `--no-textconv`. Además, `g` fija `status.showUntrackedFiles=normal`, para que la guarda de `r()`, `arbol-limpio` (K1) y RP2/RP6 vean los archivos nuevos aunque la configuración diga `no`, y `diff.renames=false`, para que los `diff --name-only` (A1, RP2) listen las dos rutas de un renombrado y no sólo la de destino.
 - **Ajuste respecto del diseño:** `g rev-parse --git-path hooks` devuelve `/dev/null` con la `g` endurecida; por eso el listado informativo de hooks usa `--git-common-dir`.
 - **Riesgo residual (advertencia 9).** Los agentes corren como root en este host: un binario sustituido (`/usr/bin/git`, `diff`, `node`) o un `PATH` manipulado después de A0 no lo detecta esta comprobación, que sólo mira propietario y permisos. Es revisión humana.
 
@@ -151,7 +509,7 @@ El humano lee este documento desde Git (`g show --no-textconv HEAD:docs/GATE-DOC
 ```sh
 BLOB=<blob anotado por el humano tras leer el documento>
 g branch --show-current                               # poc/candidata-a-3
-CODEREF=0231888                                       # referencia vinculante de código (cabecera): commit A de la corrección A0/A4
+CODEREF=42d7229                                       # referencia vinculante de código (cabecera): último commit de la corrección D07
 g rev-parse --short HEAD                              # CODEREF o un commit posterior que sólo cambie docs/
 g diff --name-only "$CODEREF"..HEAD                   # vacío o sólo rutas bajo docs/
 g diff --name-only "$CODEREF"..HEAD | grep -v '^docs/'   # vacío (rc=1 es lo esperado)
@@ -168,7 +526,7 @@ Es **parada dura** en cualquiera de estos casos:
 
 ### A2 · Revisión obligatoria del contenido editado por agentes (S2, S4)
 
-`<REV>` es el último commit que el humano revisó. **PENDIENTE:** lo fija el humano, porque este documento no lo conoce.
+`<REV>` es el último commit que el humano revisó. **PENDIENTE:** lo fija el humano, porque este documento no lo conoce. En la reanudación es `de692a4`: el HEAD de la ejecución 1, cuyo último cambio de código (A4) aprobó el humano por hash. La corrección D07 se revisa en RP3 y en R3.
 
 **A2a · Todo lo que el host ejecuta como root o que configura contenedores e instalación (diff completo, obligatorio):**
 
@@ -207,7 +565,7 @@ grep -nE 'external|name:|driver_opts|build:|devices|env_file|sock' "$S/A2-compos
 - **`--no-interpolate` es obligatorio.** Sin él, `config` sustituye `${POC_DB_PASSWORD}`, `${PAYLOAD_SECRET}` e `${INTAKE_SECRETO}` desde `.env` (`compose.yaml:45,85,88,131,134`) e imprime los secretos.
 - Los perfiles `volumes-init`, `deps`, `prod` y `e2e` existen (`compose.yaml:21,60,126,180`).
 - La salida normalizada se guarda en `S` y el humano la abre y la compara con la matriz de abajo. El formato exacto de la salida de Compose (montajes en formato largo con `- type:`) no está verificado: si el `grep` no muestra los montajes, se lee el archivo completo.
-- Las demás citas de línea de `poc.sh` y `compose.yaml` de este documento corresponden al código de `69e1883` y se desplazaron con el aislamiento de escritura; las de A2c ya están actualizadas. Las citas no actualizadas siguen refiriéndose a `69e1883`; la referencia vinculante de código es el commit A (ver la cabecera).
+- Las demás citas de línea de `poc.sh` y `compose.yaml` de este documento corresponden al código de `69e1883` y se desplazaron con el aislamiento de escritura; las de A2c ya están actualizadas. Las citas no actualizadas siguen refiriéndose a `69e1883`; la referencia vinculante de código es `CODEREF` (ver la cabecera).
 
 Qué hay que ver:
 
@@ -598,8 +956,8 @@ r A4c ./poc.sh deps npm audit signatures
 | Clase | Operaciones | Regla |
 |---|---|---|
 | setpriv UID 1000, sin grupo docker | Sólo D21b (`node --test test/build/comprobar-build.test.mjs`) y D30 (`env POC_BASE_URL=https://127.0.0.1:3444 node medicion/intake-latencia.mjs`), porque no invocan `poc.sh` ni Docker | Lanzar con `setpriv --reuid=1000 --regid=1000 --clear-groups`. D30 hereda `NODE_EXTRA_CA_CERTS` y necesita leer `.tls/ca.crt`, no socket. Si cualquiera empieza a invocar `poc.sh`, cambia automáticamente a la clase Docker |
-| Docker: privilegio equivalente a root | Todo `docker compose up/run/exec/logs/down`, `docker version`, `docker ps`, `docker inspect` y `docker rm -f` (A2d y A3e: retirada de contenedores de la era RW sin Compose), `docker image inspect`, `docker stats`, `init-volumes`, `deps`, `probe-mounts`, `run-prod-en`, `manifest-patch-axe` y los pasos D01-D29 que los usan. D13, D16, D17, D26 y D27 también pertenecen aquí: el driver llama `poc.sh exec-en` para resetear cada caso | Sólo humano autorizado. Pertenecer al grupo Docker o usar el socket como no-root sigue siendo root-equivalente sobre el CT. No delegar a agentes |
-| root real: `.env`, `.tls` y salidas | `./poc.sh init`, creación/validación de `.env` 600, generación/reemplazo de `.tls` root-owned, creación de `/root/jz-gate-poc3`, `SHA256SUMS`, búsqueda por valores secretos, captura del parche A4 y la aplicación y el commit de A4 (A4p y A4k, que ejecutan Git como root: siempre con la `g` endurecida de A0, sin hooks ni firma, tras la aprobación por hash) | Ejecutar como root humano con `umask 077`. No abrir ni copiar valores secretos |
+| Docker: privilegio equivalente a root | Todo `docker compose up/run/exec/logs/down`, `docker version`, `docker ps`, `docker inspect` y `docker rm -f` (A2d y A3e: retirada de contenedores de la era RW sin Compose), `docker image inspect`, `docker stats`, `init-volumes`, `deps`, `probe-mounts`, `run-prod-en`, `manifest-patch-axe` y los pasos D01-D29 que los usan. En la reanudación también RP4 (excepción de `pg_restore`), RP5a, R7 y R11. D13, D16, D17, D26 y D27 también pertenecen aquí: el driver llama `poc.sh exec-en` para resetear cada caso | Sólo humano autorizado. Pertenecer al grupo Docker o usar el socket como no-root sigue siendo root-equivalente sobre el CT. No delegar a agentes |
+| root real: `.env`, `.tls` y salidas | `./poc.sh init`, creación/validación de `.env` 600, generación/reemplazo de `.tls` root-owned, creación de `/root/jz-gate-poc3`, `SHA256SUMS`, búsqueda por valores secretos, captura del parche A4 y la aplicación y el commit de A4 (A4p y A4k, que ejecutan Git como root: siempre con la `g` endurecida de A0, sin hooks ni firma, tras la aprobación por hash), y el fast-forward de la reanudación (RP6) | Ejecutar como root humano con `umask 077`. Única excepción: RP6 hace el checkout en una subshell con `umask 022`, para que el árbol siga siendo legible por el uid 1000, y lo comprueba con `stat`. No abrir ni copiar valores secretos |
 | Compose sin daemon | El comando literal `docker compose -p jozeuzz-poc-a -f compose.yaml -f compose.pruebas.yaml --profile volumes-init --profile prod --profile e2e --profile deps config --no-interpolate` de A2c | Usa el parser Compose y no necesita socket. Corre como **root humano** (necesita leer `.env` root 600 aunque no interpola) y no necesita estar en el grupo Docker. `--no-interpolate` no exige variables: Compose no sustituye `${…}`, así que A2c no depende de que `.env` sea válido y no hace falta reordenarlo tras B1v. Toda orden compose que **sí** interpole (cualquier `./poc.sh`) va después de validar `.env` con B1v. A3e ya no interpola: retira los contenedores con `docker rm -f` sin Compose. Aun así se revisa como configuración que luego consumirá el daemon |
 
 ## B. Prerrequisitos Docker
@@ -611,7 +969,7 @@ Todos desde `poc1a/`, con el entorno de A0 y A3. **A3e (sin contenedores de la e
 | B1 | `r B1 ./poc.sh init` | rc=0; sin salida. `./poc.sh init` prepara los puntos de montaje (directorios `node_modules`, `.npm-cache`, `.next`, `.next-prod`, `media-store`, `media-store-test`, `media-store-prod`, `test-results`, `playwright-report` y `blob-report`, y un `next-env.d.ts` vacío si no existe, creado de forma exclusiva con `set -C` (`O_EXCL` cubre también un enlace colgante creado tras la comprobación; un enlace a un archivo no regular creado a la vez se detecta después con `-L`; la garantía depende de que A3e haya retirado los escritores concurrentes); un enlace simbólico en cualquiera de ellos es error y `exit 1`) y después crea `.env` si falta y añade `INTAKE_SECRETO` si no está (`poc.sh:41-54`). No abrir `.env`. A3f depende de ello: runc no puede crear destinos dentro de un bind RO | dura |
 | B1v | validación de `.env` sin imprimir valores (S5), abajo | `0`, `3` y `root 600` | dura |
 | A3f | `r A3f1 ./poc.sh init-volumes`, `r A3f2 ./poc.sh deps` y `r A3f3 ./poc.sh probe-mounts` (abajo) | tres rc=0; A3f3 imprime `MOUNT_PROBE_OK` cuatro veces | dura |
-| A4 | Si el humano lo autoriza: A4 completo (A4a generación, A4r revisión y aprobación por hash, A4p aplicación, A4v verificación, A4k commit, A4b0, A4b y A4c), **después de A3f y antes de B2** | ver A4 | dura |
+| A4 | Si el humano lo autoriza: A4 completo (A4a generación, A4r revisión y aprobación por hash, A4p aplicación, A4v verificación, A4k commit, A4b0, A4b y A4c), **después de A3f y antes de B2**. **En la reanudación no se ejecuta:** consta en la ejecución 1 (`de692a4`). En su lugar va R7 | ver A4 | dura |
 | B2 | `r B2 ./poc.sh db-up` | rc=0 (`poc.sh:80`) | dura |
 | B3 | `r B3 ./poc.sh psql -Atc "SELECT datname FROM pg_database WHERE datname LIKE 'poc3%' ORDER BY 1"` | rc=0; lista las `poc3*` existentes | dura si rc≠0 |
 | B4 | `r B4a ./poc.sh psql -c 'CREATE DATABASE poc3_intake'` y `r B4b ./poc.sh psql -c 'CREATE DATABASE poc3_migraciones'`, cada una **sólo si no aparece en B3** (`README.md:99`; `POC-3-DISENO.md:276`) | rc=0, `CREATE DATABASE` | dura |
@@ -732,7 +1090,7 @@ r D08c ./poc.sh psql-en poc3_intake -Atc "SELECT conname, contype FROM pg_constr
 - **D08b:** incluye `intake_limite_clave_hmac_hex_check|c`, `intake_limite_n_positivo_check|c`, `intake_limite_tipo_check|c` y una fila `|p` (`src/lib/intake/esquema.ts:37-40`).
 - **D08c:** incluye `intake_envio_clave_hex_check|c` y una fila `|p` (`esquema.ts:24`).
 - PostgreSQL 18 también registra los `NOT NULL` en `pg_constraint`, así que pueden aparecer filas `|n`.
-- Si D08a sale vacía: `push` no corrió o se colgó con la pregunta interactiva (`docs/POC-3-DISENO.md:142`). Hay que revisar `./poc.sh logs 200` y aplicar parada dura.
+- Si D08a sale vacía: `push` no corrió o se colgó con la pregunta interactiva (`docs/POC-3-DISENO.md:142`). Es parada dura; el diagnóstico sigue la ruta de fallo de R11 (`./poc.sh logs` no muestra el error de `push` de `next dev`).
 
 **D09 · El proxy de producción reemplaza las IP forjadas** (T-01 (ii), NV-4, NV-1)
 
@@ -1037,19 +1395,23 @@ docker ps -aq | xargs -r docker inspect --format '{{.Name}}{{range .Mounts}}{{if
 awk '{for(i=2;i<=NF;i++){s=$i; if (s=="/"||s=="/home"||s=="/home/proyectos"||s=="/home/proyectos/jozeuzz"||index(s,"/home/proyectos/jozeuzz-poc-candidata-a")==1||index(s,"/home/proyectos/jozeuzz/.git")==1) print $1, s}}' "$S/K1-montajes-rw.txt" > "$S/K1-prohibidos.txt"
 sha256sum "$S/K1-montajes-rw.txt" "$S/K1-prohibidos.txt" >> "$S/SHA256SUMS"
 test ! -s "$S/K1-prohibidos.txt" && echo sin-montajes-rw   # mismo criterio que A3e.2
-# K2 · fugas: sólo nombres de archivo, nunca líneas
+# K2 · fugas: todos los archivos de $S salvo SHA256SUMS; sólo nombres de archivo, nunca líneas
 P='"password"|PAYLOAD_SECRET=|INTAKE_SECRETO=|POC_DB_PASSWORD=|PRIVATE KEY|E2E_RESET=|postgres://[^:@]*:[^@]*@'
-grep -lE "$P" "$S"/*.log                                       # sólo D22a.log
-grep -E "$P" "$S/D22a.log" | grep -vcF 'INTAKE_SECRETO=abcd'   # 0
-grep -lFf <(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' .env) "$S"/*.log  # vacío
+mapfile -d '' k2_f < <(find "$S" -maxdepth 1 -type f ! -name SHA256SUMS -print0)
+test "${#k2_f[@]}" -gt 0 && echo k2-archivos-ok || echo "K2 FALLÓ: ningún archivo que revisar (grep leería la entrada estándar): parada dura" >&2
+grep -lE "$P" -- "${k2_f[@]}"                                          # sólo D22a.log y A2-compose-resuelto.yaml
+grep -E "$P" "$S/D22a.log" | grep -vcF 'INTAKE_SECRETO=abcd'           # 0
+grep -E "$P" "$S/A2-compose-resuelto.yaml" | grep -vcF '${'            # 0
+test -s .env && test "$(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' .env | grep -c .)" -eq 3 && echo k2-env-ok || echo "K2 FALLÓ: .env falta, está vacío o no da exactamente 3 valores: parada dura" >&2
+grep -lFf <(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' .env) -- "${k2_f[@]}"   # vacío
 # K3 · hashes
 sha256sum -c --quiet "$S/SHA256SUMS"   # sin salida, rc=0
 sha256sum "$S/SHA256SUMS"              # anotar este hash fuera del host
 ```
 
 - **K1:** es parada dura si la guarda no sale vacía, porque significa que un contenedor alteró el árbol durante el último paso. `g status --short` con cualquier salida (cualquier cambio respecto a A1) es también parada dura. Si `git` falla (`GIT FALLÓ`) o si la comprobación de montajes RW imprime algo, también es parada dura.
-- **K2, por patrón:** la única coincidencia admisible es `D22a.log`, por la cabecera con el valor falso `INTAKE_SECRETO=abcd`.
-- **K2, por valor:** la búsqueda usa como patrones los valores de `.env`. La sustitución de procesos los pasa por un descriptor, así que no aparecen en la línea de órdenes ni en pantalla, y `-l` sólo imprime nombres de archivo.
+- **K2, por patrón:** las únicas coincidencias admisibles son `D22a.log`, por la cabecera con el valor falso `INTAKE_SECRETO=abcd`, y `A2-compose-resuelto.yaml`, por los `DATABASE_URL` con `${POC_DB_PASSWORD…}` sin interpolar de A2c (`compose.yaml:84,130`; los dos conteos dan `0`). Si el gate se cerró antes de D22 (ruta de fallo de R11), no hay `D22a.log` y su línea no aplica.
+- **K2, por valor:** la búsqueda usa como patrones los valores de `.env`. La sustitución de procesos los pasa por un descriptor, así que no aparecen en la línea de órdenes ni en pantalla, y `-l` sólo imprime nombres de archivo. Falla abierta si `.env` falta o no se lee (lista de patrones vacía, salida vacía) o si no hay archivos (`grep` leería la entrada estándar): por eso sólo vale tras `k2-env-ok` (`.env` no vacío y exactamente 3 valores, contados sin imprimirlos) y `k2-archivos-ok`; sin ellos, parada dura.
 - **Si K2 encuentra algo:** el archivo afectado se retira del material compartido, se avisa y se trata como parada dura de seguridad. No se abre el log en pantalla compartida.
 - La contraseña aleatoria del admin sintético no está en `.env`. La cubre el patrón `"password"`.
 - **K3:** `sha256sum -c` comprueba que ningún log cambió desde que `r()` lo registró. El hash de `SHA256SUMS` se guarda **fuera del host**, por ejemplo en otro equipo o en papel. Sólo así se puede comprobar después que la carpeta de salidas no se alteró (advertencia 9).
@@ -1067,34 +1429,73 @@ Qué no se copia nunca:
 - PII (aquí sólo hay valores `SNT-` sintéticos, que tampoco hace falta copiar);
 - `.env`, `INTAKE_SECRETO`, `PAYLOAD_SECRET` ni `POC_DB_PASSWORD`;
 - `E2E_RESET` ni la contraseña del admin sintético;
-- claves de `.tls/` ni IPs del gateway del host.
+- claves de `.tls/` ni IPs del gateway del host;
+- el volcado `poc3_intake.dump` de RP4 ni nada de su contenido. Sí se admite `RP4-respaldo-lista*.txt` (sólo el índice de objetos de `pg_restore --list`, sin filas), que pasa K2.
 
 Basta con los conteos, las líneas de resumen y la ruta y el hash del log.
 
 ```markdown
 #### Gate Docker POC-3 (ejecución humana, docs/GATE-DOCKER-POC-3.md)
-Ejecutado por: <responsable> · Blob del procedimiento: <BLOB> · Salidas: <ruta fuera del repo> · SHA256SUMS: <hash, copia fuera del host>
+Ejecutado por: <responsable> · CODEREF: 42d7229 · HEAD de ejecución: <DOCREF> · Blob del procedimiento: <BLOB>
+
+##### Ejecución 1 (`de692a4`): detenida en D07; evidencia no reutilizable
+Salidas: <S1> · SHA256SUMS: <hash anotado en RP1, copia fuera del host>
+
+| Paso | HEAD | rc | Resultado | Observación |
+|---|---|---|---|---|
+| A0–A3f3, B1, B1v y A4a–A4k | `0faf138` | <declarado> | <declarado> | antes del commit de A4 (deducción de Git) |
+| A4b0, A4b, A4c y B2–B4 | `de692a4` | <declarado> | <declarado> | A4 no se repite; se hereda el commit `de692a4` |
+| D01–D06 | `de692a4` | <declarado> | ejecutados (declarado por el responsable) | no cuentan para `42d7229` |
+| D07 | `de692a4` | <declarado, distinto de 0> | **FALLIDO** | causa diagnosticada por el responsable y por la corrección (42P02 en `pushSchema`); salida en `S1`, no en el repositorio |
+| D08–K3 | — | — | no ejecutados | |
+
+##### Preparación de la reanudación (sesión RP)
+Salidas: <S_P> · SHA256SUMS: <hash anotado en RP7, copia fuera del host>
+
+| Paso | Fecha (UTC) | rc | Resultado | Observación | Archivo (sha256) |
+|---|---|---|---|---|---|
+| RP0 | | — | `docref-ok`; BLOB anotado | `DOCREF` completo | — |
+| RP1 | | — | `s1-ok`, `s1-integro`, `d07-registrado`; K2 de `S1` (a lo sumo `A2-compose-resuelto.yaml`; conteo 0; valor vacío) | hash de `S1/SHA256SUMS` | RP1-s1-sha256sums.txt |
+| RP2 | | — | 7 marcas `*-ok`, `arbol-orig-limpio`, `docref-solo-docs` | | RP2-rutas.txt |
+| RP3 | | — | `REV=de692a4`; A2a vacío; diffs completos leídos | sin hallazgos / hallazgos | — |
+| RP4 | | | `respaldo-modo-ok`, `respaldo-dir-ok`, `respaldo-hash-ok`, `respaldo-lista-ok`, `respaldo-lectura-ok`; n.º de tablas | `pg_restore` del host o excepción; versión | RP4-respaldo-lista.txt o RP4-respaldo-lista-db.txt |
+| RP5 | | | B1v; RP5a rc (no bloquea); `proyecto-sin-contenedores`, `sin-montajes-rw` | `down` + A3e, o sólo A3e | RP5a.log, A3e-antes.txt, A3e1.txt, A3e2.txt |
+| RP6 | | | RP6 rc=0; `umask-077`; `arbol-limpio-tras-ff`; `permisos-ok`; `legibles-ok`; `directorios-ok` | propietarios; corrección de permisos sí/no | RP6-merge.txt, RP6-permisos.txt |
+| RP7 | | — | K2 de `S_P` vacío (patrón y valor); `sp-integro` | hash de `SHA256SUMS` anotado fuera del host | SHA256SUMS |
+
+##### Reanudación (código `42d7229`; HEAD `<DOCREF>`)
+Salidas: <S_R> · SHA256SUMS: <hash, copia fuera del host> · Referencias: R0-referencias.txt
 
 | Paso | Unidad / criterio | Fecha (UTC) | HEAD | rc | Conteo / resultado | Observación | Log (sha256) |
 |---|---|---|---|---|---|---|---|
 | A0 | ruta de ejecución y config Git | | | — | `bin-false-ok`, sin `GIT_*`, `g-efectiva-ok`, `atributos-ok`; `grep` de nombres vacío sí/no | explicación de lo que salga; `git --version` y `--exec-path` | A0-git-config-nombres.txt |
+| R0 | referencias (tras A0) | | | — | `head-docref-ok`, `s1-sin-cambios`, `sp-sin-cambios`, `s1-integro`, `sp-integro` | | R0-referencias.txt |
 | A3e | contenedores de la era RW (antes de A1) | | | | `proyecto-sin-contenedores` y `sin-montajes-rw` | qué contenedores se retiraron con `docker rm -f` | A3e-antes.txt, A3e1.txt, A3e2-montajes-rw.txt, A3e2.txt |
 | A1 | estado y blob | | | — | blob-ok | | — |
 | A2 | revisión de seguridad | | | — | REV=<…> | sin hallazgos / hallazgos; config Compose conforme | — |
 | A2 (compose) | matriz de montajes | | | — | coincide sí/no | `A2-compose-resuelto.yaml` | — |
 | A2d | versión de Docker y runc | | | | runc-ok <versión> (≥ mínimo de su rama) | `A2-docker-version.txt`, `A2-runc-version.txt` | — |
 | A3d | find diagnóstico no vinculante | | | | rutas listadas | no bloquea | A3d.log |
+| B1 | `./poc.sh init` | | | | rc=0, sin salida | | B1.log |
+| B1v | .env | | | — | 0 / 3 / root 600 | | — |
 | A3f1 | `volumes-init` | | | | rc | ownership 1000:1000 | A3f1.log |
 | A3f2 | `deps` (`npm ci` en el volumen) | | | | rc | node_modules en volumen nombrado | A3f2.log |
 | A3f3 | `probe-mounts` | | | | `MOUNT_PROBE_OK` ×4 | denegaciones y allowlist | A3f3.log |
-| A4 | P3-05 axe | | | | @axe-core/playwright <v>, axe-core <v>; A4a/A4r/A4p/A4v/A4k rc | autorizado sí/no; hash del parche aprobado y responsable (`A4-aprobacion.txt`); `A4-verificacion.txt` sin desviaciones; commit sin `gpgsig`; audit signatures | A4a.stderr.log, A4-verificacion.txt, A4-aprobacion.txt, A4b0/A4b/A4c.log |
-| B1v | .env | | | — | 0 / 3 / root 600 | | — |
-| D01–D03 | U4 desde cero | | | | 3 migraciones; 2.ª sin pendientes; tablas y CHECK | | |
-| D05 | NV-15 | | | | digest coincide sí/no | | |
-| D07 / D24 | U5a T-02 NV-3 | | | | 3 OK / 3 OK | | |
+| A4 | P3-05 axe | — | — | — | no se repite en la reanudación | consta en la ejecución 1 (`de692a4`); sus artefactos están en `S1` | — |
+| R7 | huella de `api.js` en el volumen | | | | `huella-api-ok` (drizzle-kit 0.31.7; sha256 fijado) | antes de B2 | R7.log |
+| B2 | `db-up` | | | | rc=0 | | B2.log |
+| B3 | bases `poc3*` | | | | lista | B4a/B4b omitidas para las bases listadas | B3.log |
+| B4c | base nueva para U4 | | | | `dbmig-nueva`; `CREATE DATABASE` | `DBMIG=<…>` | B4c.log |
+| R9 | respaldo intacto | | | | `respaldo-ok` | | R9.log |
+| D01–D03 | U4 desde cero (sobre `DBMIG`) | | | | 3 migraciones; 2.ª sin pendientes; tablas y CHECK | | D01.log, D02.log, D03a.log, D03b.log |
+| D04 | U5a: `app` en `poc3_intake` | | | | rc=0, `TLS_OK`, `Ready` | sin `push` todavía | D04.log |
+| D04L | control de arranque | | | | sin `ENOENT`/`EACCES`/`EROFS`, salvo el `EACCES` de `/app/.env` | no prueba `push` | D04L.log |
+| D05 | NV-15 | | | | digest coincide sí/no | | D05.log |
+| D06 | base correcta y primer `push` | | | | `d06-ok` (`DATABASE_OK:poc3_intake`), `sin-error-push` | primer `push` con la corrección (proceso `tsx` aparte, H-10) | D06.log |
+| D07 / D24 | U5a T-02 NV-3 | | | | 3 OK / 3 OK | en D07, `push` de `next dev`; `FALLO: proxy TLS: HTTP 500` = fallo de `push` | D07.log |
 | D08 | NV-17 | | | | tablas y CHECK en public | | |
 | D09 | T-01 (ii) NV-4 | | | | pass 2 / fail 0 | | |
-| D11 | U2 U5b U6 vitest | | | | Tests N passed (N) | H-1 verificado sí/no; H-2 verificado sí/no | |
+| D11 | U2 U5b U6 vitest | | | | Tests N passed (N) | H-1 verificado sí/no; H-2 verificado sí/no; fallos de I-A4T presentes sí/no (no se aprueba D11 mientras siga abierta) | |
 | D12 | tsc | | | | sin errores | D12b vacío (sin `.tsbuildinfo` nuevo en el repo) | |
 | D13 | IN-* modo pruebas | | | | casos 12 · ok 12 · fail 0 · pendiente 0 | | |
 | D15 | U7 fallos | | | | pass 9 / fail 0 | | |
@@ -1109,7 +1510,9 @@ Ejecutado por: <responsable> · Blob del procedimiento: <BLOB> · Salidas: <ruta
 | D27 | IN-* app-prod | | | | casos 12 · ok 12 · fail 0 · pendiente 0 | | |
 | D28 | U8 E2E prod | | | | N passed, M skipped | | |
 | D30 | U9 medición | | | | 150/150, FP 0, errores 0 | mediana de medianas, p95 | |
-| K1–K3 | integridad y fugas | | | — | guarda vacía; sólo D22a.log; valor vacío; -c ok | | SHA256SUMS |
+| Resto de D09–D30 (D10, D14, D19, D23, D24, D29) | según su sección | | | | según su sección | | |
+| J1–J3 | limpieza | | | | J1 rc=0; J2 rc=0; J3 rc=1 (esperado) | | J1.log, J2.log, J3.log |
+| K1–K3 | integridad y fugas | | | — | guarda vacía; por patrón sólo D22a.log y A2-compose-resuelto.yaml (conteos 0); valor vacío; -c ok | | SHA256SUMS |
 ```
 
 ## Correcciones, huecos y hallazgos detectados al redactar
@@ -1140,6 +1543,17 @@ Ejecutado por: <responsable> · Blob del procedimiento: <BLOB> · Salidas: <ruta
 
 - **S-1 (jz-security, importante).** Los servicios `app`, `app-prod`, `deps` y `e2e` montaban `./` en escritura con uid 1000. La guarda de `r()` y `tls_ok` sólo detectan alteraciones; no las impiden. **Corrección implementada estáticamente, pendiente de verificación Docker (A2, A3f):** `./` se monta en sólo lectura en los cuatro servicios, con raíz `read_only: true`, `/tmp` tmpfs y escritura sólo en volúmenes nombrados (`node_modules` RW sólo en `deps`, RO en los demás; `npm_cache` sólo en `deps`). `next-env.d.ts` se monta como bind de archivo RO desde `contenedor/`. `package.json` y `package-lock.json` no se escriben desde contenedores: A4 produce un parche.
 
+**Incidencias abiertas, independientes de la reanudación** (no las causa la corrección D07, quedan sin aprobar y están fuera del alcance de la reanudación):
+
+- **I-A4T · 11 fallos de `test/estatico/gate-a4-git.test.ts`** en el vitest `jz-run` de `src test/estatico` sobre `42d7229` (`Tests 11 failed | 298 passed (309)`, `.jz-state/runs/20261021T050639Z-44526.log`, no versionado): diez casos del bloque «I-2: las fases del gate se ejecutan de punta a punta (docker simulado)…» y «el tsconfig.json real contiene exactamente una vez el bloque que A4a sustituye». Preexistentes y posteriores a A4: según el checkpoint del implementador, el `tsconfig.json` real ya no tiene el `exclude` de `e2e/intake-axe.spec.ts`, que A4 retiró en `de692a4`.
+  - Efecto: la suite `jz-run` del HEAD final no está en verde (criterio de cierre), y D11 (`vitest.config.ts:9` incluye `test/**/*.test.ts`) previsiblemente los reproducirá dentro de `app`. D11 se registra como fallo registrable y no se aprueba mientras I-A4T siga abierta. Corregirla es una unidad aparte de jz-implementer.
+- **OB2 · nombres de restricciones de la migración frente a `esquema.ts`.** La observación la cita el checkpoint local `.jz-state/LATEST.md`, no versionado, con la etiqueta «B2». No es el paso B2 (`db-up`).
+  - La migración `src/migrations/20261017_120000_poc3_intake.ts:6-15` declara los CHECK sin nombre, y `src/lib/intake/esquema.ts:24,38-40` los nombra (`intake_envio_clave_hex_check`, `intake_limite_clave_hmac_hex_check`, `intake_limite_tipo_check` e `intake_limite_n_positivo_check`).
+  - Previsiblemente (no verificado en ejecución), PostgreSQL genera para los CHECK sin nombre nombres del tipo `<tabla>_<columna>_check`. Así, `poc_prod` (migraciones: D03 y D19) y `public` (`push`: D08) tendrían nombres distintos.
+  - D03b cuenta por tipo y no depende de los nombres. D08b espera los nombres de `esquema.ts` en `public`.
+  - Queda abierta, sin analizar aquí y fuera del alcance de la reanudación.
+- **N-7 · riesgo residual (sin corregir aquí):** `core.excludesFile` y `.git/info/exclude` pueden ocultar archivos sin seguimiento a la guarda de `r()`, a `arbol-limpio` y a RP2/RP6; `g` no los anula.
+
 **Riesgos residuales del aislamiento (sin cambio de código; verificar en el gate):**
 
 - La caché de Vitest (`node_modules/.vite`) y `payload generate:types` (`src/payload-types.ts`) fallan en silencio con el sistema de archivos RO; se verificó en el código que no son fatales, pero no hay ejecución que lo confirme.
@@ -1161,9 +1575,15 @@ Los arreglos de H-1 a H-5, H-10 y S-1 son trabajo de jz-implementer, y su priori
 | D-08 | Mecanismo antiabuso del MVP | Controles propios: límites 30 intentos y 5 creaciones / 10 min por IP o /64 con clave HMAC, trampa y tiempo mínimo. El desafío externo queda como mitigación bajo demanda, con un disparador explícito. Antes de cerrar: medición de falsos positivos (D30) y comportamiento tras NAT (H-6) | `poc1a/EVIDENCIA.md:232-247`; `docs/ROADMAP-MVP.md:427` |
 | D-09 | Mecanismo antiduplicados | **PENDIENTE: la documentación no registra una recomendación explícita.** El único mecanismo diseñado e implementado es la clave HMAC del nonce del formulario en `intake_envio`, con `ON CONFLICT DO NOTHING` en la misma transacción. Los criterios de `ROADMAP-MVP.md:428` se evidencian con IN-09 (D13, D17, D27), el duplicado concurrente HTTP (D11), IN-10 y la medición (D30). Hay que tener en cuenta que cada GET emite un nonce nuevo (`POC-3-DISENO.md:94`): un reintento con el mismo formulario no duplica, pero recargar la página y reenviar crea un registro nuevo | `docs/PLAN-POC-3.md:94-96`; `docs/POC-3-DISENO.md:138,153,159`; `docs/ROADMAP-MVP.md:188,428` |
 | P3-05 | Autorizar ahora la instalación (A4) | La opción está aprobada (`@axe-core/playwright` 4.13.0); falta autorizar el acto de instalar. La alternativa, una lista manual con lector de pantalla, es «más débil» | `docs/PLAN-POC-3.md:186,197`; `poc1a/README.md:77-81` |
-| A2 | `REV`, el último commit revisado por el humano | Lo fija el humano | — |
+| A2 | `REV`, el último commit revisado por el humano | Lo fija el humano. En la reanudación, `de692a4` | RP3; R3 |
 | A4 (aprobación) | Aprobar el parche A4 por su `sha256`, tras leerlo completo y leer `A4-verificacion.txt` | Aprobar sólo si A4r no informa desviaciones y el hash tecleado es el del parche leído. Ningún agente aprueba ni aplica | — |
 | A4 | Cómo deshacer el commit local de A4 si fallan A4b o A4c | Lo decide el humano (no hay push) | — |
+| RP6 | Integrar la corrección: fast-forward de `poc/candidata-a-3` a `DOCREF` | Sólo con RP0–RP5 conformes, desde el SHA completo, con la `g` endurecida y en una subshell con `umask 022`; después, `stat` | «Ejecución 1 y reanudación», RP6 |
+| RP5 | Cómo retirar los contenedores de la ejecución 1 antes de integrar | `./poc.sh down` (parada ordenada de PostgreSQL; su rc no bloquea) seguido de A3e, que es el control vinculante. Alternativa aceptable: sólo A3e (SIGKILL; recuperación de caída) | RP5 |
+| `DBMIG` | Base nueva `poc3_*` para repetir D01–D03 desde cero | `poc3_migraciones_r<n>`, con el primer `n` que no aparezca en B3 | R8; «Si `poc3_migraciones` ya existe…» (sección B) |
+| Restauración | Si se restaura el respaldo de `poc3_intake` y dónde | No restaurar salvo daño comprobado. Si se restaura, en una base `poc3_*` nueva, nunca sobre `poc3_intake` ni con `--clean`. **No probado** | RP4 |
+| I-A4T | Cómo y cuándo corregir los 11 fallos de `gate-a4-git.test.ts` | Unidad aparte. Mientras siga abierta, D11 y la suite `jz-run` del HEAD final no se aprueban | «Incidencias abiertas» |
+| OB2 | Si se alinean los nombres de las restricciones de la migración con `esquema.ts` | Unidad aparte, fuera de la reanudación | «Incidencias abiertas» |
 
 ## Criterio de cierre de U10 (`docs/PLAN-POC-3.md:176-182`)
 
@@ -1171,8 +1591,9 @@ Los arreglos de H-1 a H-5, H-10 y S-1 son trabajo de jz-implementer, y su priori
 - [ ] **Regresión de 44/44 contra el intake real:** D16 (44 en `app`) y D26 (43 en `app-prod`), y además la decisión **P-U1-01**.
 - [ ] **vitest y `tsc` en verde:**
   - D11 y D12;
-  - la suite `jz-run` de los agentes repetida sobre el HEAD final, porque la de `EVIDENCIA.md:182` es de `95db8f4`;
+  - la suite `jz-run` de los agentes repetida sobre el HEAD final, porque la de `EVIDENCIA.md:182` es de `95db8f4`. **A 2026-10-21 no está en verde sobre `42d7229`:** tiene 11 fallos de I-A4T;
   - H-1 y H-2 verificados en D11.
+- [ ] **Reanudación D07:** D04, D06, D07 y D08 superados en `S_R`, con `CODEREF=42d7229` y el prefijo corto de `DOCREF` en la cabecera de cada log (`r()` escribe `rev-parse --short`). Ninguna fila de la ejecución 1 (`S1`) cuenta para el cierre.
 - [ ] **E2E en verde, con teclado y auditoría:** D18 y D28 con los 3 tests de axe ejecutados. Requiere A4 y P3-05.
 - [ ] **CSRF y origen con 403 sin registro:** D11 (`intake.test.ts:35-51`) y D25 (CSRF 403 en producción). Para cumplirlo tal como está escrito hace falta cerrar H-4.
 - [ ] **Mediciones registradas:**
@@ -1180,7 +1601,7 @@ Los arreglos de H-1 a H-5, H-10 y S-1 son trabajo de jz-implementer, y su priori
   - CO-05 de D26;
   - `build_ms` de D20;
   - las decisiones **D-08** y **D-09**.
-- [ ] **Integridad de la evidencia:** sin `ARBOL ALTERADO` ni `TLS ALTERADO`; K1–K3 conformes; hash de `SHA256SUMS` guardado fuera del host.
+- [ ] **Integridad de la evidencia:** sin `ARBOL ALTERADO` ni `TLS ALTERADO`; K1–K3 conformes; hashes de los `SHA256SUMS` de `S1`, `S_P` y `S_R` guardados fuera del host.
 - [ ] **jz-security y jz-qa sin defectos importantes abiertos:** es la propia U10, sobre los logs de este gate, H-3, H-5, H-10 y S-1.
 
 ## Historial de revisiones
@@ -1194,3 +1615,6 @@ Los arreglos de H-1 a H-5, H-10 y S-1 son trabajo de jz-implementer, y su priori
 | Aislamiento de escritura, ciclo de corrección 1 | jz-qa y jz-security | **QA:** `--configLoader runner` en toda invocación de vitest en contenedor (Vite escribe `node_modules/.vite-temp`); `-type f` en D12; ejecución de A4 tras A3f; tsconfig como punto fijo de `writeConfigurationDefaults` (prueba estática); órdenes contradictorias de README, EVIDENCIA y diseño. **Seguridad:** A3e, retirada de contenedores de la era RW y comprobación de montajes RW del worktree; A2d, runc ≥ 1.1.12 (CVE-2024-21626); `next-env.d.ts` creado de forma exclusiva en `init`; referencia de código vinculante `CODEREF` en A1; aclaraciones de root, Compose sin daemon, `destroy` y riesgo del `node_modules` heredado |
 | Aislamiento de escritura, ciclo de corrección 2 | jz-security | **I-1R:** A3e pasa a ser el primer paso tras A0 (antes de A1, A2 y A3d) y retira los contenedores del proyecto con `docker rm -f` sin Compose (no interpola ni lee el árbol; sin `-v`); desaparecen la retirada con Compose (`down`) y la validación previa de `.env` que exigía; K1 trata cualquier salida de `g status --short` como parada dura. **M-a:** A3e.2 y K1 listan todos los montajes RW y paran si alguno es `/`, `/home`, `/home/proyectos`, `/home/proyectos/jozeuzz`, el worktree o su `.git`. **M-2:** prueba decisiva con parche tradicional (resultado en A4) y `--check`/aplicación desde la raíz con `g -C ..`. **M-3:** A4 con `set -eu`, sin reutilizar `A4-package.json` y aplicación bloqueada si `a4_rc` ≠ 0. **A2d:** formato de versión de runc y mínimo por rama (1.2.8, 1.3.3, 1.4.0). **Guarda:** `git status` que falla es parada, no falla abierta. **A0:** `filter\.` en la búsqueda de configuración Git peligrosa. Comentario de `init` en `poc.sh` ajustado |
 | A4 I-1/I-2 | jz-security | **I-1:** A0 comprueba la ruta de ejecución de Git (`type -a`, `command -v`, `--exec-path`, propietario y permisos, `PATH`, `/bin/false`), las variables `GIT_*`, y lista sólo los **nombres** de la configuración efectiva (`--show-scope --show-origin --name-only`, falla cerrada) con un `grep` amplio de claves que ejecutan programas; la `g` endurecida anula firma (`gpg.program`, `gpg.ssh.program`, `gpg.x509.program`, `commit.gpgSign`, `tag.gpgSign`, `log.showSignature`), hooks, `fsmonitor`, el archivo global de atributos y el mantenimiento automático; verificación efectiva de cada clave y `check-attr -a` sobre los tres manifiestos, ambas con parada dura; lectura de blobs con `show --no-textconv` en A1. Prueba decisiva ejecutable con control en `test/estatico/gate-a4-git.test.ts`. **I-2:** A4 se separa en A4a (generación, con `tsconfig.json` dentro del parche), A4r (comprobación del lockfile **antes** de aplicar y aprobación por hash tecleado), A4p (aplicación condicionada al hash, a HEAD y al árbol limpio), A4v y A4k (commit sin hooks ni firma y sin `gpgsig`). Desaparece la edición manual de `tsconfig.json` |
+| Reanudación D07 (`42d7229`) | jz-architect | Estado parcial declarado (hasta D06 sobre `de692a4`; D07 fallido); `CODEREF=42d7229`. Nueva sección «Ejecución 1 y reanudación»: hechos declarados/deducidos/verificados, clasificación de la evidencia, carpeta `S` por sesión, sesión RP (RP0–RP7) y sesión R (R0–R12). Excepción de `pg_restore` (advertencia 5), plantilla por ejecución, incidencias I-A4T y OB2. Sin ejecución |
+| Reanudación D07, ciclo de corrección 1 | jz-qa y jz-security | **QA I2 / Seg I-1:** el primer `push` es D06 (proceso `tsx`) y el de `next dev`, D07; R11 busca errores de `push` en `D06.log` y exige `DATABASE_OK`; D04L queda como control de arranque (`EACCES` de `/app/.env` esperado); 500 de D07 = fallo de `push`; diagnóstico con `D06-r2`. **QA I1 / Seg M-1:** hash de la lista de RP4 sólo si lista y lectura salen bien; la reserva escribe `RP4-respaldo-lista-db.txt`. **Menores:** plantilla en orden real y con filas que faltaban; prefijo corto de `DOCREF`; rc de RP5a no bloquea; bases deducidas de B3; R8 falla cerrado; K2 sobre todos los archivos (RP1, RP7 y K); `--no-renames` en RP2 y `diff.renames=false` y `status.showUntrackedFiles=normal` en `g`; sin Git en el worktree de la corrección; R0 con `head-docref-ok` y `sha256sum -c`; `chmod` acotado; volcado root 600 en directorio 700 y restauración con `--single-transaction`; SHA completos en RP2/RP3. Recorte de redundancias |
+| Reanudación D07, ciclo de corrección 2 | jz-qa y jz-security | Ciclo 2: N-1 (K2 por valor exige `.env` no vacío y 3 valores; RP1 sin B1v previo), N-2 (`chmod` de RP6 según el modo del índice), N-3 (`RP4-respaldo-lista*.txt` admitida), N-4 y M-K2a (bash ≥ 4.4 en A0; array de K2 no vacío), N-5 (`sha256sum -c` antes de `pg_restore`), N-6 (`LESS=` en RP0), M-D06r2 (`D06-r2` escribe en `poc3_intake`: decisión humana y R9). N-7 registrado como riesgo residual |
