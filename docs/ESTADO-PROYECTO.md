@@ -136,17 +136,21 @@ La correspondencia C-nn → H0A-nn es [Deducido]: el registro no cita los C-nn.
 
 | ID | Qué es | Fuente | Quién / cuándo |
 |---|---|---|---|
-| I-A4T | 11 fallos de `poc1a/test/estatico/gate-a4-git.test.ts` sobre `42d7229`; D11 no se aprueba mientras siga abierta | `GATE:1546-1549,1585` | Unidad aparte de jz-implementer, autorizada por el responsable |
+| I-A4T | 11 fallos de `poc1a/test/estatico/gate-a4-git.test.ts` sobre `42d7229`; D11 no se aprueba mientras siga abierta | `GATE:1546-1549,1585`; diagnóstico estático en HP-18 ([HALLAZGOS-POC-2026-10-21.md](propuestas/HALLAZGOS-POC-2026-10-21.md)) | Unidad aparte de jz-implementer, autorizada por el responsable |
 | OB2 | CHECK sin nombre en la migración frente a los nombres de `esquema.ts`; D08b espera esos nombres en `public` | `GATE:1550-1554,1586` | Decisión del responsable; fuera de la reanudación |
 | N-7 | `core.excludesFile` y `.git/info/exclude` pueden ocultar archivos a la guarda del gate | `GATE:1555` | Riesgo residual sin corregir |
-| B7 | Un proyecto publicado revela id y colección de un medio privado | `ADR:108`; `EVI:138` | Responsable: ¿se corrige por configuración (`REG:86`)? |
-| M3 | `forgot-password` abierto al anónimo; correo del admin en logs | `ADR:109`; `EVI:130-132` | Responsable: cerrar o aceptar |
+| B7 | Un proyecto publicado revela id y colección de un medio privado; ver HP-09 | `ADR:108`; `EVI:138`; HP-09 ([HALLAZGOS-POC-2026-10-21.md](propuestas/HALLAZGOS-POC-2026-10-21.md)) | Responsable: ¿se corrige por configuración (`REG:86`)? |
+| M3 | `forgot-password` abierto al anónimo; correo del admin en logs; ver HP-07 | `ADR:109`; `EVI:130-132`; HP-07 ([HALLAZGOS-POC-2026-10-21.md](propuestas/HALLAZGOS-POC-2026-10-21.md)) | Responsable: cerrar o aceptar |
 | B4 | Contenedor sin `cap_drop`, `no-new-privileges` ni `read_only` | `ADR:110` | Requisito de POC-4 y H2 (POC-3 lo endurece; sin verificación Docker) |
 | B3 | Salida a Internet de `app`, `app-prod` y `e2e` | `ADR:111` | Verificación en el gate (D07/D24) |
 | FS | La acción `form-state` devuelve al admin el correo y los ids de sesión | `ADR:113`; `EVI:117-118` | Regla de logs del producto |
 | NODE | Node del host 20.19.2 (EOL) ejecuta el driver y los scripts como root | `ADR:114` | Decisión aparte (H0A-09) |
 | Otros | H-1 a H-10 y S-1 del gate | `GATE:1526-1544,1568` | U10 (jz-qa y jz-security) |
 | M2-1 a M2-3 | **No están documentados en el repositorio legible**; no se puede describir su contenido | — | [Pendiente de verificar] con el responsable |
+| HP-01 | [Propuesto, Alta] Un PATCH autenticado con sólo `motivo_cierre` lo cambia o lo vacía, también en una `cerrada`, sin transición ni evento (H0A-02) | [HALLAZGOS-POC-2026-10-21.md](propuestas/HALLAZGOS-POC-2026-10-21.md) §2.1 | Responsable (HP-D01) |
+| HP-22 | [Propuesto, Media (Alta si se confirma); efecto Deducido] Dos transiciones concurrentes desde `recibida` pueden aplicarse ambas y reabrir una `cerrada` (H0A-02, H0A-04) | [HALLAZGOS-POC-2026-10-21.md](propuestas/HALLAZGOS-POC-2026-10-21.md) §2.1 | Responsable (HP-D01) |
+| HP-07 | [Propuesto, Alta] El panel y REST permiten crear cuentas y cambiar correo o contraseña sin reautenticación [Deducido]; con una sesión robada, acceso persistente (H0A-05; agrava M3) | [HALLAZGOS-POC-2026-10-21.md](propuestas/HALLAZGOS-POC-2026-10-21.md) §2.2 | Responsable (HP-D04) |
+| Resto de HP (HP-02..HP-23 salvo HP-07 y HP-22) | Brechas de la POC detectadas por lectura de código el 2026-10-21 | [HALLAZGOS-POC-2026-10-21.md](propuestas/HALLAZGOS-POC-2026-10-21.md) | Responsable |
 
 **Discrepancias documentales detectadas (sin corregir aquí, por estar fuera del alcance):**
 
