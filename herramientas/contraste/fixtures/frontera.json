@@ -1,0 +1,7 @@
+{
+  "nombre": "frontera-4-5",
+  "colores": { "casi": "#797951", "papel": "#ffffff" },
+  "pares": [
+    { "primero": "casi", "fondo": "papel", "nivel": "texto", "uso": "razon 4.4999 se muestra 4.50 y falla" }
+  ]
+}

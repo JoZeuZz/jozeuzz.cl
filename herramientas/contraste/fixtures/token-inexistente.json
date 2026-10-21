@@ -1,0 +1,7 @@
+{
+  "nombre": "token-inexistente",
+  "colores": { "papel": "#ffffff" },
+  "pares": [
+    { "primero": "fantasma", "fondo": "papel", "nivel": "texto", "uso": "x" }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "nombre": "nivel-invalido",
+  "colores": { "a": "#000000", "b": "#ffffff" },
+  "pares": [
+    { "primero": "a", "fondo": "b", "nivel": "enorme", "uso": "x" }
+  ]
+}

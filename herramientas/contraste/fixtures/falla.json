@@ -1,0 +1,8 @@
+{
+  "nombre": "paleta-con-fallo",
+  "colores": { "gris": "#777777", "papel": "#ffffff" },
+  "pares": [
+    { "primero": "gris", "fondo": "papel", "nivel": "texto", "uso": "texto secundario" },
+    { "primero": "gris", "fondo": "papel", "nivel": "texto-grande", "uso": "titular" }
+  ]
+}

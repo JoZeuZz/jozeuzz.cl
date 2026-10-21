@@ -1,0 +1,8 @@
+{
+  "nombre": "paleta-ok",
+  "colores": { "tinta": "#111111", "papel": "#ffffff", "acento": "#0b5cad" },
+  "pares": [
+    { "primero": "tinta", "fondo": "papel", "nivel": "texto", "uso": "cuerpo de texto" },
+    { "primero": "acento", "fondo": "papel", "nivel": "ui", "uso": "borde de campo" }
+  ]
+}

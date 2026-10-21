@@ -1,0 +1,7 @@
+{
+  "nombre": "color-invalido",
+  "colores": { "a": "#abcd", "b": "#ffffff" },
+  "pares": [
+    { "primero": "a", "fondo": "b", "nivel": "texto", "uso": "x" }
+  ]
+}
