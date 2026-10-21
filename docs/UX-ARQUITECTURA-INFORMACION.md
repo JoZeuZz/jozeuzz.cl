@@ -61,7 +61,7 @@ URLs, términos y agrupación definitivos dependerán del diseño y contenidos r
 - Calidad editorial antes que animación; tipografía legible, navegación limpia y alto contraste.
 - Componentes coherentes, responsive y reutilizables.
 - Portafolio debe destacar **evidencias de trabajo** sobre listas de logos de tecnologías.
-- No usar datos genéricos como «$20», «TU_URL_DE_CALENDLY», testimonios o empresas ficticias como contenido definitivo.
+- No usar datos genéricos como `$20`, `TU_URL_DE_CALENDLY`, testimonios o empresas ficticias como contenido definitivo.
 - Definir tokens de color, espaciado y tipografía tras una exploración de 2–3 direcciones visuales evaluadas con accesibilidad.
 - Animaciones sutiles, compatibles con preferencia de movimiento reducido.
 

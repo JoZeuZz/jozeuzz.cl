@@ -167,7 +167,7 @@ Cada funcionalidad indica sus requisitos de origen, su flujo principal y sus cri
 - **Flujo principal (F2, paso 1):** el visitante abre `/servicios`, consulta la oferta, el alcance, las condiciones y las preguntas frecuentes, y pulsa «Solicitar revisión».
 - **Criterios de aceptación:**
   1. [Definido] Los servicios desactivados no se muestran ni se pueden seleccionar al solicitar (RF-05; UX §4).
-  2. [Definido] Los precios se muestran en CLP como referencia o como «a cotizar», según la política definida, y nunca con los valores de ejemplo en USD del prototipo (PRODUCTO.md › Reglas fundamentales, 3; UX §5).
+  2. [Definido] Los precios se muestran en CLP como referencia o como «a cotizar», según la política definida, y nunca con los valores de ejemplo en `USD` del prototipo (PRODUCTO.md › Reglas fundamentales, 3; UX §5).
   3. [Pendiente] Si se mostrarán precios y con qué política (ESPECIFICACION-FUNCIONAL.md › §8). Mientras no se decida, el modelo admite ambas modalidades y el contenido real decide.
   4. [Definido] Sin servicios activos, se muestra un estado vacío pertinente (UX §4).
   5. [Definido] La presentación evita equiparar el servicio técnico a una competencia profesional o a una certificación (UX §1).
@@ -683,6 +683,8 @@ En todas las filas, el **responsable** es el responsable del proyecto. Los agent
 ## 11. Preguntas abiertas y contradicciones de las fuentes
 
 ### 11.1 Contradicciones y tensiones
+
+Nota (2026-10-21): varias preguntas quedaron resueltas por el registro H0-a; su estado actual está en [docs/ESTADO-PROYECTO.md](ESTADO-PROYECTO.md) §3.
 
 | ID | Descripción | Documentos | Resolución propuesta (no vinculante) |
 |---|---|---|---|

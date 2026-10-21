@@ -3,6 +3,7 @@
 - **Estado:** **Propuesto — pendiente de la evidencia Docker de POC-3 y de la aprobación del responsable.** No es una decisión. Hasta que se acepte, no hay scaffold (`AGENTS.md:6,26`; `RM:508,563`).
 - **Borrador:** jz-architect, 2026-10-19, rama `poc/candidata-a-3`, HEAD `ca9b3ea`. El código evaluado por el gate es `c8bbf0f` (`GATE:4`).
 - **Etiquetas:** **[Medido]** = salida real registrada en la fuente citada. **[Deducido]** = inferencia del arquitecto a partir de fuentes; no ejecutada. **[Pendiente]** = falta evidencia o una decisión. **[Propuesto]** = recomendación sin aprobar.
+- **Nota de vigencia (2026-10-21, sin cambiar el estado):** la referencia de código del gate es ahora `42d7229` (`GATE:4`); las correcciones citadas abajo, `c8bbf0f` (cadena de `GATE:6`) y `b09d7ea` (anterior), quedaron superadas por la referencia actual. El gate sigue fallido en D07 hasta una nueva ejecución autorizada (`GATE:3`). Sobre `42d7229` hay 11 fallos estáticos conocidos (I-A4T, `GATE:1546-1549`). P3-05 (axe) está instalado en `de692a4` (`GATE:3,65`; `PKG:28`), así que la fila 4 del §7 ya no requeriría decisión [Deducido]; la E2E con axe sigue sin ejecutarse. Estado actual: `docs/ESTADO-PROYECTO.md`.
 - **Abreviaturas:** `EVI` = `poc1a/EVIDENCIA.md`; `PKG` = `poc1a/package.json`; `REG` = `docs/REGISTRO-DECISIONES-H0A.md`; `RM` = `docs/ROADMAP-MVP.md`; `MAT` = `docs/MATRIZ-TECNOLOGIAS-POC.md`; `ARQ` = `docs/ARQUITECTURA.md`; `GATE` = `docs/GATE-DOCKER-POC-3.md`; `AN` = `docs/ANALISIS-INCONSISTENCIAS-ROADMAP-MVP.md`.
 
 ## 1. Contexto y decisiones cubiertas
@@ -92,7 +93,7 @@ Entorno: VM compartida de 6 vCPU y 8 GiB. Las cifras son **indicativas, no de la
   - Regla de parada: el resultado se registra aquí sea cual sea, y sólo se abre una POC completa de B si la tabla de costes estimados no es peor que la de A.
   - Cumple H0A-15 y `docs/ROADMAP.md:11` («comparar con Astro») tal como están (`AN:322-324`).
 - **Opción 2 · Descartar B sin POC, con la justificación de este §4.**
-  - Exige enmendar H0A-15 (POC-2 deja de ser evidencia obligatoria) y dejar resuelta C-09 por vía documental (`RM:697`; `AN:324`, opción B).
+  - Exige enmendar H0A-15 (POC-2 deja de ser evidencia obligatoria) y dejar resuelta C-09 por vía documental (`RM:699`; `AN:324`, opción B).
   - Se reabre ante las señales del §6.
 
 **[Propuesto] Recomendación del arquitecto: opción 2.**
