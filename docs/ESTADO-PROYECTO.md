@@ -1,7 +1,7 @@
 # Estado del proyecto — jozeuzz.cl
 
 > **Estado:** Propuesta de síntesis (2026-10-21), no aprueba nada.
-> **Autor:** jz-architect, rama `work/jozeuzz-autonomo` sobre `df81964`. Resume las fuentes citadas; ante una discrepancia, prevalece la fuente.
+> **Autor:** jz-architect, rama `work/jozeuzz-autonomo`. Resume las fuentes citadas; ante una discrepancia, prevalece la fuente.
 > **Etiquetas:** **[Aprobado]** = el registro tiene fecha y referencia Git. **[Propuesto]** = recomendación sin aprobar. **[Medido]** = salida real registrada en la fuente citada. **[Declarado, no verificado]** = lo afirma el responsable, sin log en el repositorio. **[Deducido]** = inferencia de lectura. **[Pendiente]** = falta una decisión o una evidencia. **[Pendiente de verificar]** = este documento no pudo comprobarlo.
 > **Abreviaturas:** `REG` = [REGISTRO-DECISIONES-H0A.md](REGISTRO-DECISIONES-H0A.md) · `RM` = [ROADMAP-MVP.md](ROADMAP-MVP.md) · `ADR` = [adr/0001-stack.md](adr/0001-stack.md) · `GATE` = [GATE-DOCKER-POC-3.md](GATE-DOCKER-POC-3.md) · `EVI` = [EVIDENCIA.md](../poc1a/EVIDENCIA.md) · `HO` = [HANDOFF-POC-1B.md](../poc1a/HANDOFF-POC-1B.md) · `PROD` = [PRODUCTO.md](PRODUCTO.md) · `ESP` = [ESPECIFICACION-FUNCIONAL.md](ESPECIFICACION-FUNCIONAL.md) · `UX` = [UX-ARQUITECTURA-INFORMACION.md](UX-ARQUITECTURA-INFORMACION.md) · `PLAN3` = [PLAN-POC-3.md](PLAN-POC-3.md) · `AUT` = [AUTONOMIA-JZ.md](AUTONOMIA-JZ.md).
 
@@ -96,7 +96,7 @@ La correspondencia C-nn → H0A-nn es [Deducido]: el registro no cita los C-nn.
 | Hito | Estado | Qué lo bloquea | Quién desbloquea |
 |---|---|---|---|
 | H0-a | **Cerrado**: H0A-01 a H0A-14 y H0A-16 aprobadas (criterio de H0A-15) | — | — |
-| H0-b | Sin artefactos. Iniciado el 2026-10-21 en `work/jozeuzz-autonomo` sólo como propuesta: hay un verificador (`df81964`, [README](../herramientas/verificar-docs/README.md)) y no existe `docs/h0b/` | Wireframes, dirección visual (2–3 opciones), lista de contenidos y su responsable; datos reales que ningún agente puede inventar (`PROD:49`) | Responsable (contenido y aprobación); agentes sólo proponen |
+| H0-b | Propuestas completas en `docs/h0b/` (inventario, wireframes, recorrido de solicitud, panel, dirección visual) pendientes de revisión del responsable; ver [DECISIONES-PENDIENTES.md](DECISIONES-PENDIENTES.md) | Revisión y aprobación de esas propuestas (lista de contenidos y su responsable, wireframes, dirección visual); datos reales que ningún agente puede inventar (`PROD:49`) | Responsable (contenido y aprobación); agentes sólo proponen |
 | H1 | **Bloqueado** | (1) gate Docker de POC-3 con D07 fallido; (2) POC-2 sin autorizar, o H0A-15 sin enmendar; (3) condiciones del ADR §6: B7, M3, P5–P7 y revisión de hito; (4) aceptación de ADR-0001 | Responsable (ejecución del gate, decisiones y aceptación) |
 | H2 | No iniciado | H1; POC-4 o su paso a condición de entrada (H0A-15); procedimiento de H0A-05; entorno (H0A-14) | Responsable |
 | H3 | No iniciado | H2 y H0-b (H0A-01); presupuestos de rendimiento (P9 del ADR §3.3) | Responsable |
@@ -173,10 +173,12 @@ La correspondencia C-nn → H0A-nn es [Deducido]: el registro no cita los C-nn.
 
 ## 8. Operaciones que requieren intervención humana (en orden)
 
+Tabla única de decisiones abiertas, con prioridad y ruta de sesiones: [DECISIONES-PENDIENTES.md](DECISIONES-PENDIENTES.md).
+
 1. **Decidir si se reanuda el gate de POC-3** y ejecutar RP0–RP7 y R0–R12 como root, sobre `poc/candidata-a-3` y la rama de corrección, nunca sobre `work/jozeuzz-autonomo` (§9). Antes: fijar `DOCREF` (`GATE:8,99`) y anotar `S1`.
 2. Decidir RP5 (cómo retirar los contenedores), `DBMIG` y la restauración del respaldo (`GATE:1582-1584`).
 3. Autorizar la unidad que corrige I-A4T y decidir sobre OB2 (`GATE:1585-1586`).
-4. Decidir P-U1-01, D-08 y D-09 (`GATE:1574-1576`).
+4. Decidir P-U1-01, D-08 y D-09 (`GATE:1574-1576`); D-08 y D-09, tras D30 y H-6.
 5. POC-2: autorizar H0A-16d o enmendar H0A-15 (`ADR:89-102`).
 6. B7 y M3: corregir o aceptar (`ADR:108-109`).
 7. P5–P7: `npm audit` (requiere red), licencias LGPL y WTFPL, y advisories de Next y Payload (`ADR:59-61`).
@@ -200,6 +202,6 @@ La correspondencia C-nn → H0A-nn es [Deducido]: el registro no cita los C-nn.
 | `poc/candidata-a` | [Pendiente de verificar] | Cierre de POC-1a en `4b4b806` | No mover (`HO:23`) |
 | `poc/candidata-a-3` | `/home/proyectos/jozeuzz-poc-candidata-a` (`GATE:97`) | POC-3; recibe la corrección por fast-forward en RP6 | **Intacta**: sólo el responsable la mueve |
 | `fix/poc3-drizzle-parametros` | `/home/proyectos/jozeuzz-poc-drizzle-fix` (`GATE:92`) | Corrección D07 (`df576ed..42d7229`); RP2 exige que apunte a `DOCREF` (`GATE:143`) | **Intacta**: no escribir ni ejecutar Git en ella durante el gate |
-| `work/jozeuzz-autonomo` | `/home/proyectos/jozeuzz-trabajo-autonomo` | Rama autónoma de esta sesión: contiene `42d7229`, `5d8a9d9` (docs) y `df81964` (herramientas) | No sirve como HEAD del gate: `df81964` cambia archivos fuera de `docs/`, y A1 lo prohíbe (`GATE:4`) [Deducido] |
+| `work/jozeuzz-autonomo` | `/home/proyectos/jozeuzz-trabajo-autonomo` | Rama autónoma: contiene `42d7229`, `5d8a9d9` (docs), `herramientas/verificar-docs`, `herramientas/contraste`, `docs/h0b/`, `docs/propuestas/HALLAZGOS-POC-2026-10-21.md` y `docs/DECISIONES-PENDIENTES.md`. Sólo docs y herramientas; `poc1a/`, `contrato/` y el plano de control (`.claude/`, `.opencode/`, `.jz/`, `AGENTS.md`, `CLAUDE.md`) sin cambios entre `5d8a9d9` y `71faf71` [Medido con git por el orquestador el 2026-10-21; sin log versionado] | No sirve como HEAD del gate: cambia archivos fuera de `docs/` (`herramientas/`), y A1 lo prohíbe (`GATE:4`) [Deducido] |
 
-**Siguiente paso recomendado:** el responsable lee §8, decide los puntos 1 a 5 y, si autoriza el gate, lo ejecuta desde el worktree de `poc/candidata-a-3`. Mientras tanto, los agentes sólo pueden avanzar H0-b como propuesta en `work/jozeuzz-autonomo`.
+**Siguiente paso recomendado:** el responsable sigue la ruta de sesiones de [DECISIONES-PENDIENTES.md](DECISIONES-PENDIENTES.md) §3, empezando por la Sesión 1 (gate de POC-3 y hallazgos que afectan al ADR); si autoriza el gate, lo ejecuta desde el worktree de `poc/candidata-a-3`. Mientras tanto, los agentes sólo pueden proponer en `work/jozeuzz-autonomo`.
