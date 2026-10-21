@@ -5,6 +5,7 @@ import { buildConfig } from 'payload'
 import { fileURLToPath } from 'url'
 import sharp from 'sharp'
 
+import { conCorreccionPushSchema } from './lib/drizzle-kit/correccion-push'
 import { extenderEsquemaIntake } from './lib/intake/esquema'
 import { opcionesLogger } from './lib/intake/log'
 import { MediosPrivados, MediosPublicos } from './collections/Medios'
@@ -40,7 +41,7 @@ export default buildConfig({
     outputFile: path.resolve(dirname, 'payload-types.ts'),
   },
   upload: { limits: { fileSize: 5_000_000 } },
-  db: postgresAdapter({
+  db: conCorreccionPushSchema(postgresAdapter({
     pool: { connectionString: process.env.DATABASE_URL || '' },
     afterSchemaInit: [extenderEsquemaIntake],
     // Los scripts de reset no sincronizan el schema (lo hace el servidor de desarrollo): arranque más rápido.
@@ -49,7 +50,7 @@ export default buildConfig({
     ...(process.env.POC_DB_SCHEMA && process.env.POC_DB_SCHEMA !== 'public'
       ? { schemaName: process.env.POC_DB_SCHEMA }
       : {}),
-  }),
+  })),
   sharp,
   telemetry: false,
   plugins: [],
