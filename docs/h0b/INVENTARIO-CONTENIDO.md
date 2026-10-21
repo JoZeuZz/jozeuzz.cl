@@ -77,7 +77,7 @@
 | SER-06 | Categorías de servicio | Opc. (RF-15, *Should*) | DC-09 | — | R | H4 | Pendiente |
 | SER-07 | Estado vacío y CTA «Solicitar revisión» | Oblig. | ≤ 160 car. | — | A→R | H4 | Pendiente |
 
-### 2.5 Solicitar servicio (MVP-06): sólo los textos; los campos y estados del formulario van en `RECORRIDO-SOLICITUD.md` (pendiente) y la Solicitud no se remodela (§3.7)
+### 2.5 Solicitar servicio (MVP-06): sólo los textos; los campos y estados del formulario van en [RECORRIDO-SOLICITUD.md](RECORRIDO-SOLICITUD.md) y la Solicitud no se remodela (§3.7)
 | ID | Pieza y descripción | MVP | Formato | Verificación | Aporta | Hito | Estado |
 |---|---|---|---|---|---|---|---|
 | SOL-01 | Introducción: qué datos se piden y cuáles no (nunca contraseñas) | Oblig. | ≤ 300 car. | MVP-06.9 | A→R | H4 | Pendiente |
@@ -235,7 +235,7 @@ Este modelo es independiente del stack: los tipos son conceptuales y no fijan ni
 | idioma | enumeración | Sí | — | Pública | DC-07 |
 
 ### 3.7 Solicitud: fuera de este modelo
-No se remodela aquí. Sus estados, sus observaciones y sus eventos los fijan H0A-02, H0A-03 y H0A-04 (`REG:21-23`); su UX se definirá en `RECORRIDO-SOLICITUD.md` (pendiente). Su único vínculo con el contenido es la referencia opcional a un Servicio activo (INV-04) y, según DC-09, a la taxonomía (SOL-06): lista cerrada o texto libre. Esa dependencia no remodela la Solicitud. Como referencia, la POC la tiene en `poc1a/src/collections/Solicitudes.ts:55-74`.
+No se remodela aquí. Sus estados, sus observaciones y sus eventos los fijan H0A-02, H0A-03 y H0A-04 (`REG:21-23`); su UX se define en [RECORRIDO-SOLICITUD.md](RECORRIDO-SOLICITUD.md). Su único vínculo con el contenido es la referencia opcional a un Servicio activo (INV-04) y, según DC-09, a la taxonomía (SOL-06): lista cerrada o texto libre. Esa dependencia no remodela la Solicitud. Como referencia, la POC la tiene en `poc1a/src/collections/Solicitudes.ts:55-74`.
 
 ### 3.8 Brechas con la POC (desechable; no es scaffold, H0A-14)
 | Entidad | En la POC | En este modelo |

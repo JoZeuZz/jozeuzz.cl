@@ -5,7 +5,7 @@
 > **Etiquetas:** **[Definido]** lo fija una fuente citada (que puede seguir en borrador) · **[Propuesto]** recomendación sin aprobar · **[Pendiente]** decide el responsable.
 > **Abreviaturas:** `INV` = [INVENTARIO-CONTENIDO.md](INVENTARIO-CONTENIDO.md) · `UX` = [UX-ARQUITECTURA-INFORMACION.md](../UX-ARQUITECTURA-INFORMACION.md) · `RM` = [ROADMAP-MVP.md](../ROADMAP-MVP.md) · `ESP` = [ESPECIFICACION-FUNCIONAL.md](../ESPECIFICACION-FUNCIONAL.md) · `EST` = [ESTADO-PROYECTO.md](../ESTADO-PROYECTO.md) · `ARQ` = [ARQUITECTURA.md](../ARQUITECTURA.md).
 
-**Propósito.** Este documento es el «siguiente artefacto antes de implementación» que pide UX › §6: fija rutas, jerarquía, orden de bloques, estados y componentes del sitio público, y se revisa contra los criterios de UX › §6 y RM › §2 MVP-14. Cierra C-10 y DC-08 como propuesta (RM › §11.1; INV › §4). No fija estética (eso es `DIRECCION-VISUAL.md`, pendiente), ni el formulario de solicitud (`RECORRIDO-SOLICITUD.md`, pendiente), ni el panel (`PANEL-ADMIN.md`, pendiente).
+**Propósito.** Este documento es el «siguiente artefacto antes de implementación» que pide UX › §6: fija rutas, jerarquía, orden de bloques, estados y componentes del sitio público, y se revisa contra los criterios de UX › §6 y RM › §2 MVP-14. Cierra C-10 y DC-08 como propuesta (RM › §11.1; INV › §4). No fija estética (eso es `DIRECCION-VISUAL.md`, pendiente), ni el formulario de solicitud ([RECORRIDO-SOLICITUD.md](RECORRIDO-SOLICITUD.md)), ni el panel (`PANEL-ADMIN.md`, pendiente).
 
 ## 0. Convenciones
 
@@ -214,7 +214,7 @@ BloqueCTA (Solicitar revisión) |
 [Pie, §2]                      | [Pie, §2]
 ```
 
-**Jerarquía:** `h1` con el nombre comercial (DC-01), `h2` por servicio y por sección, `h3` por pregunta. **CTA:** «Solicitar revisión» al principio y al final. El enlace de cada tarjeta incluye el nombre del servicio en su texto. Si preselecciona el servicio en el formulario (lo decide `RECORRIDO-SOLICITUD.md`, pendiente), usa un único parámetro `servicio=<slug>`, validado en el servidor contra los servicios activos; un valor desconocido o inactivo se ignora en silencio y la página es la misma que sin parámetro [Propuesto]. Las preguntas frecuentes se muestran abiertas, sin acordeón [Propuesto]. La diferencia visual con el portafolio es de `DIRECCION-VISUAL.md` (MAR-02).
+**Jerarquía:** `h1` con el nombre comercial (DC-01), `h2` por servicio y por sección, `h3` por pregunta. **CTA:** «Solicitar revisión» al principio y al final. El enlace de cada tarjeta incluye el nombre del servicio en su texto. Si preselecciona el servicio en el formulario (lo decide [RECORRIDO-SOLICITUD.md](RECORRIDO-SOLICITUD.md)), usa un único parámetro `servicio=<slug>`, validado en el servidor contra los servicios activos; un valor desconocido o inactivo se ignora en silencio y la página es la misma que sin parámetro [Propuesto]. Las preguntas frecuentes se muestran abiertas, sin acordeón [Propuesto]. La diferencia visual con el portafolio es de `DIRECCION-VISUAL.md` (MAR-02).
 
 ### 3.6 Solicitar servicio `/servicios/solicitar` (MVP-06, H4)
 
@@ -226,13 +226,13 @@ h1 <título del formulario, A→R>
 <SOL-01 introducción: qué datos se piden y cuáles no>
 +--------------------------------------------------+
 | Formulario: campos, errores, carga, confirmación |
-| → RECORRIDO-SOLICITUD.md (pendiente)             |
+| → RECORRIDO-SOLICITUD.md                         |
 +--------------------------------------------------+
 AvisoPrivacidad (SOL-04) → enlace a /privacidad
 [Pie, §2]
 ```
 
-Este documento fija sólo la ubicación del formulario y las reglas de envío sin JavaScript de §3.10. Campos, estados, errores y confirmación van en `RECORRIDO-SOLICITUD.md` (pendiente), sobre H0A-02 a H0A-04. El aviso de privacidad es obligatorio (RF-13); en la POC falta (EST › §7). Las migas suponen WF-12 (a).
+Este documento fija sólo la ubicación del formulario y las reglas de envío sin JavaScript de §3.10. Campos, estados, errores y confirmación van en [RECORRIDO-SOLICITUD.md](RECORRIDO-SOLICITUD.md), sobre H0A-02 a H0A-04. El aviso de privacidad es obligatorio (RF-13); en la POC falta (EST › §7). Las migas suponen WF-12 (a).
 
 ### 3.7 Contacto `/contacto` (MVP-07, H4)
 
@@ -288,7 +288,7 @@ La 404 responde con código 404 y es la respuesta única de §1; la página de e
 | Proyectos | 0 publicados: EstadoVacio (PRO-11), sin tarjetas ni filtro | Ídem | Lista completa; el filtro funciona como enlaces con `?categoria=` (WF-10) | Tarjeta sin portada ni etiquetas, sin huecos reservados |
 | Detalle | No aplica: borrador, retirado o inexistente reciben la 404 única (§1; MVP-03.2) | Ídem | Todo legible; los medios sin ampliación | Cada sección opcional se omite con su `h2`; un medio retirado de urgencia desaparece sin hueco (INV › §3.5) |
 | Servicios | 0 activos: EstadoVacio con «Solicitar revisión» (SER-07); sin filtro | Ídem | Todo legible | Sin SER-05: sin sección. Sin alcance: la tarjeta lo omite |
-| Solicitar | `RECORRIDO-SOLICITUD.md` (pendiente) | Página: §3.9; formulario: ver `RECORRIDO-SOLICITUD.md` | [Propuesto] Formulario HTML con `method="post"`. Tras un envío válido, redirección 303 a una confirmación fija sin parámetros (ni id, correo, nombre ni servicio), con `Cache-Control: no-store` y `noindex`; la confirmación no repite lo enviado y es idéntica para una solicitud nueva, un duplicado o un correo ya conocido (MVP-06.5; PRODUCTO.md › Reglas fundamentales, 1). Con un error de validación, la respuesta al POST puede repoblar los campos, escapados y con `no-store`, nunca en la URL. Detalle en `RECORRIDO-SOLICITUD.md` | — |
+| Solicitar | [RECORRIDO-SOLICITUD.md](RECORRIDO-SOLICITUD.md) | Página: §3.9; formulario: ver `RECORRIDO-SOLICITUD.md` | [Propuesto] Formulario HTML con `method="post"`. Tras un envío válido, redirección 303 a una confirmación fija sin parámetros (ni id, correo, nombre ni servicio), con `Cache-Control: no-store` y `noindex`; la confirmación no repite lo enviado y es idéntica para una solicitud nueva, un duplicado o un correo ya conocido (MVP-06.5; PRODUCTO.md › Reglas fundamentales, 1). Con un error de validación, la respuesta al POST puede repoblar los campos, escapados y con `no-store`, nunca en la URL. Detalle en `RECORRIDO-SOLICITUD.md` | — |
 | Contacto | Sin CON-01 aprobado: la 404 única (§1) y sin enlace (§2) | Ídem | Todo legible | Sin CON-03 ni NAV-04: se omiten |
 | Privacidad | Sin texto aprobado: no se publica en producción (MVP-08.1); en staging lleva la marca de borrador | Ídem | Todo legible | — |
 | 404 y error | No aplica | No aplica | Sin JavaScript | — |
@@ -322,7 +322,7 @@ La 404 responde con código 404 y es la respuesta única de §1; la página de e
 | BloqueCTA | Encabezado breve y una o dos acciones | Inicio, servicios (sobre mí y el detalle usan enlaces simples) | Disponibilidad de destinos (§2) y su texto (regla 7) | Destino no disponible: se omite la acción, o el bloque si queda vacío | Enlaces para navegar, no botones; texto que describe el destino | Servidor |
 | EstadoVacio | Mensaje honesto sin contenido | `/proyectos`, `/servicios` | PRO-11, SER-07 (regla 7) | — | Texto estático bajo el encabezado; sin región viva | Servidor |
 | Migas | Ruta jerárquica de vuelta | Detalle, solicitar (WF-12 a) | Títulos públicos de la jerarquía | — | Navegación «Ruta de navegación»; lista ordenada; la última con `aria-current="page"`; `BreadcrumbList` sólo en el detalle (DC-10, §5) | Servidor |
-| AvisoPrivacidad | Aviso breve y enlace a la política | `/servicios/solicitar` | SOL-04; ruta `/privacidad` | Sin aviso aprobado, el formulario no se publica [Propuesto] | Asociado al formulario según `RECORRIDO-SOLICITUD.md` (pendiente) | Servidor |
+| AvisoPrivacidad | Aviso breve y enlace a la política | `/servicios/solicitar` | SOL-04; ruta `/privacidad` | Sin aviso aprobado, el formulario no se publica [Propuesto] | Asociado al formulario según [RECORRIDO-SOLICITUD.md](RECORRIDO-SOLICITUD.md) | Servidor |
 | PaginaError | 404 y error del servidor | 404, 5xx | ERR-01, ERR-02 (copia fija, regla 7) | 404; 5xx | `h1` único; código HTTP correcto; no indexable; sin trazas, ids ni URL pedida (§3.9) | Servidor, sin datos dinámicos |
 
 ## 5. SEO técnico por página [Propuesto]
