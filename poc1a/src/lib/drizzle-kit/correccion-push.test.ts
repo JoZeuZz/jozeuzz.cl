@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { integer, PgDialect, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core'
-import { describe, expect, it, vi } from 'vitest'
+import { integer, PgDialect, pgSchema, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 
 import {
   BLOQUE_ORIGINAL,
@@ -66,7 +67,7 @@ function columna(nombre: string, tipo: string, adicional: string, udt: string) {
   }
 }
 
-function responder(texto: string): unknown[] {
+function responder(texto: string, esquema = 'public'): unknown[] {
   if (texto.includes('$1::regnamespace')) return [{ primary_key: PK }]
   if (texto.includes('a.attrelid::regclass')) {
     return [
@@ -82,17 +83,19 @@ function responder(texto: string): unknown[] {
       data_type: 'text',
       constraint_type: 'PRIMARY KEY',
       constraint_name: PK,
-      constraint_schema: 'public',
+      constraint_schema: esquema,
     }))
   }
   if (texto.includes('AS table_schema') && texto.includes('relkind IN')) {
-    return [{ table_schema: 'public', table_name: 'intake_limite', type: 'table', rls_enabled: false }]
+    return [{ table_schema: esquema, table_name: 'intake_limite', type: 'table', rls_enabled: false }]
   }
+  // drizzle-kit lista sólo los schemas propios (no «public»); si no, intenta eliminarlos.
+  if (texto.includes('pg_catalog.pg_namespace s')) return esquema === 'public' ? [] : [{ table_schema: esquema }]
   return []
 }
 
 // Doble de PostgreSQL: rechaza «$n» sin parámetros igual que el servidor real.
-function crearDrizzleFalso() {
+function crearDrizzleFalso(esquema = 'public') {
   const dialecto = new PgDialect()
   const ejecutadas: { texto: string; params: unknown[] }[] = []
   const cliente: { texto: string; params: unknown[] }[] = []
@@ -103,12 +106,12 @@ function crearDrizzleFalso() {
       if (/\$1\b/.test(texto) && params.length === 0) {
         throw Object.assign(new Error('there is no parameter $1'), { code: '42P02' })
       }
-      return { rows: responder(texto) }
+      return { rows: responder(texto, esquema) }
     },
     $client: {
       query: async (texto: string, params: unknown[]) => {
         cliente.push({ texto, params })
-        return { rows: responder(texto) }
+        return { rows: responder(texto, esquema) }
       },
     },
   }
@@ -135,6 +138,28 @@ describe('pushSchema de drizzle-kit con PK compuesta', () => {
     expect(ejecutadas.filter((e) => /\$1\b/.test(e.texto))).toEqual([])
   })
 
+  it('respeta un schema distinto de public (poc_test) en los parámetros', async () => {
+    const corregido = cargarPushSchemaCorregido({ raiz }) as unknown as PushSchema
+    const { instancia, cliente } = crearDrizzleFalso('poc_test')
+    const esquemaPoc = pgSchema('poc_test')
+    const tablaPoc = esquemaPoc.table(
+      'intake_limite',
+      {
+        claveHmac: text('clave_hmac').notNull(),
+        tipo: text('tipo').notNull(),
+        ventana: timestamp('ventana', { withTimezone: true, precision: 3 }).notNull(),
+        n: integer('n').notNull(),
+      },
+      (t) => [primaryKey({ columns: [t.claveHmac, t.tipo, t.ventana] })],
+    )
+
+    await corregido({ esquemaPoc, tablaPoc }, instancia, ['poc_test'])
+
+    const conPk = cliente.filter((c) => c.texto.includes('$1::regnamespace'))
+    expect(conPk.length).toBeGreaterThan(0)
+    for (const llamada of conPk) expect(llamada.params).toEqual(['poc_test', 'intake_limite'])
+  })
+
   it('no modifica api.js en disco', () => {
     cargarPushSchemaCorregido({ raiz })
     const huella = createHash('sha256').update(readFileSync(rutaApi)).digest('hex')
@@ -150,6 +175,33 @@ describe('pushSchema de drizzle-kit con PK compuesta', () => {
   })
 })
 
+describe('cargarPushSchemaCorregido con un drizzle-kit falso', () => {
+  const temporales: string[] = []
+  afterAll(() => {
+    for (const dir of temporales) rmSync(dir, { recursive: true, force: true })
+  })
+
+  function raizFalsa(version: string, apiJs: string): string {
+    const dir = mkdtempSync(path.join(tmpdir(), 'jz-drizzle-kit-'))
+    temporales.push(dir)
+    const kit = path.join(dir, 'node_modules/drizzle-kit')
+    mkdirSync(kit, { recursive: true })
+    writeFileSync(path.join(kit, 'package.json'), JSON.stringify({ version }))
+    writeFileSync(path.join(kit, 'api.js'), apiJs)
+    return dir
+  }
+
+  it('rechaza una versión inesperada', () => {
+    const dir = raizFalsa('0.31.8', fuenteReal)
+    expect(() => cargarPushSchemaCorregido({ raiz: dir })).toThrow(/correccion_push_version_inesperada/)
+  })
+
+  it('rechaza una huella inesperada con la versión correcta', () => {
+    const dir = raizFalsa(VERSION_DRIZZLE_KIT, `${fuenteReal}\n// alterado`)
+    expect(() => cargarPushSchemaCorregido({ raiz: dir })).toThrow(/correccion_push_huella_inesperada/)
+  })
+})
+
 describe('corregirFuente', () => {
   it('sustituye exactamente el bloque pg y deja intactos mysql y singlestore', () => {
     const corregida = corregirFuente(fuenteReal)
@@ -162,11 +214,11 @@ describe('corregirFuente', () => {
   })
 
   it('falla con cero apariciones', () => {
-    expect(() => corregirFuente(fuenteReal.replace(BLOQUE_ORIGINAL, 'otra cosa'))).toThrow(/0/)
+    expect(() => corregirFuente(fuenteReal.replace(BLOQUE_ORIGINAL, 'otra cosa'))).toThrow(/aparece 0 veces/)
   })
 
   it('falla con dos apariciones', () => {
-    expect(() => corregirFuente(`${fuenteReal}\n${BLOQUE_ORIGINAL}`)).toThrow(/2/)
+    expect(() => corregirFuente(`${fuenteReal}\n${BLOQUE_ORIGINAL}`)).toThrow(/aparece 2 veces/)
   })
 })
 

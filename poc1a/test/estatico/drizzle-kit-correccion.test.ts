@@ -15,6 +15,11 @@ describe('corrección de pushSchema de drizzle-kit', () => {
     expect(config).toContain('afterSchemaInit: [extenderEsquemaIntake]')
   })
 
+  it('payload.config.ts fija la raíz de drizzle-kit sin depender de process.cwd()', async () => {
+    const config = await leer('payload.config.ts')
+    expect(config).toContain("{ raiz: path.resolve(dirname, '..') }")
+  })
+
   it('el esquema conserva la clave primaria compuesta de intake_limite', async () => {
     const esquema = await leer('lib/intake/esquema.ts')
     expect(esquema).toContain('primaryKey({ columns: [table.claveHmac, table.tipo, table.ventana] })')
@@ -22,8 +27,30 @@ describe('corrección de pushSchema de drizzle-kit', () => {
 
   it('el módulo sólo usa APIs públicas de Node y no escribe ni evalúa código', async () => {
     const modulo = await leer('lib/drizzle-kit/correccion-push.ts')
-    for (const prohibido of ['_compile', '_load', 'require.cache', 'eval(', 'new Function', 'writeFile']) {
-      expect(modulo).not.toContain(prohibido)
+    const prohibidos: (string | RegExp)[] = [
+      '_compile',
+      '_load',
+      'require.cache',
+      'eval(',
+      'new Function',
+      'writeFile',
+      'runInThisContext',
+      'runInNewContext',
+      'runInContext',
+      // «compileFunction(» es legítimo: «Function(» se prohíbe sólo como identificador completo.
+      /(?<![A-Za-z0-9_$])Function\(/,
+      'Module.prototype',
+      'process.binding',
+      'globalThis',
+      'appendFile',
+      'mkdir',
+      'unlink',
+      // «rm(» sólo como llamada completa, no como final de «form(», «confirm(», etc.
+      /(?<![A-Za-z0-9_$])rm\(/,
+    ]
+    for (const prohibido of prohibidos) {
+      if (typeof prohibido === 'string') expect(modulo).not.toContain(prohibido)
+      else expect(modulo).not.toMatch(prohibido)
     }
     expect(modulo).toContain('compileFunction')
   })

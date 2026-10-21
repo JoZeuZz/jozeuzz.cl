@@ -50,7 +50,7 @@ export default buildConfig({
     ...(process.env.POC_DB_SCHEMA && process.env.POC_DB_SCHEMA !== 'public'
       ? { schemaName: process.env.POC_DB_SCHEMA }
       : {}),
-  })),
+  }), { raiz: path.resolve(dirname, '..') }),
   sharp,
   telemetry: false,
   plugins: [],
