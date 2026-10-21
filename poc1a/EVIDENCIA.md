@@ -183,6 +183,8 @@ Aislamiento de escritura Docker (`/app` RO, raíz `read_only`, volúmenes nombra
 ### Evidencia por unidad (U2–U9)
 Rutas de log relativas a la raíz del repositorio. «Suite agregada» = `.jz/bin/jz-run --cwd poc1a node node_modules/vitest/vitest.mjs run --configLoader runner src/lib test/estatico` sobre `95db8f4`: 23 archivos, 178 pruebas, rc=0 (`.jz-state/runs/20261017T062748Z-1704275.log`); incluye los unitarios y estáticos de U2 a U9. No se re-ejecutó cada unidad por separado en esta unidad.
 
+Aviso (HP-21): en la tabla siguiente, la fila «U8 axe» refleja el estado a la unidad 9 (2026-10-17); ver «Adenda 2026-10-21 · HP-21» después de la tabla. La fila no se reescribe.
+
 | Unidad | Comando exacto | Resultado |
 |---|---|---|
 | U2 validador, slug, hook `intake` | Suite agregada (unitarios `src/lib/intake/*.test.ts`) | ok, rc=0, log arriba |
@@ -211,6 +213,20 @@ Rutas de log relativas a la raíz del repositorio. «Suite agregada» = `.jz/bin
 | U9 `--alcance poc-3` (12/12 IN-*) en `app` y en `app-prod` | README «POC-3 U9», órdenes `--alcance` | PENDIENTE (no ejecutado) |
 | U9 CO-05 en `app-prod` (incluye proxy y TLS) | salida de la batería de 43 | PENDIENTE (no ejecutado) |
 | U9 latencia y falsos positivos | `POC_BASE_URL=https://127.0.0.1:3444 node medicion/intake-latencia.mjs` | PENDIENTE (no ejecutado) |
+
+#### Adenda 2026-10-21 · HP-21: estado posterior de A4 (P3-05)
+Esta adenda sólo añade contexto; la tabla anterior es evidencia histórica y no se modifica.
+
+1. **Estado durante la unidad 9.** La fila «U8 axe» (unidad 9, 2026-10-17, suite sobre `95db8f4`) declaraba A4 aislado como pendiente (manifiestos sin generar, parche sin aplicar, dependencia sin instalar y E2E axe sin ejecutar). Era correcta en esa fecha y se conserva sin cambios.
+2. **Cuándo se ejecutó A4.** El responsable declaró que la ejecución 1 del gate Docker llegó hasta D06 sobre `de692a4`, A4 incluido (cabecera de `docs/GATE-DOCKER-POC-3.md`); ningún agente lo ha verificado. Que `de692a43dbc2e43b099580e101f8e6f8eb0a1d37` (2026-10-20 17:57:31 -0300, «chore(poc-3): add @axe-core/playwright 4.13.0 (P3-05)») sea el commit de A4k es una deducción de Git (gate, «Deducido de Git»): lleva el mensaje literal de A4k y su padre es `0faf138` (base de A4a).
+3. **Qué incorporó `de692a43dbc2e43b099580e101f8e6f8eb0a1d37`.** Exactamente tres archivos: `poc1a/package.json` (añade `"@axe-core/playwright": "4.13.0"` en `devDependencies`); `poc1a/package-lock.json` (añade la entrada en `packages[""].devDependencies` y los paquetes `node_modules/@axe-core/playwright` 4.13.0 y `node_modules/axe-core` 4.13.0, ambos con `resolved` en `https://registry.npmjs.org/` e `integrity` `sha512-`); `poc1a/tsconfig.json` (`e2e/intake-axe.spec.ts` sale de `exclude`).
+4. Estado actual de los manifiestos: `@axe-core/playwright` 4.13.0 declarado en `package.json` y `package-lock.json`. Verificado por lectura de los archivos y por la prueba estática `test/estatico/gate-a4-git.test.ts`; el diff de `de692a4` lo leyó con `git show` el orquestador.
+5. **Qué se verificó sobre su instalación.** A4b0 (`npm ci` en el volumen nombrado), A4b (`npm ls`) y A4c (`npm audit signatures`): el gate los clasifica como evidencia anterior no reutilizable de la ejecución 1 (categoría c); sus logs, si existen, están fuera del repositorio y ningún agente los ha visto. El `tsc --noEmit` ejecutado con `jz-run` incluye `e2e/intake-axe.spec.ts` (el archivo está dentro de `include` y fuera de `exclude`, así que `tsc` lo compila), pero contra el `node_modules` del host, no contra el volumen nombrado, poblado en la era RW. En ese `node_modules`, `@axe-core/playwright` y `axe-core` figuran con versión 4.13.0 por lectura puntual de los `package.json` por un agente, sin log. Su verde no prueba integridad de dependencias ni una instalación verificada. La reanudación repite `npm ci` en A3f2.
+6. **E2E con axe.** No hay ninguna ejecución registrada de las 3 pruebas de `e2e/intake-axe.spec.ts` (D18 y D28).
+
+E2E axe: PENDIENTE (sin ejecución registrada). U8 axe sigue PENDIENTE hasta que D18 y D28 se ejecuten con su log registrado. Esta adenda no convierte ninguna prueba Docker pendiente en superada: la sección POC-3 sigue con las filas Docker en PENDIENTE y D07 sigue fallido (el gate no se ha reanudado).
+
+Fin de la adenda HP-21.
 
 Guarda de entorno de la medición, sin Docker: sin `NODE_EXTRA_CA_CERTS` el script termina con rc=1 y el mensaje `NODE_EXTRA_CA_CERTS debe terminar en /.tls/ca.crt`, sin hacer ninguna petición (`.jz-state/runs/20261017T062629Z-1700866.log`).
 

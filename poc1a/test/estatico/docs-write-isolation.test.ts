@@ -1,7 +1,8 @@
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const leer = (ruta: string) => readFile(path.join(raiz, ruta), 'utf8')
@@ -87,11 +88,200 @@ it('README y EVIDENCIA usan D21 en app-prod y no recomiendan instalación direct
   expect(readme).toContain('contenedor/next-env.dev.txt')
 })
 
+const FRASE_HISTORICA_U8_AXE = 'A4 aislado PENDIENTE: manifiestos no generados, parche no aplicado, dependencia no instalada y E2E axe no ejecutado'
+const TITULO_ADENDA = '#### Adenda 2026-10-21 · HP-21: estado posterior de A4 (P3-05)'
+const AVISO_ADENDA = 'la fila «U8 axe» refleja el estado a la unidad 9 (2026-10-17); ver «Adenda 2026-10-21 · HP-21»'
+const FRASE_E2E_PENDIENTE = 'E2E axe: PENDIENTE (sin ejecución registrada)'
+const ANCLA_MANIFIESTOS = /Estado actual de los manifiestos: `@axe-core\/playwright` (\d+\.\d+\.\d+) declarado en `package\.json` y `package-lock\.json`/
+const FIN_ADENDA = 'Fin de la adenda HP-21.'
+const TEMA_E2E = /e2e|axe|U8|D18|D28|intake-axe/i
+// Términos de éxito. NO se usan «verde» ni «ejecutad»: la adenda dice legítimamente «su verde no prueba…» y «sin ejecución registrada».
+// «pasó»/«aprobó»/«superó» van sin \b final porque la vocal acentuada es no-palabra en JS (no hay frontera tras «ó»); «paso» (sustantivo) no se incluye.
+const EXITO = /\bok\b|aprobad|aprobó|aprobaron|passed|\bpass\b|pasaron|pasó|pasan\b|pasa\b|superad[ao]|superó|superaron|[eé]xito|conforme|sin fallos|\d+ de \d+|\d+\/\d+|\brc=0\b/i
+
+// Sha256 del texto fechado e inmutable de la adenda HP-21 (ver `tramosAdenda`). La adenda es un registro fechado: cambiarla exige una unidad
+// nueva que actualice estos hashes con revisión (jz-qa y jz-security). Un cambio no revisado rompe el test.
+// - HASH_TRAMO_AVISO: desde el final de la línea «Rutas de log relativas…» hasta el inicio de la cabecera de la tabla (sólo el aviso, entre líneas en blanco).
+// - HASH_TRAMO_ADENDA: desde el final de la línea de la última fila de la tabla («| U9 latencia y falsos positivos …») hasta el inicio de
+//   «Guarda de entorno de la medición» (adenda completa con su título y su marca de fin). Cualquier texto añadido, segunda marca o segundo título en
+//   ese tramo cambia el hash.
+const HASH_TRAMO_AVISO = '04d2c4e8dcf5bf13e6f2e2fafac70d9431748aa7da0ff72865e9491deb75d9d9'
+const HASH_TRAMO_ADENDA = 'b2fdc31a5f40b1ff2bcc1c52f30b157e9e9304c74123ef928c87c52d57f4e022'
+
+const sha256Hex = (texto: string) => createHash('sha256').update(texto, 'utf8').digest('hex')
+const cuenta = (texto: string, fragmento: string) => texto.split(fragmento).length - 1
+
+const tramosAdenda = (evidencia: string): { aviso: string; adenda: string } => {
+  const parrafo = evidencia.indexOf('Rutas de log relativas a la raíz del repositorio.')
+  const finParrafo = evidencia.indexOf('\n', parrafo)
+  const tablaIni = evidencia.indexOf('| Unidad | Comando exacto | Resultado |')
+  const ultimaFila = evidencia.indexOf('| U9 latencia y falsos positivos')
+  const finFila = evidencia.indexOf('\n', ultimaFila)
+  const guarda = evidencia.indexOf('Guarda de entorno de la medición')
+  return { aviso: evidencia.slice(finParrafo, tablaIni), adenda: evidencia.slice(finFila, guarda) }
+}
+
+// Texto de la adenda: desde su título hasta la marca explícita «Fin de la adenda HP-21.» en su propia línea (no depende de encabezados `#`).
+// null si falta el título; `cerrada` false si falta la marca (entonces el texto llega hasta el final del documento).
+const seccionAdenda = (evidencia: string): { texto: string; cerrada: boolean } | null => {
+  const i = evidencia.indexOf(TITULO_ADENDA)
+  if (i < 0) return null
+  const resto = evidencia.slice(i + TITULO_ADENDA.length)
+  const marca = /\nFin de la adenda HP-21\.(?=\n|$)/.exec(resto)
+  return marca === null ? { texto: resto, cerrada: false } : { texto: resto.slice(0, marca.index), cerrada: true }
+}
+
+// Afirmaciones de E2E/axe/U8 aprobada o ejecutada con éxito. Una cita de log NO las hace aceptables: `.jz-state/runs/` es zona de agentes,
+// que no tienen Docker; las E2E sólo las ejecuta el humano y su log va fuera del repositorio. Un aprobado futuro exige una unidad nueva
+// que cambie también este test. Heurística por oración (separada en «.», «;» y saltos de línea; «:» no separa: «E2E axe: 3 passed»).
+// LÍMITE RESIDUAL: la heurística no detecta una afirmación partida en dos oraciones donde ninguna reúne tema y éxito (p. ej. «Las tres
+// pruebas de la suite nueva. Pasaron.»). Eso NO lo cierra la heurística sino el hash del texto exacto de la adenda (HASH_TRAMO_ADENDA):
+// la heurística es defensa adicional (casos sintéticos y `contradiccionesA4`).
+const afirmacionesE2EAprobada = (adenda: string): string[] =>
+  adenda.split(/(?<=[.;])\s+|\n/).filter((o) => (TEMA_E2E.test(o) && EXITO.test(o)) || /\d+ passed/.test(o))
+
+type Manifiesto = { devDependencies?: Record<string, string>; packages?: Record<string, { version?: string; devDependencies?: Record<string, string> }> }
+
+// Contradicciones entre el estado declarado en EVIDENCIA y los manifiestos reales (función pura; sólo recibe datos).
+const contradiccionesA4 = (evidencia: string, pkg: Manifiesto, lock: Manifiesto): string[] => {
+  const problemas: string[] = []
+  const dep = pkg.devDependencies?.['@axe-core/playwright']
+  const seccion = seccionAdenda(evidencia)
+  if (seccion === null) {
+    if (dep !== undefined) problemas.push('falta la adenda HP-21 aunque package.json ya declara @axe-core/playwright')
+    return problemas
+  }
+  const adenda = seccion.texto
+  if (!seccion.cerrada) problemas.push(`la adenda HP-21 no termina con la marca «${FIN_ADENDA}» en su propia línea`)
+  const declarada = ANCLA_MANIFIESTOS.exec(adenda)?.[1]
+  if (declarada === undefined) problemas.push('la adenda no declara la versión de @axe-core/playwright con la frase de estado de los manifiestos')
+  else {
+    if (dep !== declarada) problemas.push(`package.json no declara exactamente ${declarada} (declara ${String(dep)})`)
+    if (lock.packages?.['']?.devDependencies?.['@axe-core/playwright'] !== declarada) problemas.push(`package-lock.json no tiene packages[""].devDependencies con ${declarada}`)
+    if (lock.packages?.['node_modules/@axe-core/playwright']?.version !== declarada) problemas.push(`package-lock.json no tiene node_modules/@axe-core/playwright ${declarada}`)
+  }
+  const afirmaciones = afirmacionesE2EAprobada(adenda)
+  for (const o of afirmaciones) problemas.push(`la adenda afirma E2E axe aprobada: ${o.trim()}`)
+  if (afirmaciones.length > 0 && adenda.includes(FRASE_E2E_PENDIENTE)) problemas.push(`contradicción interna: la adenda declara «${FRASE_E2E_PENDIENTE}» y a la vez afirma un aprobado`)
+  return problemas
+}
+
 it('EVIDENCIA no afirma resultados Docker del aislamiento', async () => {
   const evidencia = await leer('EVIDENCIA.md')
-  expect(evidencia).toContain('A4 aislado PENDIENTE: manifiestos no generados, parche no aplicado, dependencia no instalada y E2E axe no ejecutado')
+  // HP-21: la fila histórica de la unidad 9 se conserva intacta (una sola vez, dentro de la fila «| U8 axe |»); el estado posterior va en la adenda.
+  expect(evidencia.split(FRASE_HISTORICA_U8_AXE).length - 1).toBe(1)
+  const filaAxe = evidencia.split('\n').find((l) => l.startsWith('| U8 axe |')) ?? ''
+  expect(filaAxe).toContain(FRASE_HISTORICA_U8_AXE)
   expect(evidencia).toContain('`volumes-init`, `deps` y `probe-mounts` siguen sin ejecutarse')
   expect(evidencia).not.toContain('./poc.sh exec-en poc3_intake npx tsc --noEmit\n')
+})
+
+it('HP-21: la adenda posterior de A4 existe, va después de la tabla y el aviso antes de ella', async () => {
+  const evidencia = await leer('EVIDENCIA.md')
+  const tablaIni = evidencia.indexOf('| Unidad | Comando exacto | Resultado |')
+  const ultimaFila = evidencia.indexOf('| U9 latencia y falsos positivos')
+  const tablaFin = evidencia.indexOf('\n', ultimaFila)
+  expect(tablaIni).toBeGreaterThan(-1)
+  expect(ultimaFila).toBeGreaterThan(tablaIni)
+  const aviso = evidencia.indexOf(AVISO_ADENDA)
+  expect(aviso, 'aviso').toBeGreaterThan(-1)
+  expect(aviso).toBeLessThan(tablaIni)
+  const titulo = evidencia.indexOf(TITULO_ADENDA)
+  expect(titulo, 'título de la adenda').toBeGreaterThan(tablaFin)
+  const guarda = evidencia.indexOf('Guarda de entorno de la medición')
+  expect(titulo).toBeLessThan(guarda)
+  // Límite explícito: la marca va en su propia línea, después del título y antes del párrafo histórico «Guarda de entorno…».
+  expect(evidencia).toMatch(/\nFin de la adenda HP-21\.\n/)
+  const fin = evidencia.indexOf(`\n${FIN_ADENDA}\n`)
+  expect(fin, 'marca de fin').toBeGreaterThan(titulo)
+  expect(fin).toBeLessThan(guarda)
+  const seccion = seccionAdenda(evidencia)
+  expect(seccion?.cerrada, 'la adenda está cerrada por su marca').toBe(true)
+  const adenda = seccion?.texto ?? ''
+  expect(adenda).not.toContain('Guarda de entorno')
+  for (const t of ['de692a43dbc2e43b099580e101f8e6f8eb0a1d37', '0faf138', '4.13.0', 'unidad 9', FRASE_E2E_PENDIENTE, 'filas Docker en PENDIENTE', 'no reutilizable',
+    'declaró que la ejecución 1', 'deducción de Git', 'Deducido de Git', 'categoría c', 'ningún agente los ha visto',
+    'Verificado por lectura de los archivos y por la prueba estática `test/estatico/gate-a4-git.test.ts`',
+    'lectura puntual de los `package.json` por un agente, sin log', 'dentro de `include` y fuera de `exclude`'])
+    expect(adenda, t).toContain(t)
+  expect(adenda).not.toContain('por lectura de Git')
+  expect(adenda).toMatch(ANCLA_MANIFIESTOS)
+  expect(afirmacionesE2EAprobada(adenda)).toEqual([])
+})
+
+it('HP-21: título, marca de fin y frase pendiente aparecen exactamente una vez en todo EVIDENCIA.md', async () => {
+  const evidencia = await leer('EVIDENCIA.md')
+  for (const fragmento of [TITULO_ADENDA, FIN_ADENDA, FRASE_E2E_PENDIENTE]) expect(cuenta(evidencia, fragmento), fragmento).toBe(1)
+})
+
+it('HP-21: el aviso previo a la tabla y el tramo de la adenda son los revisados (sha256 del texto exacto, inmutable)', async () => {
+  const { aviso, adenda } = tramosAdenda(await leer('EVIDENCIA.md'))
+  // Entre el párrafo «Rutas de log relativas…» y la cabecera de la tabla sólo cabe el aviso.
+  expect(aviso.startsWith('\n\nAviso (HP-21): ')).toBe(true)
+  expect(aviso.endsWith('\n\n')).toBe(true)
+  expect(aviso.trim().split('\n').length).toBe(1)
+  expect(sha256Hex(aviso), 'tramo del aviso').toBe(HASH_TRAMO_AVISO)
+  // Entre la última fila de la tabla y «Guarda de entorno…» sólo cabe la adenda revisada (título, texto y marca de fin).
+  expect(adenda.startsWith(`\n\n${TITULO_ADENDA}\n`)).toBe(true)
+  expect(adenda.endsWith(`\n${FIN_ADENDA}\n\n`)).toBe(true)
+  expect(sha256Hex(adenda), 'tramo de la adenda').toBe(HASH_TRAMO_ADENDA)
+})
+
+it('HP-21: contradiccionesA4 devuelve [] con EVIDENCIA, package.json y package-lock.json reales', async () => {
+  const [evidencia, pkg, lock] = await Promise.all([leer('EVIDENCIA.md'), leer('package.json'), leer('package-lock.json')])
+  expect(contradiccionesA4(evidencia, JSON.parse(pkg), JSON.parse(lock))).toEqual([])
+})
+
+describe('HP-21: contradiccionesA4 con datos sintéticos (en memoria)', () => {
+  const pkgOk: Manifiesto = { devDependencies: { '@axe-core/playwright': '4.13.0' } }
+  const lockOk: Manifiesto = { packages: { '': { devDependencies: { '@axe-core/playwright': '4.13.0' } }, 'node_modules/@axe-core/playwright': { version: '4.13.0' } } }
+  const adendaOk = (extra = '') => `${TITULO_ADENDA}\nEstado actual de los manifiestos: \`@axe-core/playwright\` 4.13.0 declarado en \`package.json\` y \`package-lock.json\`.\n${FRASE_E2E_PENDIENTE}\n${extra}\n${FIN_ADENDA}\n\nGuarda de entorno de la medición, sin Docker.\n`
+  const evOk = (extra = '') => `| U8 axe | x | ${FRASE_HISTORICA_U8_AXE} |\n\n${adendaOk(extra)}`
+
+  it('caso positivo: estado coherente no produce problemas', () => {
+    expect(contradiccionesA4(evOk(), pkgOk, lockOk)).toEqual([])
+  })
+  it('(a) detecta versión declarada distinta de package.json o del lock', () => {
+    expect(contradiccionesA4(evOk(), { devDependencies: { '@axe-core/playwright': '^4.13.0' } }, lockOk).join('\n')).toContain('package.json no declara exactamente 4.13.0')
+    expect(contradiccionesA4(evOk(), { devDependencies: {} }, lockOk).length).toBeGreaterThan(0)
+    expect(contradiccionesA4(evOk(), pkgOk, { packages: { 'node_modules/@axe-core/playwright': { version: '4.13.0' } } }).join('\n')).toContain('packages[""].devDependencies')
+    expect(contradiccionesA4(evOk(), pkgOk, { packages: { '': { devDependencies: { '@axe-core/playwright': '4.13.0' } } } }).join('\n')).toContain('node_modules/@axe-core/playwright 4.13.0')
+    expect(contradiccionesA4(evOk().replaceAll('4.13.0', '4.12.0'), pkgOk, lockOk).length).toBeGreaterThan(0)
+  })
+  it('(b) detecta la adenda ausente mientras package.json ya declara la dependencia', () => {
+    const sinAdenda = `| U8 axe | x | ${FRASE_HISTORICA_U8_AXE} |\n`
+    expect(contradiccionesA4(sinAdenda, pkgOk, lockOk).join('\n')).toContain('falta la adenda HP-21')
+    expect(contradiccionesA4(sinAdenda, { devDependencies: {} }, { packages: {} })).toEqual([])
+  })
+  it('(c) detecta toda afirmación de E2E/axe aprobada, con o sin cita de log (un log no la hace aceptable)', () => {
+    const afirmaciones = ['E2E axe: 3 passed', 'E2E axe: aprobada', 'E2E axe ok', 'E2E axe ejecutada con éxito', '13 passed', 'E2E con axe aprobada', 'U8 axe: ok',
+      'las 3 pruebas de e2e/intake-axe.spec.ts pasaron', 'axe E2E superada', 'E2E axe: 3/3', 'E2E axe rc=0',
+      'D18 y D28: 3/3, rc=0', 'E2E axe: pasó', 'E2E axe aprobó', 'E2E axe superó', 'E2E axe: 3 pass', 'E2E axe sin fallos', 'E2E axe: 3 de 3']
+    for (const afirmacion of afirmaciones)
+      for (const texto of [afirmacion, `${afirmacion} (\`.jz-state/runs/20261021T000000Z-1.log\`)`])
+        expect(contradiccionesA4(evOk(texto), pkgOk, lockOk).join('\n'), texto).toContain('la adenda afirma E2E axe aprobada')
+  })
+  it('(c2) no marca oraciones legítimas: pendiente, «su verde no prueba…», «sin ejecución registrada», negaciones', () => {
+    for (const legitima of ['E2E axe: PENDIENTE (sin ejecución registrada).', 'El tsc compila e2e/intake-axe.spec.ts; su verde no prueba integridad de dependencias.',
+      'No hay ninguna ejecución registrada de las 3 pruebas de e2e/intake-axe.spec.ts (D18 y D28).'])
+      expect(contradiccionesA4(evOk(legitima), pkgOk, lockOk), legitima).toEqual([])
+  })
+  it('(d) contradicción interna: «E2E axe: PENDIENTE (sin ejecución registrada)» junto a una afirmación de aprobado', () => {
+    const r = contradiccionesA4(evOk('Las pruebas de E2E axe pasaron.'), pkgOk, lockOk).join('\n')
+    expect(r).toContain('contradicción interna')
+    expect(contradiccionesA4(evOk(), pkgOk, lockOk).join('\n')).not.toContain('contradicción interna')
+  })
+  it('(e) el límite lo marca «Fin de la adenda HP-21.»: un subencabezado dentro de la adenda no la corta y su ausencia es un problema', () => {
+    for (const afirmacion of ['U8 axe: ok', 'E2E axe: 3 passed'])
+      expect(contradiccionesA4(evOk(`##### Nota\n${afirmacion}`), pkgOk, lockOk).join('\n'), afirmacion).toContain('la adenda afirma E2E axe aprobada')
+    const sinMarca = evOk().replace(`\n${FIN_ADENDA}\n`, '\n')
+    expect(sinMarca).not.toContain(FIN_ADENDA)
+    expect(contradiccionesA4(sinMarca, pkgOk, lockOk).join('\n')).toContain('no termina con la marca')
+    // La marca debe ocupar su propia línea.
+    expect(contradiccionesA4(evOk().replace(`\n${FIN_ADENDA}\n`, `\nverá ${FIN_ADENDA} aquí\n`), pkgOk, lockOk).join('\n')).toContain('no termina con la marca')
+    // Lo que queda tras la marca (párrafos históricos) no pertenece a la adenda.
+    expect(contradiccionesA4(`${evOk()}\nSegún el histórico, E2E axe: 3 passed.\n`, pkgOk, lockOk)).toEqual([])
+  })
 })
 
 // ---- Ciclo de corrección 1 (revisión jz-qa y jz-security) ----

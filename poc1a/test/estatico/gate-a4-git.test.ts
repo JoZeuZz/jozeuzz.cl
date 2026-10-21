@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, chmodSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -10,6 +11,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const leer = (ruta: string) => readFile(path.join(raiz, ruta), 'utf8')
 const RUTA_GATE = '../docs/GATE-DOCKER-POC-3.md'
+const COMMIT_A4 = 'chore(poc-3): add @axe-core/playwright 4.13.0 (P3-05)' // mensaje literal del commit de A4k
 
 const bloque = (texto: string, desde: string, hasta: string) => {
   const i = texto.indexOf(desde)
@@ -23,6 +25,34 @@ const comentario = (l: string) => l.trim().startsWith('#')
 
 const tmpRaiz = mkdtempSync(path.join(os.tmpdir(), 'gate-a4-git-'))
 afterAll(() => rmSync(tmpRaiz, { recursive: true, force: true }))
+
+// ---------------------------------------------------------------------------------------------
+// Estado de partida (pre-A4) fijado como fixture y huellas de los archivos reales (sólo lectura)
+// ---------------------------------------------------------------------------------------------
+
+// Procedencia del fixture: `git show 0faf138:poc1a/tsconfig.json` (0faf138 es el padre de de692a4, el commit de A4), blob Git
+// 8d0831bd131e2da1581c6f54c20cb04269947c33. Extensión .txt deliberada: un tsconfig*.json bajo test/ podría ser descubierto por
+// vite-tsconfig-paths o tsc y alterar la resolución. Los archivos reales (package.json, package-lock.json, tsconfig.json) ya son
+// post-A4 y NUNCA se usan como estado de partida de A4 ni se escriben desde las pruebas (en D11 /app es de sólo lectura).
+const RUTA_FIXTURE_PRE_A4 = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'tsconfig-pre-a4.json.txt')
+const BLOB_PRE_A4 = '8d0831bd131e2da1581c6f54c20cb04269947c33' // 0faf138:poc1a/tsconfig.json
+const BLOB_POST_A4 = '441ecc3e7976c60bf541d2a64f7e8e49acfc3c85' // de692a4:poc1a/tsconfig.json
+const blobGit = (contenido: Buffer) => createHash('sha1').update(Buffer.concat([Buffer.from(`blob ${contenido.length}\0`), contenido])).digest('hex')
+const sha256 = (contenido: Buffer) => createHash('sha256').update(contenido).digest('hex')
+const ARCHIVOS_REALES = ['package.json', 'package-lock.json', 'tsconfig.json']
+const huellasRealesAlCargar = Object.fromEntries(ARCHIVOS_REALES.map((f) => [f, sha256(readFileSync(path.join(raiz, f)))]))
+
+/** `viejo` y `nuevo` de A4a, tomados literalmente del gate (una sola fuente de verdad). */
+function sustitucionDeA4a(gate: string) {
+  const a4a = bloquesSh(bloque(gate, '### A4 ·', '### Clasificación de operaciones por privilegio')).find((b) => b.includes('# A4a ·'))!
+  const literal = (nombre: string) => {
+    const m = new RegExp(`^const ${nombre} = '((?:[^'\\\\]|\\\\.)*)'$`, 'm').exec(a4a)
+    expect(m, `const ${nombre} en A4a`).toBeTruthy()
+    expect(m![1].replace(/\\n/g, ''), `${nombre}: sólo se admite \\n como escape`).not.toContain('\\')
+    return m![1].replace(/\\n/g, '\n')
+  }
+  return { viejo: literal('viejo'), nuevo: literal('nuevo') }
+}
 
 // ---------------------------------------------------------------------------------------------
 // a. Sintaxis de todos los bloques sh
@@ -331,7 +361,7 @@ describe('I-2: A4 en fases con aprobación por hash', () => {
     const a4v = faseDe(a4, '# A4v ·')
     for (const t of ['g -C .. status --porcelain', 'cmp ', '"$S/A4-tsconfig.json"', 'poc1a/package.json', 'poc1a/package-lock.json', 'poc1a/tsconfig.json', '--no-ext-diff --no-textconv']) expect(a4v, t).toContain(t)
     const a4k = faseDe(a4, '# A4k ·')
-    for (const t of ['cmp ', 'g -C .. add -- ', 'g -C .. diff --cached --no-ext-diff --name-only', 'g -C .. commit --no-verify --no-gpg-sign -m "chore(poc-3): add @axe-core/playwright 4.13.0 (P3-05)"',
+    for (const t of ['cmp ', 'g -C .. add -- ', 'g -C .. diff --cached --no-ext-diff --name-only', `g -C .. commit --no-verify --no-gpg-sign -m "${COMMIT_A4}"`,
       "g cat-file commit HEAD | sed -n '/^$/q;p' | grep -c '^gpgsig'", 'g diff-tree --no-commit-id --name-only -r HEAD', 'HEAD~1', '$S/A4-base.txt', 'g rev-parse --short HEAD']) expect(a4k, t).toContain(t)
     // Ninguna orden Git de A4 omite g.
     for (const b of bloquesSh(a4)) for (const l of b.split('\n')) if (!comentario(l)) expect(l, l).not.toMatch(/(^|[\s(;&|])git /)
@@ -355,10 +385,16 @@ describe('I-2: A4 en fases con aprobación por hash', () => {
 // ---------------------------------------------------------------------------------------------
 
 describe('I-2: las fases del gate se ejecutan de punta a punta (docker simulado) y la aplicación exige la aprobación', () => {
-  type Desviacion = 'ninguna' | 'cambia-entrada' | 'paquete-extra' | 'url-git'
+  type Desviacion = 'ninguna' | 'cambia-entrada' | 'paquete-extra' | 'url-git' | 'resolved-externo' | 'resolved-file' | 'resolved-http'
+  const RESOLVED_EXTERNO = 'https://registry.example.invalid/axe-core/-/axe-core-4.10.2.tgz'
   const b64 = (o: unknown) => Buffer.from(`${JSON.stringify(o, null, 2)}\n`).toString('base64')
 
-  async function ejecutarA4(desviacion: Desviacion, mutador = '', mutadorAntesDeK = '', mutadorAntesDeA4a = '', aprobacionInvalida = false, mutadorAntesDeV = '') {
+  // Estado de partida del repositorio temporal. Por defecto es el estado PRE-A4 (fixture de tsconfig y manifiestos sintéticos);
+  // los archivos reales (post-A4) sólo se usan cuando una prueba pide expresamente 'real' / 'post' y siempre en sólo lectura.
+  type Variante = { tsconfig?: 'pre-a4' | 'real'; manifiestos?: 'pre' | 'post' | 'ya-declara' }
+
+  async function ejecutarA4(desviacion: Desviacion, mutador = '', mutadorAntesDeK = '', mutadorAntesDeA4a = '', aprobacionInvalida = false, mutadorAntesDeV = '', variante: Variante = {}) {
+    const { tsconfig: variantTsconfig = 'pre-a4', manifiestos = 'pre' } = variante
     const gate = await leer(RUTA_GATE)
     const a4 = bloque(gate, '### A4 ·', '### Clasificación de operaciones por privilegio')
     const bs = bloquesSh(a4)
@@ -384,11 +420,26 @@ describe('I-2: las fases del gate se ejecutan de punta a punta (docker simulado)
     if (desviacion === 'cambia-entrada') lock1.packages['node_modules/typescript'].integrity = 'sha512-ZZZZ'
     if (desviacion === 'paquete-extra') lock1.packages['node_modules/otro'] = { version: '1.0.0', resolved: `${reg}otro/-/otro-1.0.0.tgz`, integrity: 'sha512-DDDD' }
     if (desviacion === 'url-git') lock1.packages['node_modules/axe-core'].resolved = 'git+https://example.invalid/axe-core.git'
+    if (desviacion === 'resolved-externo') lock1.packages['node_modules/axe-core'].resolved = RESOLVED_EXTERNO
+    if (desviacion === 'resolved-file') lock1.packages['node_modules/axe-core'].resolved = 'file:../axe-core'
+    if (desviacion === 'resolved-http') lock1.packages['node_modules/axe-core'].resolved = 'http://registry.npmjs.org/axe-core/-/axe-core-4.10.2.tgz'
+    // Los manifiestos sintéticos de partida no declaran la dependencia que A4 añade.
+    expect(JSON.stringify(pkg0)).not.toContain('@axe-core/playwright')
+    expect(JSON.stringify(lock0)).not.toContain('@axe-core/playwright')
     const json = path.join(dir, 'stub.json')
-    writeFileSync(json, JSON.stringify({ packageJson: b64(pkg1), packageLockJson: b64(lock1) }))
-    writeFileSync(path.join(sub, 'package.json'), `${JSON.stringify(pkg0, null, 2)}\n`)
-    writeFileSync(path.join(sub, 'package-lock.json'), `${JSON.stringify(lock0, null, 2)}\n`)
-    writeFileSync(path.join(sub, 'tsconfig.json'), readFileSync(path.join(raiz, 'tsconfig.json'), 'utf8'))
+    const aBase64 = (ruta: string) => readFileSync(path.join(raiz, ruta)).toString('base64')
+    writeFileSync(json, JSON.stringify(manifiestos === 'post'
+      ? { packageJson: aBase64('package.json'), packageLockJson: aBase64('package-lock.json') }
+      : { packageJson: b64(pkg1), packageLockJson: b64(lock1) }))
+    if (manifiestos === 'post') {
+      writeFileSync(path.join(sub, 'package.json'), readFileSync(path.join(raiz, 'package.json')))
+      writeFileSync(path.join(sub, 'package-lock.json'), readFileSync(path.join(raiz, 'package-lock.json')))
+    } else {
+      const pkgArbol = manifiestos === 'ya-declara' ? { ...pkg0, devDependencies: { '@axe-core/playwright': '4.12.0', typescript: '5.0.0' } } : pkg0
+      writeFileSync(path.join(sub, 'package.json'), `${JSON.stringify(pkgArbol, null, 2)}\n`)
+      writeFileSync(path.join(sub, 'package-lock.json'), `${JSON.stringify(lock0, null, 2)}\n`)
+    }
+    writeFileSync(path.join(sub, 'tsconfig.json'), readFileSync(variantTsconfig === 'real' ? path.join(raiz, 'tsconfig.json') : RUTA_FIXTURE_PRE_A4))
     writeFileSync(path.join(sub, '.npmrc'), 'ignore-scripts=true\n')
     writeFileSync(path.join(sub, 'poc.sh'), `#!/bin/sh\ncase "$1" in manifest-patch-axe) cat "${json}" ;; *) exit 2 ;; esac\n`)
     chmodSync(path.join(sub, 'poc.sh'), 0o755)
@@ -409,7 +460,12 @@ describe('I-2: las fases del gate se ejecutan de punta a punta (docker simulado)
     const aprobacion = fase('# A4r (aprobación humana)')
       .replace(/^A4_APROBADO=.*$/m, aprobacionInvalida ? 'A4_APROBADO=no-es-un-hash' : 'A4_APROBADO="$(sha256sum "$S/A4-manifiestos.patch" | cut -d\' \' -f1)"')
       .replace(/^APROBADOR=.*$/m, 'APROBADOR=prueba')
-    const cd = (b: string) => b.replace('/home/proyectos/jozeuzz-poc-candidata-a/poc1a', sub)
+    const cd = (b: string) => {
+      const sustituido = b.replace('/home/proyectos/jozeuzz-poc-candidata-a/poc1a', sub)
+      // Si el gate cambiara la ruta de su `cd`, la simulación podría entrar en un worktree real: se exige que no quede ninguna ruta real.
+      expect(sustituido, 'tras cd() ningún bloque de fase conserva una ruta /home/proyectos/').not.toContain('/home/proyectos/')
+      return sustituido
+    }
     const script = [
       'set -o pipefail', 'umask 077', `S="${dir}/salidas"`, 'install -d -m 700 "$S"',
       "GUARDA='poc.sh package.json package-lock.json tsconfig.json .npmrc'", definicion, validadores,
@@ -430,20 +486,27 @@ describe('I-2: las fases del gate se ejecutan de punta a punta (docker simulado)
     const e = await ejecutarA4('ninguna')
     expect([e.a4a, e.a4r, e.a4p, e.a4v, e.a4k], `${e.stdout}\n${e.stderr}`).toEqual([0, 0, 0, 0, 0])
     expect(leerMarcas(e.marcas)).toEqual([])
-    expect(e.git('log -1 --format=%s')).toBe('chore(poc-3): add @axe-core/playwright 4.13.0 (P3-05)')
+    expect(e.git('log -1 --format=%s')).toBe(COMMIT_A4)
     expect(e.git('diff-tree --no-commit-id --name-only -r HEAD').split('\n').sort()).toEqual(['poc1a/package-lock.json', 'poc1a/package.json', 'poc1a/tsconfig.json'])
     expect(cabeceraSinGpgsig(e.repo, e.home)).toBe('0')
     expect(readFileSync(path.join(e.sub, 'tsconfig.json'), 'utf8')).not.toContain('intake-axe')
+    // A4 reproducido sobre el fixture pre-A4 = estado real post-A4 (byte a byte, también en el commit).
+    expect(readFileSync(path.join(e.sub, 'tsconfig.json')).equals(readFileSync(path.join(raiz, 'tsconfig.json')))).toBe(true)
+    expect(e.git('show HEAD:poc1a/tsconfig.json')).toBe(readFileSync(path.join(raiz, 'tsconfig.json'), 'utf8').trim())
     expect(readFileSync(path.join(e.sub, 'package.json'), 'utf8')).toContain('"@axe-core/playwright": "4.13.0"')
     expect(readFileSync(path.join(e.salidas, 'A4-verificacion.txt'), 'utf8')).toContain('versión de axe-core (transitiva): 4.10.2')
     expect(readFileSync(path.join(e.salidas, 'A4-aprobacion.txt'), 'utf8')).toMatch(/^sha256=[0-9a-f]{64}\nresponsable=prueba\nfecha_utc=/)
     expect(e.git('status --porcelain')).toBe('')
   })
 
-  const rechazos: Array<[string, Desviacion, string, { a4a?: number; a4r?: number }]> = [
-    ['una entrada preexistente del lockfile cambia', 'cambia-entrada', '', { a4r: 1 }],
-    ['aparece un paquete nuevo distinto de los dos esperados', 'paquete-extra', '', { a4r: 1 }],
-    ['un resolved apunta fuera del registro (git+)', 'url-git', '', { a4r: 1 }],
+  // `verificacion`: texto esperado en A4-verificacion.txt (la desviación llega al script Node de A4r); `stderr`: mensaje del grep previo de A4r.
+  const rechazos: Array<[string, Desviacion, string, { a4r?: number; verificacion?: string; stderr?: string }]> = [
+    ['una entrada preexistente del lockfile cambia', 'cambia-entrada', '', { a4r: 1, verificacion: 'DESVIACIÓN: lockfile: 1 entradas preexistentes profundamente iguales (cambiadas: node_modules/typescript)' }],
+    ['aparece un paquete nuevo distinto de los dos esperados', 'paquete-extra', '', { a4r: 1, verificacion: 'DESVIACIÓN: lockfile: claves nuevas = node_modules/@axe-core/playwright, node_modules/axe-core, node_modules/otro' }],
+    ['un resolved apunta fuera del registro (git+)', 'url-git', '', { a4r: 1, stderr: 'A4r: URL git+, file: o http: en el lockfile propuesto' }],
+    ['un resolved https apunta a otro registro (llega al script Node de A4r)', 'resolved-externo', '', { a4r: 1, verificacion: 'DESVIACIÓN: node_modules/axe-core: resolved empieza por https://registry.npmjs.org/' }],
+    ['un resolved es file: (lo para el grep previo de A4r)', 'resolved-file', '', { a4r: 1, stderr: 'A4r: URL git+, file: o http: en el lockfile propuesto' }],
+    ['un resolved es http: (lo para el grep previo de A4r)', 'resolved-http', '', { a4r: 1, stderr: 'A4r: URL git+, file: o http: en el lockfile propuesto' }],
     ['el parche se altera después de la aprobación', 'ninguna', 'echo "# alterado" >> "$S/A4-manifiestos.patch"', {}],
     ['A4_APROBADO no se definió', 'ninguna', 'unset A4_APROBADO', {}],
     ['A4_APROBADO es otro hash', 'ninguna', 'A4_APROBADO=0000000000000000000000000000000000000000000000000000000000000000', {}],
@@ -453,14 +516,19 @@ describe('I-2: las fases del gate se ejecutan de punta a punta (docker simulado)
   for (const [nombre, desviacion, mutador, esperado] of rechazos) {
     it(`no se aplica nada si ${nombre}`, async () => {
       const e = await ejecutarA4(desviacion, mutador)
-      expect(e.a4a).toBe(0)
+      expect(e.a4a, `${e.stdout}\n${e.stderr}`).toBe(0)
+      // La fase que rechaza es la esperada: A4r sólo falla en las desviaciones del lockfile; en el resto A4r pasa y rechaza A4p.
       if (esperado.a4r !== undefined) expect(e.a4r).not.toBe(0)
+      else expect(e.a4r, `${e.stdout}\n${e.stderr}`).toBe(0)
       expect(e.a4p, e.stderr).not.toBe(0)
+      expect(e.a4v, e.stderr).not.toBe(0)
       expect(e.a4k).not.toBe(0)
       expect(readFileSync(path.join(e.sub, 'package.json'), 'utf8')).not.toContain('axe-core')
       expect(readFileSync(path.join(e.sub, 'tsconfig.json'), 'utf8')).toContain('intake-axe')
-      expect(e.git('log --format=%s').split('\n')).not.toContain('chore(poc-3): add @axe-core/playwright 4.13.0 (P3-05)')
+      expect(e.git('log --format=%s').split('\n')).not.toContain(COMMIT_A4)
       expect(leerMarcas(e.marcas)).toEqual([])
+      if (esperado.verificacion !== undefined) expect(readFileSync(path.join(e.salidas, 'A4-verificacion.txt'), 'utf8')).toContain(esperado.verificacion)
+      if (esperado.stderr !== undefined) expect(e.stderr).toContain(esperado.stderr)
     })
   }
 
@@ -475,9 +543,11 @@ describe('I-2: las fases del gate se ejecutan de punta a punta (docker simulado)
       const e = await ejecutarA4(desviacion, antesDeP, antesDeK, antesDeA4a, false, antesDeV)
       const rcs = [e.a4a, e.a4r, e.a4p, e.a4v, e.a4k]
       const i = ['A4a', 'A4r', 'A4p', 'A4v'].indexOf(nombre)
+      // Todas las fases anteriores a la que falla pasan: la falla se debe a la fase indicada y no a otra causa.
+      for (const rc of rcs.slice(0, i)) expect(rc, `${nombre}: fase anterior debe ser 0: ${e.stderr}`).toBe(0)
       expect(rcs[i], `${nombre}: ${e.stderr}`).not.toBe(0)
       for (const rc of rcs.slice(i + 1)) expect(rc, `${nombre}: ${e.stderr}`).not.toBe(0)
-      expect(e.git('log --format=%s').split('\n')).not.toContain('chore(poc-3): add @axe-core/playwright 4.13.0 (P3-05)')
+      expect(e.git('log --format=%s').split('\n')).not.toContain(COMMIT_A4)
     }
   })
 
@@ -490,26 +560,82 @@ describe('I-2: las fases del gate se ejecutan de punta a punta (docker simulado)
     ]
     for (const [nombre, antesDeP, antesDeK, fase] of casos) {
       const e = await ejecutarA4('ninguna', antesDeP, antesDeK)
+      expect([e.a4a, e.a4r], `${nombre}: A4a y A4r deben pasar antes de la reconfiguración: ${e.stderr}`).toEqual([0, 0])
       if (fase === 'p') expect(e.a4p, `${nombre}: ${e.stderr}`).not.toBe(0)
       else {
         expect(e.a4p, `${nombre}: ${e.stderr}`).toBe(0)
         expect(e.a4v, `${nombre}: ${e.stderr}`).toBe(0)
         expect(e.a4k, `${nombre}: ${e.stderr}`).not.toBe(0)
       }
-      expect(e.git('log --format=%s').split('\n')).not.toContain('chore(poc-3): add @axe-core/playwright 4.13.0 (P3-05)')
+      expect(e.git('log --format=%s').split('\n')).not.toContain(COMMIT_A4)
     }
   })
 
   it('aprobación humana simulada inválida no crea registro ni aplica parche', async () => {
     const e = await ejecutarA4('ninguna', '', '', '', true)
+    expect([e.a4a, e.a4r], `A4a y A4r pasan; lo que falla es la aprobación: ${e.stderr}`).toEqual([0, 0])
     expect(existsSync(path.join(e.salidas, 'A4-aprobacion.txt'))).toBe(false)
     expect([e.a4p, e.a4v, e.a4k]).not.toContain(0)
     expect(readFileSync(path.join(e.sub, 'package.json'), 'utf8')).not.toContain('axe-core')
   })
 
-  it('el tsconfig.json real contiene exactamente una vez el bloque que A4a sustituye', async () => {
-    const real = readFileSync(path.join(raiz, 'tsconfig.json'), 'utf8')
-    expect(real.split('    "node_modules",\n    "e2e/intake-axe.spec.ts"\n').length - 1).toBe(1)
+  it('A4 no se repite sobre el estado post-A4: con los tres archivos reales las fases se detienen y no cambia nada', async () => {
+    const e = await ejecutarA4('ninguna', '', '', '', false, '', { tsconfig: 'real', manifiestos: 'post' })
+    expect(e.a4a, e.stderr).not.toBe(0)
+    expect(e.stderr, 'A4a falla por el bloque exclude, no por otra causa').toContain('tsconfig.json: el bloque exclude no aparece exactamente una vez')
+    for (const rc of [e.a4r, e.a4p, e.a4v, e.a4k]) expect(rc, e.stderr).not.toBe(0)
+    expect(e.git('log --format=%s').split('\n')).toEqual(['base'])
+    expect(leerMarcas(e.marcas)).toEqual([])
+    expect(e.git('status --porcelain')).toBe('')
+    for (const f of ARCHIVOS_REALES) expect(readFileSync(path.join(e.sub, f)).equals(readFileSync(path.join(raiz, f))), `${f} del repo temporal idéntico al real`).toBe(true)
+    expect(existsSync(path.join(e.salidas, 'A4-aprobacion.txt'))).toBe(false)
+  })
+
+  it('A4 no se repite si package.json ya declara la dependencia: A4a pasa, A4r señala la desviación y nada se aplica', async () => {
+    const e = await ejecutarA4('ninguna', '', '', '', false, '', { tsconfig: 'pre-a4', manifiestos: 'ya-declara' })
+    expect(e.a4a, `${e.stdout}\n${e.stderr}`).toBe(0)
+    expect(e.a4r, e.stderr).not.toBe(0)
+    expect(readFileSync(path.join(e.salidas, 'A4-verificacion.txt'), 'utf8')).toContain('DESVIACIÓN: package.json del árbol no declaraba ya la dependencia')
+    for (const rc of [e.a4p, e.a4v, e.a4k]) expect(rc, e.stderr).not.toBe(0)
+    expect(e.git('log --format=%s').split('\n')).toEqual(['base'])
+    expect(leerMarcas(e.marcas)).toEqual([])
+    expect(readFileSync(path.join(e.sub, 'tsconfig.json'), 'utf8')).toContain('intake-axe')
+    expect(readFileSync(path.join(e.sub, 'package.json'), 'utf8')).toContain('"@axe-core/playwright": "4.12.0"')
+    expect(e.git('status --porcelain')).toBe('')
+  })
+
+  it('A4 no se repite si el parche de manifiestos es nulo (manifest-patch-axe devuelve los manifiestos reales del árbol): A4a se detiene sin diff válido', async () => {
+    const e = await ejecutarA4('ninguna', '', '', '', false, '', { tsconfig: 'pre-a4', manifiestos: 'post' })
+    expect(e.a4a, `${e.stdout}\n${e.stderr}`).not.toBe(0)
+    expect(e.stderr, 'A4a falla por el diff de package.json, no por otra causa').toContain('A4 package.json sin diff válido: rc=0')
+    for (const rc of [e.a4r, e.a4p, e.a4v, e.a4k]) expect(rc, e.stderr).not.toBe(0)
+    expect(e.git('log --format=%s').split('\n')).toEqual(['base'])
+    expect(leerMarcas(e.marcas)).toEqual([])
+    expect(e.git('status --porcelain')).toBe('')
+    // Archivos del repositorio temporal idénticos al estado de partida: manifiestos reales (copiados) y tsconfig pre-A4 (fixture).
+    for (const f of ['package.json', 'package-lock.json']) expect(readFileSync(path.join(e.sub, f)).equals(readFileSync(path.join(raiz, f))), `${f} sin cambios`).toBe(true)
+    expect(readFileSync(path.join(e.sub, 'tsconfig.json')).equals(readFileSync(RUTA_FIXTURE_PRE_A4)), 'tsconfig.json sin cambios').toBe(true)
+    expect(existsSync(path.join(e.salidas, 'A4-aprobacion.txt'))).toBe(false)
+  })
+
+  it('el fixture pre-A4 es el blob Git de 0faf138:poc1a/tsconfig.json (8d0831b…)', () => {
+    expect(blobGit(readFileSync(RUTA_FIXTURE_PRE_A4))).toBe(BLOB_PRE_A4)
+  })
+
+  it('el fixture pre-A4 contiene exactamente una vez el bloque que A4a sustituye y excluye node_modules y e2e/intake-axe.spec.ts', async () => {
+    const { viejo, nuevo } = sustitucionDeA4a(await leer(RUTA_GATE))
+    expect(viejo).toBe('    "node_modules",\n    "e2e/intake-axe.spec.ts"\n')
+    expect(nuevo).toBe('    "node_modules"\n')
+    const fixture = readFileSync(RUTA_FIXTURE_PRE_A4, 'utf8')
+    expect(fixture.split(viejo).length - 1).toBe(1)
+    expect(JSON.parse(fixture).exclude).toEqual(['node_modules', 'e2e/intake-axe.spec.ts'])
+  })
+
+  it('la sustitución de A4a aplicada al fixture produce el blob 441ecc3… y los bytes del tsconfig.json real', async () => {
+    const { viejo, nuevo } = sustitucionDeA4a(await leer(RUTA_GATE))
+    const resultado = Buffer.from(readFileSync(RUTA_FIXTURE_PRE_A4, 'utf8').replace(viejo, () => nuevo), 'utf8')
+    expect(blobGit(resultado)).toBe(BLOB_POST_A4)
+    expect(resultado.equals(readFileSync(path.join(raiz, 'tsconfig.json')))).toBe(true)
   })
 })
 
@@ -602,4 +728,45 @@ describe('I-2: A4 vuelve a validar guardas y encadena cada fase', () => {
     for (const requisito of ['test "$a4a_rc" -eq 0', 'test "$a4r_rc" -eq 0', "grep -Eq '^[0-9a-f]{64}$'", 'test -n "$APROBADOR"', 'A4r: el parche actual no es el aprobado']) expect(aprobacion, requisito).toContain(requisito)
     expect(aprobacion.indexOf('test -n "$APROBADOR"')).toBeLessThan(aprobacion.indexOf('A4-aprobacion.txt'))
   })
+})
+
+// ---------------------------------------------------------------------------------------------
+// e. Estado post-A4 de los archivos reales (sólo lectura)
+// ---------------------------------------------------------------------------------------------
+
+describe('I-A4T: los manifiestos reales ya están en estado post-A4', () => {
+  const REGISTRO = 'https://registry.npmjs.org/'
+  const real = (f: string) => JSON.parse(readFileSync(path.join(raiz, f), 'utf8'))
+
+  it('package.json declara @axe-core/playwright exactamente en 4.13.0', () => {
+    expect(real('package.json').devDependencies['@axe-core/playwright']).toBe('4.13.0')
+  })
+
+  it('package-lock.json fija @axe-core/playwright 4.13.0 y axe-core con registro e integrity, y todo resolved está en el registro', () => {
+    const lock = real('package-lock.json')
+    expect(lock.packages[''].devDependencies['@axe-core/playwright']).toBe('4.13.0')
+    const axe = lock.packages['node_modules/@axe-core/playwright']
+    expect(axe.version).toBe('4.13.0')
+    expect(axe.resolved).toBe(`${REGISTRO}@axe-core/playwright/-/playwright-4.13.0.tgz`)
+    expect(axe.integrity).toBe('sha512-6YLx+kxXu5GJceG4ozFg+33a2EMTdjYwWGloJ3sb9Kta5pp+ZNS53uxGVog5JetIY8s++P5UrtX+cri+u0VAVg==')
+    const core = lock.packages['node_modules/axe-core']
+    expect(core, 'node_modules/axe-core').toBeTruthy()
+    expect(core.resolved.startsWith(REGISTRO)).toBe(true)
+    expect(core.integrity.startsWith('sha512-')).toBe(true)
+    const fuera = Object.entries(lock.packages as Record<string, { resolved?: string }>).filter(([, e]) => e.resolved !== undefined && !e.resolved.startsWith(REGISTRO)).map(([k]) => k)
+    expect(fuera).toEqual([])
+  })
+
+  it('tsconfig.json real ya no excluye e2e/intake-axe.spec.ts y el bloque de A4a aparece 0 veces', async () => {
+    const texto = readFileSync(path.join(raiz, 'tsconfig.json'), 'utf8')
+    expect(JSON.parse(texto).exclude).toEqual(['node_modules'])
+    expect(texto).not.toContain('intake-axe')
+    const { viejo } = sustitucionDeA4a(await leer(RUTA_GATE))
+    expect(texto.split(viejo).length - 1).toBe(0)
+  })
+})
+
+it('las pruebas no modificaron package.json, package-lock.json ni tsconfig.json reales (huellas sha256 al cargar el módulo)', () => {
+  const ahora = Object.fromEntries(ARCHIVOS_REALES.map((f) => [f, sha256(readFileSync(path.join(raiz, f)))]))
+  expect(ahora).toEqual(huellasRealesAlCargar)
 })
