@@ -5,7 +5,7 @@
 > **Etiquetas:** **[Definido]** lo fija una fuente citada (que puede seguir en borrador) · **[Propuesto]** recomendación sin aprobar · **[Pendiente]** decide el responsable.
 > **Abreviaturas:** `INV` = [INVENTARIO-CONTENIDO.md](INVENTARIO-CONTENIDO.md) · `UX` = [UX-ARQUITECTURA-INFORMACION.md](../UX-ARQUITECTURA-INFORMACION.md) · `RM` = [ROADMAP-MVP.md](../ROADMAP-MVP.md) · `ESP` = [ESPECIFICACION-FUNCIONAL.md](../ESPECIFICACION-FUNCIONAL.md) · `EST` = [ESTADO-PROYECTO.md](../ESTADO-PROYECTO.md) · `ARQ` = [ARQUITECTURA.md](../ARQUITECTURA.md).
 
-**Propósito.** Este documento es el «siguiente artefacto antes de implementación» que pide UX › §6: fija rutas, jerarquía, orden de bloques, estados y componentes del sitio público, y se revisa contra los criterios de UX › §6 y RM › §2 MVP-14. Cierra C-10 y DC-08 como propuesta (RM › §11.1; INV › §4). No fija estética (eso es `DIRECCION-VISUAL.md`, pendiente), ni el formulario de solicitud ([RECORRIDO-SOLICITUD.md](RECORRIDO-SOLICITUD.md)), ni el panel (`PANEL-ADMIN.md`, pendiente).
+**Propósito.** Este documento es el «siguiente artefacto antes de implementación» que pide UX › §6: fija rutas, jerarquía, orden de bloques, estados y componentes del sitio público, y se revisa contra los criterios de UX › §6 y RM › §2 MVP-14. Cierra C-10 y DC-08 como propuesta (RM › §11.1; INV › §4). No fija estética (eso es `DIRECCION-VISUAL.md`, pendiente), ni el formulario de solicitud ([RECORRIDO-SOLICITUD.md](RECORRIDO-SOLICITUD.md)), ni el panel ([PANEL-ADMIN.md](PANEL-ADMIN.md)).
 
 ## 0. Convenciones
 
@@ -29,7 +29,7 @@
 | `/privacidad` | Política de privacidad y retención | H4 (estructura), H7 (texto) | WF-05 | — | PRI-01, PRI-02 |
 | 404 | Respuesta a una ruta inexistente o no publicada | H3 | No | «Volver al inicio» (y «Ver proyectos») | ERR-01 |
 | Error del servidor | Respuesta a un fallo interno | H3 | No | «Volver al inicio» | ERR-02 |
-| `/admin` | Panel privado; **fuera de este documento**. Ninguna página pública lo enlaza [Propuesto] | H2 y H3 (RM › §12) | No | — | `PANEL-ADMIN.md` (pendiente) |
+| `/admin` | Panel privado; **fuera de este documento**. Ninguna página pública lo enlaza [Propuesto] | H2 y H3 (RM › §12) | No | — | [PANEL-ADMIN.md](PANEL-ADMIN.md) |
 
 **Experiencia integrada en `/sobre-mi` (DC-08, MVP-02.4) [Propuesto].** Motivos: (1) UX › §1 lo permite expresamente y UX › §2 no incluye «Experiencia» entre los cuatro accesos; (2) SOB-03 admite como máximo 8 entradas, un volumen que cabe en una sección; (3) formación y experiencia salen de la misma entidad Perfil (INV › §3.1), así que una página tiene un único estado de publicación; (4) si SOB-03 queda vacía, la sección se oculta (V-07), mientras que una página propia sería una ruta vacía que habría que ocultar (UX › §6, 5). La sección lleva el ancla `experiencia` para enlazarla directamente. **Alternativa:** `/experiencia` como página propia, si el volumen crece o el responsable quiere posicionarla aparte; exige un quinto acceso o un enlace desde `/sobre-mi` y la misma regla de ocultación (WF-01).
 
@@ -300,7 +300,7 @@ La 404 responde con código 404 y es la respuesta única de §1; la página de e
 2. «Servidor» significa que el HTML sale completo del servidor y no necesita JavaScript en el cliente.
 3. Sólo NavegacionMovil necesita interactividad; el formulario de solicitud la decide su recorrido.
 4. Sin componentes genéricos («Tarjeta», «Sección») mientras no haya una segunda necesidad real.
-5. **Vista previa** (RF-16, *Should*): sólo bajo `/admin`, o tras comprobar en el servidor, en cada petición, la sesión y el rol de administrador; nunca un parámetro ni un token en la ruta pública que baste por sí solo. Sus respuestas llevan `Cache-Control: private, no-store` y `X-Robots-Tag: noindex, nofollow`, y quedan fuera del sitemap, de robots y de canonical. Una petición anónima recibe la misma 404 que una ruta inexistente (§1). El detalle va en `PANEL-ADMIN.md` (pendiente).
+5. **Vista previa** (RF-16, *Should*): sólo bajo `/admin`, o tras comprobar en el servidor, en cada petición, la sesión y el rol de administrador; nunca un parámetro ni un token en la ruta pública que baste por sí solo. Sus respuestas llevan `Cache-Control: private, no-store` y `X-Robots-Tag: noindex, nofollow`, y quedan fuera del sitemap, de robots y de canonical. Una petición anónima recibe la misma 404 que una ruta inexistente (§1). El detalle va en [PANEL-ADMIN.md](PANEL-ADMIN.md).
 6. **Enlaces externos** (todo enlace externo, por ejemplo PRO-09, NAV-04, CON-01, SOB-05 (`certificaciones.url_verificacion`) y los de texto enriquecido): sólo con esquema `https:` (o `mailto:` para un correo aprobado), comprobado al guardar y también al renderizar; se abren en la misma pestaña por defecto; si se usa `target="_blank"`, llevan `rel="noopener noreferrer"`. El sitio envía `Referrer-Policy: strict-origin-when-cross-origin`.
 7. **Textos de interfaz:** INI-06 (R) y los demás textos sin campo en INV › §3, casi todos A→R (PRO-11, SER-07, ERR-01, ERR-02, INI-07, SOB-07, NAV-02, NAV-05, CON-02 y similares), son copia fija versionada en el repositorio, no una entidad editable. El responsable los aprueba como cualquier pieza y confirma la regla en WF-13.
 

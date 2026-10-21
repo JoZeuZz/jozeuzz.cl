@@ -16,7 +16,7 @@ Los agentes sólo proponen. El responsable aporta los datos reales y los aprueba
 | [INVENTARIO-CONTENIDO.md](INVENTARIO-CONTENIDO.md) | Reglas de veracidad y de exposición de datos, inventario por página, modelo de contenido editable con su proyección pública, decisiones de contenido pendientes (DC-01 a DC-15) y plantilla de entrega | Propuesta |
 | [WIREFRAMES.md](WIREFRAMES.md) | Wireframes de baja fidelidad por página según los criterios de UX-ARQUITECTURA-INFORMACION.md › §6; cierra C-10 | Propuesta |
 | [RECORRIDO-SOLICITUD.md](RECORRIDO-SOLICITUD.md) | UX de `/servicios/solicitar`: campos, estados, errores, aviso de privacidad, antiabuso visto desde la UX, confirmación, pruebas de aceptación para H4 y decisiones RS-01 a RS-08, sobre H0A-02 a H0A-04 | Propuesta |
-| `PANEL-ADMIN.md` | Recorridos del administrador: contenido, medios, servicios y bandeja de solicitudes | Pendiente |
+| [PANEL-ADMIN.md](PANEL-ADMIN.md) | Panel administrativo: acceso e identidad (con el esquema del procedimiento de alta y recuperación), navegación y wireframes, F3 contenido y medios, F4 bandeja y transiciones, estados y errores, seguridad, accesibilidad, pruebas por hito (H2 a H5) y decisiones PA-01 a PA-17 | Propuesta |
 | `DIRECCION-VISUAL.md` | De 2 a 3 direcciones visuales evaluadas con accesibilidad (UX-ARQUITECTURA-INFORMACION.md › §5) | Pendiente |
 
 ## Cómo verificar
@@ -25,7 +25,7 @@ Los agentes sólo proponen. El responsable aporta los datos reales y los aprueba
 node herramientas/verificar-docs/verificar-docs.mjs --exigir-propuesta docs/h0b
 ```
 
-Se ejecuta desde la raíz del worktree. Resultado esperado: `verificar-docs: N archivos, 0 hallazgos`, con N igual al número de archivos `.md` de `docs/h0b` (hoy 4), y código de salida 0. Las reglas están en el [README del verificador](../../herramientas/verificar-docs/README.md). El verificador no comprueba la veracidad del contenido: eso lo hace el responsable con el §1 del inventario.
+Se ejecuta desde la raíz del worktree. Resultado esperado: `verificar-docs: N archivos, 0 hallazgos`, con N igual al número de archivos `.md` de `docs/h0b` (hoy 5), y código de salida 0. Las reglas están en el [README del verificador](../../herramientas/verificar-docs/README.md). El verificador no comprueba la veracidad del contenido: eso lo hace el responsable con el §1 del inventario.
 
 ## Checklist de aprobación del responsable
 
@@ -41,5 +41,5 @@ Se sigue el formato de H0A-08: la columna Aprobación lleva la fecha, la referen
 | 6 | Wireframes, rutas, navegación, componentes y SEO revisados con los criterios de UX › §6 y MVP-14 | [WIREFRAMES.md](WIREFRAMES.md), §1 a §6 | |
 | 7 | Respuesta a cada decisión WF-01 a WF-13 | WIREFRAMES.md, §7 | |
 | 8 | Recorrido de solicitud y respuestas RS-xx (RS-01 a RS-08) | [RECORRIDO-SOLICITUD.md](RECORRIDO-SOLICITUD.md), §1 a §10 | |
-| 9 | Recorridos del panel | `PANEL-ADMIN.md` (pendiente) | |
+| 9 | Panel administrativo y respuestas PA-xx (PA-01 a PA-17) | [PANEL-ADMIN.md](PANEL-ADMIN.md), §1 a §10 | |
 | 10 | Dirección visual elegida | `DIRECCION-VISUAL.md` (pendiente) | |

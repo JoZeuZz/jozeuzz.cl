@@ -30,7 +30,7 @@ Discrepancia documental, sin corregir aquí: MVP-06.12 sigue escrito como [Pendi
 2. **Formulario (WIREFRAMES › §3.6).** Migas, `h1`, introducción SOL-01, campos de §3, aviso de privacidad (§4) inmediatamente antes del botón «Enviar solicitud» (A→R).
 3. **Envío.** `POST` `application/x-www-form-urlencoded` al endpoint del intake, sin JavaScript (P3-08; en la POC, la acción `/api/intake` está en `lib/intake/html.ts:34` y el tipo se acepta en `lib/intake/manejador.ts:84`). La ruta definitiva se fija en H4.
 4. **Respuesta [Propuesto].** Válido: `303` a la confirmación fija (§6). Rechazo por validación (§3), tiempo mínimo (si RS-05 = a), cualquier `csrf_invalido` con origen válido (si RS-08 = a), un límite decidido tras verificar el origen y el CSRF, o un `5xx` posterior a esa verificación: la misma página con el resumen de errores y los campos repoblados (§7). Rechazo por `campos_no_permitidos`, origen inválido, `413`, `415`, cuerpo inválido o trampa: respuesta genérica, sin repoblar y con token nuevo (§5.2). Nunca se refleja una clave distinta de las cinco de §3.
-5. **Después [Definido salvo indicación].** La Solicitud queda en `recibida` y aparece en la bandeja del administrador (F4; `PANEL-ADMIN.md`, pendiente). No hay aviso automático (H0A-06): el tiempo de respuesta depende de la revisión manual y no se promete (§6). El solicitante no tiene seguimiento; la respuesta llega fuera del sistema por el contacto indicado [Propuesto]. Un duplicado no detectado se cierra con `motivo_cierre = duplicada` (H0A-02).
+5. **Después [Definido salvo indicación].** La Solicitud queda en `recibida` y aparece en la bandeja del administrador (F4; [PANEL-ADMIN.md](PANEL-ADMIN.md)). No hay aviso automático (H0A-06): el tiempo de respuesta depende de la revisión manual y no se promete (§6). El solicitante no tiene seguimiento; la respuesta llega fuera del sistema por el contacto indicado [Propuesto]. Un duplicado no detectado se cierra con `motivo_cierre = duplicada` (H0A-02).
 
 ### 2.1 Estados de la interfaz
 
@@ -80,7 +80,7 @@ La columna «Con JS» sólo aplica si RS-02 = (b). Sin JavaScript es el comporta
 - U+2028 o U+2029 en los campos de una línea;
 - una cadena mal formada (sustitutos sueltos o UTF-8 inválido).
 
-Un valor formado sólo por espacios o caracteres invisibles (`\p{White_Space}`, `\p{Cf}`, `\p{Default_Ignorable_Code_Point}`, U+2800, U+3164) cuenta como vacío. La POC sólo rechaza NUL y usa `trim()` (`lib/solicitudes.ts:36`). El panel muestra cada valor aislado (`<bdi>` o `dir="auto"`); esa regla se traslada a `PANEL-ADMIN.md`.
+Un valor formado sólo por espacios o caracteres invisibles (`\p{White_Space}`, `\p{Cf}`, `\p{Default_Ignorable_Code_Point}`, U+2800, U+3164) cuenta como vacío. La POC sólo rechaza NUL y usa `trim()` (`lib/solicitudes.ts:36`). El panel muestra cada valor aislado (`<bdi>` o `dir="auto"`); esa regla se traslada a [PANEL-ADMIN.md](PANEL-ADMIN.md).
 
 | Campo | Propósito y minimización (ESP › §6) | Oblig. | Límite (POC) | Control | Atributos HTML [Propuesto] | Validación en servidor | Mensajes borrador (A→R) |
 |---|---|---|---|---|---|---|---|
