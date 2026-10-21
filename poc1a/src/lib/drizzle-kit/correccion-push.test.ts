@@ -297,7 +297,7 @@ describe('conCorreccionPushSchema', () => {
 
   it('conserva metadatos y funciones distintas de pushSchema', () => {
     const f = crearBase()
-    const envuelto = conCorreccionPushSchema(f.base as never) as unknown as typeof f.base
+    const envuelto = conCorreccionPushSchema(f.base as never, { raiz }) as unknown as typeof f.base
     expect(envuelto.name).toBe('postgres')
     expect(envuelto.allowIDOnCreate).toBe(false)
     expect(envuelto.defaultIDType).toBe('number')
@@ -314,7 +314,7 @@ describe('conCorreccionPushSchema', () => {
 
   it('falla si la instancia no expone requireDrizzleKit', () => {
     const base = { name: 'postgres', init: () => ({}) }
-    const envuelto = conCorreccionPushSchema(base as never) as unknown as typeof base
+    const envuelto = conCorreccionPushSchema(base as never, { raiz }) as unknown as typeof base
     expect(() => envuelto.init()).toThrow(/requireDrizzleKit/)
   })
 

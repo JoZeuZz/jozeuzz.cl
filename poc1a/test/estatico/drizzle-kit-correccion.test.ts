@@ -47,11 +47,41 @@ describe('corrección de pushSchema de drizzle-kit', () => {
       'unlink',
       // «rm(» sólo como llamada completa, no como final de «form(», «confirm(», etc.
       /(?<![A-Za-z0-9_$])rm\(/,
+      // La raíz es obligatoria: ningún valor por defecto depende del directorio de trabajo.
+      'process.cwd',
+      // Borrado y escritura.
+      'rmSync',
+      'rmdir',
+      'rename',
+      'copyFile',
+      'createWriteStream',
+      'symlink',
+      'chmod',
+      'truncate',
+      // Ejecución de procesos. «exec(» sólo como llamada completa: no colisiona con «RegExp.exec»
+      // porque el módulo no la usa; si apareciera, esta regex la rechazaría a propósito.
+      'child_process',
+      'spawn',
+      /(?<![A-Za-z0-9_$])exec\(/,
+      'execSync',
+      'execFile',
+      // Carga y evaluación dinámica de código.
+      /(?<![A-Za-z0-9_$.])import\(/,
+      'vm.Script',
+      'new Script',
+      'createScript',
+      'SourceTextModule',
+      '(0, eval)',
+      // Internos de proceso y globales.
+      'process.dlopen',
+      '_linkedBinding',
+      'global.',
     ]
     for (const prohibido of prohibidos) {
       if (typeof prohibido === 'string') expect(modulo).not.toContain(prohibido)
       else expect(modulo).not.toMatch(prohibido)
     }
     expect(modulo).toContain('compileFunction')
+    expect(modulo).toContain('readFileSync')
   })
 })

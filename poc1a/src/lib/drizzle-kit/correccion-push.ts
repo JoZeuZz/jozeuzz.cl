@@ -80,7 +80,7 @@ type PushSchema = ReturnType<PostgresAdapterInstancia['requireDrizzleKit']>['pus
 
 const cache = new Map<string, PushSchema>()
 
-export function cargarPushSchemaCorregido({ raiz = process.cwd() }: { raiz?: string } = {}): PushSchema {
+export function cargarPushSchemaCorregido({ raiz }: { raiz: string }): PushSchema {
   const rutaApi = path.join(raiz, 'node_modules/drizzle-kit/api.js')
   const enCache = cache.get(rutaApi)
   if (enCache) return enCache
@@ -111,7 +111,7 @@ type AdaptadorPostgres = ReturnType<typeof postgresAdapter>
 type PostgresAdapterInstancia = ReturnType<AdaptadorPostgres['init']>
 
 // La carga de api.js es perezosa: en producción (sin push) nunca se lee ni se compila.
-export function conCorreccionPushSchema(base: AdaptadorPostgres, opciones: { raiz?: string } = {}): AdaptadorPostgres {
+export function conCorreccionPushSchema(base: AdaptadorPostgres, opciones: { raiz: string }): AdaptadorPostgres {
   return {
     ...base,
     init: (args) => {
