@@ -13,7 +13,7 @@ const MARCADORES = [
   { re: /lorem ipsum/i, nombre: 'lorem ipsum' },
   { re: /\bUSD\b/i, nombre: 'USD' },
   { re: /US\$/i, nombre: 'US$' },
-  { re: /\$\d/, nombre: '$<digito>' },
+  { re: /(?<![Uu][Ss])\$\d/, nombre: '$<digito>' },
 ];
 
 // Devuelve [{ numero, texto }] con el codigo (cercado y en linea) reemplazado por espacios.
@@ -22,9 +22,9 @@ function lineasSinCodigo(texto) {
   let cerca = null;
   texto.split(/\r?\n/).forEach((linea, i) => {
     const numero = i + 1;
-    const apertura = /^ {0,3}(`{3,}|~{3,})/.exec(linea);
+    const apertura = /^[ \t>]*(`{3,}|~{3,})/.exec(linea);
     if (cerca) {
-      const cierre = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(linea);
+      const cierre = /^[ \t>]*(`{3,}|~{3,})\s*$/.exec(linea);
       if (cierre && cierre[1][0] === cerca[0] && cierre[1].length >= cerca.length) cerca = null;
       return;
     }
@@ -32,10 +32,25 @@ function lineasSinCodigo(texto) {
       cerca = apertura[1];
       return;
     }
-    const limpia = linea.replace(/(`+)[\s\S]*?\1/g, (m) => ' '.repeat(m.length));
-    resultado.push({ numero, texto: limpia });
+    resultado.push({ numero, texto: quitarSpans(linea) });
   });
   return resultado;
+}
+
+// Reemplaza por espacios los spans de codigo en linea: una racha de N backticks
+// se cierra con la siguiente racha de exactamente N; sin cierre es literal.
+function quitarSpans(linea) {
+  const rachas = [...linea.matchAll(/`+/g)];
+  let salida = linea;
+  for (let i = 0; i < rachas.length; i++) {
+    const abre = rachas[i];
+    const cierra = rachas.slice(i + 1).find((r) => r[0].length === abre[0].length);
+    if (!cierra) continue;
+    const fin = cierra.index + cierra[0].length;
+    salida = salida.slice(0, abre.index) + ' '.repeat(fin - abre.index) + salida.slice(fin);
+    i = rachas.indexOf(cierra);
+  }
+  return salida;
 }
 
 function destinoLocal(crudo) {
@@ -88,7 +103,7 @@ export function verificarTexto(texto, { ruta, existe, exigirPropuesta = false })
 
 function dentroDe(raiz, destino) {
   const rel = path.relative(raiz, destino);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  return rel === '' || (rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel));
 }
 
 // Un enlace simbolico que apunta fuera del directorio de trabajo no se sigue.
@@ -100,14 +115,29 @@ function seguro(ruta, raiz) {
   }
 }
 
-function recolectar(ruta, raiz, archivos) {
-  if (!seguro(ruta, raiz)) return;
+// Devuelve cuantos .md encontro (incluidos los ya recolectados antes). `dirs` evita ciclos
+// dentro de una entrada; `vistos` evita duplicados entre entradas.
+function recolectar(ruta, raiz, archivos, vistos, dirs) {
+  if (!seguro(ruta, raiz)) return 0;
+  const real = fs.realpathSync(ruta);
   const stat = fs.statSync(ruta);
   if (stat.isDirectory()) {
-    for (const nombre of fs.readdirSync(ruta).sort()) recolectar(path.join(ruta, nombre), raiz, archivos);
-  } else if (stat.isFile() && ruta.endsWith('.md')) {
-    archivos.push(ruta);
+    if (dirs.has(real)) return 0;
+    dirs.add(real);
+    let n = 0;
+    for (const nombre of fs.readdirSync(ruta).sort()) {
+      n += recolectar(path.join(ruta, nombre), raiz, archivos, vistos, dirs);
+    }
+    return n;
   }
+  if (stat.isFile() && ruta.endsWith('.md')) {
+    if (!vistos.has(real)) {
+      vistos.add(real);
+      archivos.push(ruta);
+    }
+    return 1;
+  }
+  return 0;
 }
 
 export function main(argv, { salida = console.log, error = console.error } = {}) {
@@ -133,12 +163,30 @@ export function main(argv, { salida = console.log, error = console.error } = {})
   }
 
   const archivos = [];
-  for (const e of entradas) recolectar(e, raiz, archivos);
+  const vistos = new Set();
+  let sinMd = false;
+  for (const e of entradas) {
+    if (recolectar(e, raiz, archivos, vistos, new Set()) === 0) {
+      error(`verificar-docs: la entrada no aporta ningun .md verificable: ${e}`);
+      sinMd = true;
+    }
+  }
+  if (sinMd) return 2;
+  if (archivos.length === 0) {
+    error('verificar-docs: no hay archivos .md que verificar');
+    return 2;
+  }
 
   const existe = (p) => fs.existsSync(p);
   let total = 0;
   for (const archivo of archivos) {
-    const texto = fs.readFileSync(archivo, 'utf8');
+    let texto;
+    try {
+      texto = fs.readFileSync(archivo, 'utf8');
+    } catch (err) {
+      error(`verificar-docs: no se pudo leer ${archivo}: ${err.message}`);
+      return 2;
+    }
     const ruta = path.resolve(archivo);
     for (const h of verificarTexto(texto, { ruta, existe, exigirPropuesta })) {
       salida(`${archivo}:${h.linea}: ${h.regla}: ${h.detalle}`);
