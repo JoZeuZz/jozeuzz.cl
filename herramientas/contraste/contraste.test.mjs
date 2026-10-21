@@ -137,3 +137,49 @@ test('CLI: sin argumentos o archivo inexistente sale 2 con uso/mensaje', () => {
   assert.equal(falta.status, 2);
   assert.match(falta.stderr, /no-existe\.json/);
 });
+
+test('luminancia: coeficientes de rojo, verde y azul puros', () => {
+  cerca(luminanciaRelativa(parsearColor('#ff0000')), 0.2126);
+  cerca(luminanciaRelativa(parsearColor('#00ff00')), 0.7152);
+  cerca(luminanciaRelativa(parsearColor('#0000ff')), 0.0722);
+});
+
+test('razón de primarios puros sobre blanco discrimina canales', () => {
+  const blanco = parsearColor('#ffffff');
+  cerca(razonContraste(parsearColor('#ff0000'), blanco), 3.998);
+  cerca(razonContraste(parsearColor('#00ff00'), blanco), 1.372);
+  cerca(razonContraste(parsearColor('#0000ff'), blanco), 8.592);
+});
+
+test('rama lineal del sRGB: #0a0a0a sobre blanco ≈ 19.80', () => {
+  cerca(razonContraste(parsearColor('#0a0a0a'), parsearColor('#ffffff')), 19.8);
+});
+
+for (const [fixture, patron] of [
+  ['json-invalido.json', /json/i],
+  ['raiz-array.json', /objeto/],
+  ['sin-colores.json', /colores/],
+  ['sin-pares.json', /pares/],
+  ['par-no-objeto.json', /pares\[0\].*objeto/],
+  ['pares-vacio.json', /pares.*(vac|ning)/i],
+]) {
+  test(`CLI: ${fixture} sale 2, stdout vacío y stderr nombra el archivo`, () => {
+    const p = cli(fx(fixture));
+    assert.equal(p.status, 2, p.stderr);
+    assert.equal(p.stdout, '');
+    assert.ok(p.stderr.includes(fixture), p.stderr);
+    assert.match(p.stderr, patron);
+  });
+}
+
+test('CLI: con varios archivos, uno inválido da exit 2 sin salida parcial', () => {
+  const p = cli(fx('ok.json'), fx('sin-pares.json'));
+  assert.equal(p.status, 2);
+  assert.equal(p.stdout, '');
+  assert.ok(p.stderr.includes('sin-pares.json'));
+});
+
+test('CLI: la línea de resumen por archivo incluye el nombre si existe', () => {
+  const p = cli(fx('ok.json'));
+  assert.match(p.stdout, /^ok\.json \(paleta-ok\): 2 pares, 0 fallos$/m);
+});

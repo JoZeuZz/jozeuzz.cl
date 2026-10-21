@@ -1,16 +1,18 @@
 # Verificador de contraste WCAG
 
 Verifica la paleta de las direcciones visuales (H0-b). No es parte del
-producto. Sólo módulos integrados de Node (probada en 20; compatible con 24).
-No escribe archivos. Pruebas: `node --test herramientas/contraste/contraste.test.mjs`.
+producto. Sólo módulos integrados de Node (probada en Node 20.19.2; compatible
+por diseño con 24, sin verificar). No escribe archivos.
+Pruebas: `node --test herramientas/contraste/contraste.test.mjs`.
 
 ## Uso
 
     node herramientas/contraste/contraste.mjs <archivo.json>...
 
-Por par: `archivo: primero/fondo razón=X.XX nivel=N OK|FALLA uso` y, al final,
-`contraste: N pares, M fallos`. Salida: 0 sin fallos, 1 con fallos, 2 uso o
-validación inválidos.
+Por par: `archivo: primero/fondo razón=X.XX nivel=N OK|FALLA uso`; por archivo,
+`archivo (nombre): N pares, M fallos`; al final, `contraste: N pares, M fallos`.
+Salida: 0 sin fallos, 1 con fallos, 2 uso o validación inválidos (incluye
+`"pares": []`). Con varios archivos, uno inválido da 2 sin salida parcial.
 
 ## Entrada
 
@@ -27,9 +29,12 @@ alfa no tiene contraste definido sin conocer el fondo.
 |--------------------|--------|---------------|
 | `texto`            | 4.5    | 1.4.3 (AA)    |
 | `texto-grande`     | 3      | 1.4.3 (AA)    |
-| `ui`               | 3      | 1.4.11        |
+| `ui`               | 3      | 1.4.11 (AA)   |
 | `texto-aaa`        | 7      | 1.4.6 (AAA)   |
 | `texto-grande-aaa` | 4.5    | 1.4.6 (AAA)   |
+
+Texto grande: >= 18 pt, o >= 14 pt en negrita (≈ 24 px y ≈ 18,66 px).
+1.4.3 exceptúa componentes inactivos, texto decorativo y logotipos.
 
 ## Notas de cálculo
 

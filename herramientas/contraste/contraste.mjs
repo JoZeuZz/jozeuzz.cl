@@ -56,6 +56,7 @@ export function evaluar(datos) {
   if (!esObj(datos)) throw new Error('el JSON debe ser un objeto');
   if (!esObj(datos.colores)) throw new Error('falta "colores" (objeto token -> #hex)');
   if (!Array.isArray(datos.pares)) throw new Error('falta "pares" (lista)');
+  if (datos.pares.length === 0) throw new Error('"pares" está vacío: ningún par que verificar');
   const rgb = {};
   for (const [token, valor] of Object.entries(datos.colores)) {
     try {
@@ -98,20 +99,26 @@ export function main(argv, salida = process.stdout, errores = process.stderr) {
   let fallos = 0;
   for (const archivo of argv) {
     let resultados;
+    let titulo;
     try {
-      resultados = evaluar(JSON.parse(readFileSync(archivo, 'utf8')));
+      const datos = JSON.parse(readFileSync(archivo, 'utf8'));
+      resultados = evaluar(datos);
+      titulo = typeof datos.nombre === 'string' && datos.nombre ? ` (${datos.nombre})` : '';
     } catch (e) {
       errores.write(`contraste: ${archivo}: ${e.message}\n`);
       return 2;
     }
     const nombre = path.basename(archivo);
+    let falloArchivo = 0;
     for (const r of resultados) {
-      total++;
-      if (!r.ok) fallos++;
+      if (!r.ok) falloArchivo++;
       lineas.push(
         `${nombre}: ${r.primero}/${r.fondo} razón=${r.razon.toFixed(2)} nivel=${r.nivel} ${r.ok ? 'OK' : 'FALLA'} ${r.uso}`.trimEnd(),
       );
     }
+    lineas.push(`${nombre}${titulo}: ${resultados.length} pares, ${falloArchivo} fallos`);
+    total += resultados.length;
+    fallos += falloArchivo;
   }
   lineas.push(`contraste: ${total} pares, ${fallos} fallos`);
   salida.write(lineas.join('\n') + '\n');
