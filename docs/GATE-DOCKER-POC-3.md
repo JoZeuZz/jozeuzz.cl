@@ -1,11 +1,12 @@
 # Gate Docker de POC-3 (U2–U9): procedimiento para ejecución humana
 
-- **Estado:** procedimiento para ejecución humana. **Ejecución parcial; el gate está detenido en D07.** Según declara el responsable (no lo han verificado agentes), la ejecución 1 llegó hasta D06 sobre `de692a4`, A4 incluido; D07 falló, sigue oficialmente fallido y el gate no se ha reanudado. La corrección está en `df576ed..42d7229` (rama `fix/poc3-drizzle-parametros`) y la reanudación sigue la sección «Ejecución 1 (`de692a4`) y reanudación (`42d7229`)». Redactado por jz-architect leyendo el código (ver «Historial de revisiones»). Salvo lo declarado de la ejecución 1, ningún resultado esperado está verificado en ejecución: son deducciones del código, con su cita.
-- **HEAD de referencia del código:** `42d7229` (rama `fix/poc3-drizzle-parametros`; el humano la integra en `poc/candidata-a-3` por fast-forward en RP6). Es la **referencia vinculante de código** del gate: el último commit que cambia código o pruebas. A1 la copia en `CODEREF` y exige que, entre ella y HEAD, sólo cambie `docs/`.
-  - `42d7229` cierra la corrección D07 (`df576ed`, `986d7f3`, `42d7229`). Entre `de692a4` y `42d7229` sólo cambian `poc1a/src/lib/drizzle-kit/correccion-push.ts`, `poc1a/src/lib/drizzle-kit/correccion-push.test.ts`, `poc1a/src/payload.config.ts` y `poc1a/test/estatico/drizzle-kit-correccion.test.ts`, ninguna en `GUARDA`.
-  - Historial de referencias: `c8bbf0f` → `69e1883` → `14278c1` → `ce500a7` → `e7fc5e8` → `0231888` → `de692a4` (commit de A4 en la ejecución 1; pasó a ser la referencia por la regla de A4 sin que se actualizara el literal de A1) → `42d7229`.
+- **Estado:** procedimiento para ejecución humana. **Ejecución parcial; el gate está detenido en D07.** Según declara el responsable (no lo han verificado agentes), la ejecución 1 llegó hasta D06 sobre `de692a4`, A4 incluido; D07 falló, sigue oficialmente fallido y el gate no se ha reanudado; D08, D11 y el gate global siguen abiertos. La corrección está en `df576ed..0bd7071` (rama `fix/poc3-gate-a4-evidencia`): la corrección D07 (`df576ed`, `986d7f3`, `42d7229`), la revisión de este documento `5d8a9d9` y la corrección de I-A4T y HP-21 (`0bd7071`). La rama `fix/poc3-drizzle-parametros` sigue en `5d8a9d9`. La reanudación sigue la sección «Ejecución 1 (`de692a4`) y reanudación (`0bd7071`)». Redactado por jz-architect leyendo el código (ver «Historial de revisiones»). Salvo lo declarado de la ejecución 1, ningún resultado esperado está verificado en ejecución: son deducciones del código, con su cita.
+- **HEAD de referencia del código:** `0bd7071` (rama `fix/poc3-gate-a4-evidencia`; el humano la integra en `poc/candidata-a-3` por fast-forward en RP6). Es la **referencia vinculante de código** del gate: el último commit que cambia código o pruebas. A1 la copia en `CODEREF` y exige que, entre ella y HEAD, sólo cambie `docs/`.
+  - `0bd7071` cubre la corrección D07 (`df576ed`, `986d7f3`, `42d7229`) y la corrección de I-A4T y HP-21 (`0bd7071`, cuyo padre `5d8a9d9` sólo cambia este documento). `0bd7071` cambia exactamente `poc1a/EVIDENCIA.md` (aviso y «Adenda 2026-10-21 · HP-21»: sólo líneas añadidas), `poc1a/test/estatico/gate-a4-git.test.ts`, `poc1a/test/estatico/docs-write-isolation.test.ts` y el fixture nuevo `poc1a/test/estatico/fixtures/tsconfig-pre-a4.json.txt` (blob `8d0831b`, el de `0faf138:poc1a/tsconfig.json`).
+  - Entre `de692a4` y `0bd7071` cambian, además de esas cuatro rutas y de este documento, `poc1a/src/lib/drizzle-kit/correccion-push.ts`, `poc1a/src/lib/drizzle-kit/correccion-push.test.ts`, `poc1a/src/payload.config.ts` y `poc1a/test/estatico/drizzle-kit-correccion.test.ts`. Ninguna está en `GUARDA`, y no cambian manifiestos, `tsconfig.json`, `poc.sh`, compose ni `contrato/` (RP2 lo exige).
+  - Historial de referencias: `c8bbf0f` → `69e1883` → `14278c1` → `ce500a7` → `e7fc5e8` → `0231888` → `de692a4` (commit de A4 en la ejecución 1; pasó a ser la referencia por la regla de A4 sin que se actualizara el literal de A1) → `42d7229` → `0bd7071`.
   - Las citas de línea no actualizadas siguen refiriéndose a `69e1883`; **la referencia vinculante de código es `CODEREF`**, no esas líneas.
-  - HEAD de ejecución: `DOCREF`, el commit sólo de `docs/` que confirma esta revisión sobre `42d7229`, o uno posterior que sólo cambie `docs/` (A1 lo comprueba). En la reanudación A4 **no** se repite. `r()` escribe el prefijo corto de ese HEAD en la cabecera de cada log.
+  - HEAD de ejecución: `DOCREF`, el commit sólo de `docs/` sobre `0bd7071` que contiene esta revisión. El documento no contiene su propio SHA: **el humano obtiene `DOCREF` después de ese commit**, desde `$ORIG` y con la `g` de A0, con `g rev-parse --verify refs/heads/fix/poc3-gate-a4-evidencia`, y lo contrasta con el que le comunique el orquestador. Debe ser hijo directo de `CODE_SHA` y cambiar sólo este documento: RP2 lo exige (`cadena-ok` y `docref-solo-docs`). En la reanudación A4 **no** se repite. `r()` escribe el prefijo corto de ese HEAD en la cabecera de cada log.
 - **Quién lo ejecuta:** el responsable del proyecto, como root en el host de la POC, con Docker y Compose v2 y con Node ≥ 20 en el host (`poc1a/README.md:34-36`). Los agentes no tienen Docker (`docs/PLAN-POC-3.md:157`, P3-07 `:199`). Mientras dure el gate, ningún agente escribe en este worktree.
 - **Duración:** no está medida. La estimación orientativa del ciclo 1 era de 1,5 a 3 h sin contar descargas de imágenes, y **puede quedarse corta**:
   - Referencias: una batería de 56 casos tardó 232 s en POC-1a (`poc1a/EVIDENCIA.md:20`), aunque sólo tenía 13 activos; el build tardó 16 s (`poc1a/EVIDENCIA.md:152`).
@@ -51,7 +52,7 @@
 - **Fallo registrable:** se registra la salida completa y se sigue con el paso siguiente, que es independiente. El gate no se cierra mientras quede un fallo registrable. Aplica a vitest, a las baterías y a E2E.
 - Si se repite un paso, se registran **todos** los intentos (`D11`, `D11-r2`, …) con identificadores distintos (`r()` rechaza un identificador repetido). No se elige el intento verde.
 
-## Ejecución 1 (`de692a4`) y reanudación (`42d7229`)
+## Ejecución 1 (`de692a4`) y reanudación (`0bd7071`)
 
 ### Qué consta de la ejecución 1
 
@@ -66,22 +67,33 @@
 
 **Causa del fallo de D07.** En este documento D07 es la sonda de red (`./poc.sh sonda-red`) y D08 es la comprobación de `push`. El repositorio no contiene la salida de D07. Los commits de la corrección llevan la etiqueta «(D07)», y `df576ed` describe el defecto: el `pushSchema` pg de drizzle-kit 0.31.7 descarta los parámetros de `db.query`, y la introspección de la PK compuesta (`$1::regnamespace`) falla con 42P02 (`poc1a/src/lib/drizzle-kit/correccion-push.ts:9-11`). La relación entre ese defecto y el fallo de D07 es una **causa diagnosticada por el responsable y por la corrección; la salida no está registrada en el repositorio**. Tampoco consta por qué pasó D06, que también arranca Payload con `push` habilitado (H-10). La reanudación lo repite.
 
-**Verificado por agentes sobre `42d7229`** con `jz-run` (sin Docker; Node 20.19 del host y `node_modules` del worktree, no el volumen nombrado; logs locales en `.jz-state/runs/`, no versionados): `tsc --noEmit` rc=0 (`20261021T050718Z`), `node --test contrato/` rc=0 (`20261021T050726Z`) y vitest de la corrección rc=0 (`20261021T050739Z`). El vitest de `src test/estatico` da rc=1 (`20261021T050639Z`): incidencia I-A4T.
+**Registro histórico · verificado por agentes sobre `42d7229`** con `jz-run` (sin Docker; Node 20 del host (versión no registrada en el log; en el momento se anotó como 20.19) y `node_modules` del worktree, no el volumen nombrado; logs locales en `.jz-state/runs/`, no versionados): `tsc --noEmit` rc=0 (`20261021T050718Z`), `node --test contrato/` rc=0 (`20261021T050726Z`) y vitest de la corrección rc=0 (`20261021T050739Z`). El vitest de `src test/estatico` da rc=1 (`20261021T050639Z`): 11 fallos (298 de 309), que eran la incidencia I-A4T.
+
+**Verificado por agentes sobre `0bd7071`** con `jz-run` (sin Docker; Node 20 del host, **no** Node 24 —los logs de `jz-run` no registran la versión—, y el `node_modules` del host, no el volumen nombrado; logs locales, no versionados; huella de árbol de `jz-run` `396dc367ce430f03`):
+
+- vitest de `src test/estatico`: rc=0, 35 archivos, 332/332 (`.jz-state/runs/20261021T201143Z-854227.log`);
+- `tsc --noEmit`: rc=0 (`20261021T201232Z-859445.log`);
+- `node --test contrato/`: rc=0, 43 de 43 (`20261021T201241Z-859841.log`);
+- `tsc --noEmit --listFilesOnly` incluye `e2e/intake-axe.spec.ts` (línea 1175 de `.jz-state/runs/20261021T200837Z-849221.log`). Esa ejecución es de head `5d8a9d9` con el árbol sin confirmar, con huella `dd74abc07955a331`, distinta de la de `0bd7071` (`396dc367ce430f03`); por tanto no prueba nada sobre `0bd7071` y la comprobación **debe repetirse sobre `DOCREF`**.
+
+Ninguna de estas ejecuciones es un paso del gate. Su verde no prueba la integridad de dependencias (riesgo del `node_modules` heredado, «Riesgos residuales del aislamiento»). Las unidades U1 y U2 de la corrección de I-A4T y HP-21 las revisaron jz-qa (conforme) y jz-security (conforme con menores), con el riesgo residual M-C («Incidencias abiertas»). Ese resultado procede de los informes de revisión de la sesión de agentes, que no están versionados.
 
 ### Clasificación de la evidencia
 
 | Categoría | Qué incluye | Regla |
 |---|---|---|
-| (a) Aprobado y con evidencia propia para `42d7229` | **Ningún paso del gate.** Las verificaciones de agentes de arriba no son pasos del gate | No sustituyen a ningún paso Docker |
-| (b) Pendiente | Todos los pasos de la reanudación: RP0–RP7, A0, R0, A3e, A1, A2, A3, B1, B1v, A3f1–A3f3, R7, B2–B4, B4c, R9, D01–D30, J1–J3 y K1–K3. En particular, **D07 (fallido en la ejecución 1)** y **D08 (nunca ejecutado)**. También, fuera del alcance de la reanudación, I-A4T y OB2 | Un paso sólo pasa a (a) con log propio en `S_R`, el prefijo corto de `DOCREF` en la cabecera del log (`r()` escribe `rev-parse --short`) y rc conforme |
-| (c) Evidencia anterior no reutilizable | Ejecución 1: A0–A3f3, B1, B1v, A4 (A4a–A4k, A4b0, A4b y A4c), B2–B4, D01–D06 y D07 fallido | Se conserva en `S1` sin editarla, y nunca se cita como resultado de `42d7229`. De A4 sólo se hereda el commit `de692a4`, por historial; RP2 comprueba que sus tres archivos no cambian hasta `DOCREF` |
+| (a) Aprobado y con evidencia propia para `0bd7071` | **Ningún paso del gate.** Las verificaciones de agentes de arriba (sobre `42d7229` y sobre `0bd7071`) no son pasos del gate | No sustituyen a ningún paso Docker |
+| (b) Pendiente | Todos los pasos de la reanudación: RP0–RP7, A0, R0, A3e, A1, A2, A3, B1, B1v, A3f1–A3f3, R7, B2–B4, B4c, R9, D01–D30, J1–J3 y K1–K3. En particular, **D07 (fallido en la ejecución 1)**, **D08 (nunca ejecutado)** y **D11**, donde se intenta verificar la corrección de I-A4T (no concluyente mientras O1, O-3 y O-4 sigan abiertas) y que previsiblemente seguirá siendo un fallo registrable por O1, O-3 y O-4. También, fuera del alcance de la reanudación, OB2 | Un paso sólo pasa a (a) con log propio en `S_R`, el prefijo corto de `DOCREF` en la cabecera del log (`r()` escribe `rev-parse --short`) y rc conforme |
+| (c) Evidencia anterior no reutilizable | Ejecución 1: A0–A3f3, B1, B1v, A4 (A4a–A4k, A4b0, A4b y A4c), B2–B4, D01–D06 y D07 fallido | Se conserva en `S1` sin editarla, y nunca se cita como resultado de `0bd7071`. De A4 sólo se hereda el commit `de692a4`, por historial; RP2 comprueba que sus tres archivos no cambian hasta `DOCREF` |
 
-La regresión 25/25 declarada no figura en (a): no es un paso del gate y su evidencia no está en el repositorio.
+La regresión 25/25 declarada no figura en (a): no es un paso del gate y su evidencia no está en el repositorio. Lo mismo vale para la regresión en Node 24 sobre `0bd7071`, que hará el humano.
+
+I-A4T y HP-21 ya no quedan fuera del alcance. **I-A4T** está corregida en `0bd7071`; se intenta verificar en D11, pero no es concluyente mientras O1, O-3 y O-4 sigan abiertas. **HP-21** está corregida mediante la adenda de `poc1a/EVIDENCIA.md`; es documental y no es un paso del gate.
 
 ### Decisiones de la reanudación
 
 1. **Carpeta `S` nueva por sesión, no sufijos `-r2` en `S1`.** La preparación usa `S_P` y la reanudación `S_R`, cada una con su `SHA256SUMS` y su hash fuera del host; `S_R/R0-referencias.txt` cita `S1` y `S_P` con sus hashes. Motivos: A0, A2c, A2d y A3e escriben con `>` archivos de nombre fijo que en `S1` se sobrescribirían y harían fallar K3; un único `SHA256SUMS` mezclaría dos HEADs de código; y `S1` nunca llegó a K3 (RP1 congela su hash). Dentro de `S_R` los identificadores son los de este documento (`D04`, `D07`…) y la regla `-r2` sigue valiendo. `S1` y `S_P` no se editan ni se borran, y no se añade nada a sus `SHA256SUMS`.
-2. **A4 no se repite.** Consta en `de692a4` y sus artefactos pertenecen a la ejecución 1. `package.json`, `package-lock.json` y `tsconfig.json` no cambian entre `de692a4` y `DOCREF` (RP2 lo exige).
+2. **A4 no se repite.** Consta en `de692a4` y sus artefactos pertenecen a la ejecución 1. `package.json`, `package-lock.json` y `tsconfig.json` no cambian entre `de692a4` y `DOCREF` (RP2 lo exige). El fixture nuevo de las pruebas no es un manifiesto: reproduce `0faf138:poc1a/tsconfig.json` para modelar el estado previo a A4 sin tocar los archivos reales (RP2, `fixture-ok`).
 3. **A3f2 (`npm ci`) se repite**, aunque el lockfile no cambió: `S_R` necesita evidencia propia de que el volumen `node_modules` corresponde al lockfile (R7 sólo cubre `api.js`). El riesgo (instalación con red) es el ya asumido en A4b0 con el mismo lockfile.
 4. **D01–D03 se repiten sobre una base nueva.** `migrate-en` arranca Payload con el `payload.config.ts` modificado (con `POC_NO_PUSH=1` no carga `api.js`, `correccion-push.ts:113-126`), y «desde cero» exige una base sin migraciones. El nombre (`DBMIG`) lo decide el humano: una `poc3_*` que no aparezca en B3.
 5. **D05 se repite:** es una lectura barata y mantiene la sección D bajo un único HEAD.
@@ -89,24 +101,28 @@ La regresión 25/25 declarada no figura en (a): no es un paso del gate y su evid
 
 ### Sesión RP · preparación (antes de integrar)
 
-La ejecuta el humano como root en una shell nueva. De los pasos del gate sólo ejecuta A0, A3 (para definir `GUARDA` y `r()`; `r A3d` es diagnóstico) y A3e (en RP5). **Cada punto termina en parada dura** si no sale lo esperado: se detiene, se conserva lo que haya y se avisa al orquestador. Las marcas que imprime cada punto (`docref-ok`, `s1-ok`…) se transcriben a la plantilla; sólo tiene hash lo que se escribe en `S_P`. Ningún agente escribe en `/home/proyectos/jozeuzz-poc-candidata-a` ni en `/home/proyectos/jozeuzz-poc-drizzle-fix` durante esta sesión.
+La ejecuta el humano como root en una shell nueva. De los pasos del gate sólo ejecuta A0, A3 (para definir `GUARDA` y `r()`; `r A3d` es diagnóstico) y A3e (en RP5). **Cada punto termina en parada dura** si no sale lo esperado: se detiene, se conserva lo que haya y se avisa al orquestador. Las marcas que imprime cada punto (`docref-ok`, `s1-ok`…) se transcriben a la plantilla; sólo tiene hash lo que se escribe en `S_P`. Ningún agente escribe en `/home/proyectos/jozeuzz-poc-candidata-a`, `/home/proyectos/jozeuzz-poc-drizzle-fix` ni `/home/proyectos/jozeuzz-poc-gate-a4-fix` durante esta sesión.
 
 **RP0 · Sesión y variables.** Se ejecuta A0 completo, que crea `S` (aquí, `S_P`). Después:
 
 ```sh
 ORIG=/home/proyectos/jozeuzz-poc-candidata-a
 S1=<carpeta S de la ejecución 1, anotada por el responsable>
-DOCREF=<SHA completo (40 hex) del commit de docs/ sobre 42d7229 que contiene esta revisión>
-BASE_SHA=de692a43dbc2e43b099580e101f8e6f8eb0a1d37   # de692a4 (RP2 lo contrasta)
-CODE_SHA=42d7229950951c3ce2a3af626feec7341487ff7a   # 42d7229 (RP2 lo contrasta)
+DOCREF=<SHA completo (40 hex) del commit de docs/ sobre 0bd7071 que contiene esta revisión>
+BASE_SHA=de692a43dbc2e43b099580e101f8e6f8eb0a1d37       # de692a4 (RP2 lo contrasta)
+D07_SHA=42d7229950951c3ce2a3af626feec7341487ff7a        # 42d7229, cierre de la corrección D07 (RP2 lo contrasta)
+DOCS_D07_SHA=5d8a9d918d0fb25bcd4d9c153a39cc5b7c603689   # 5d8a9d9, docs de la reanudación D07 (RP2 lo contrasta)
+CODE_SHA=0bd7071ba52bcef1f216182343f7ad5a170cf7d0       # 0bd7071, CODEREF (RP2 lo contrasta)
 DUMP=/root/jz-d07-respaldos/20261021T060116Z/poc3_intake.dump
 DUMP_SHA=01da9edc2fe32c4f072099329086added69d5f0ba78f496c296a45a012a5b7f7
 printf %s "$DOCREF" | grep -Eq '^[0-9a-f]{40}$' && echo docref-ok
 g show --no-textconv "$DOCREF":docs/GATE-DOCKER-POC-3.md | LESS= LESSSECURE=1 LESSOPEN= less   # el humano lee esta revisión desde Git
-g rev-parse "$DOCREF":docs/GATE-DOCKER-POC-3.md                     # anotar como BLOB para A1 de la sesión R
+g rev-parse --verify "$DOCREF":docs/GATE-DOCKER-POC-3.md             # anotar como BLOB para A1 de la sesión R
 ```
 
 - **Esperado:** `docref-ok`. **Si no:** parada dura.
+- **Blob de este documento (observación de seguridad U3-O1):** además del SHA de `DOCREF`, el orquestador comunica el blob de `docs/GATE-DOCKER-POC-3.md` en `DOCREF`. El humano lo compara con el `BLOB` que anota aquí (el de `g rev-parse "$DOCREF":docs/GATE-DOCKER-POC-3.md`). **Si no coincide: parada dura.**
+- `DOCREF` lo obtiene el humano **después** del commit de `docs/` que contiene esta revisión (ver la cabecera): `g rev-parse --verify refs/heads/fix/poc3-gate-a4-evidencia`, desde `$ORIG`, contrastado con el SHA que le comunique el orquestador. Que su padre sea `CODE_SHA` y que sólo cambie este documento lo exige RP2.
 
 **RP1 · Congelar la ejecución 1 y comprobar fugas en `S1`.**
 
@@ -133,28 +149,38 @@ grep -lFf <(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' "$ORIG/poc1a/.env") -- "${k2_f[@]}
 - **K2 de `S1`:** por patrón, como mucho `A2-compose-resuelto.yaml`, cuyas coincidencias son los `${…}` sin interpolar de A2c (conteo `0`); `S1` no tiene `D22a.log`. Por valor, vacío, y sólo vale si antes salieron `k2-archivos-ok` y `k2-env-ok`: sin ellos una búsqueda vacía no prueba nada (falla abierta) y es parada dura; si se prefiere, el responsable ejecuta además las tres órdenes de B1v sobre `$ORIG/poc1a/.env`. Cualquier otra coincidencia: ese archivo no se comparte ni se abre en pantalla compartida, y es parada dura de seguridad.
 - **Si no:** parada dura. Si falta `D07.log`, el responsable explica dónde quedó registrado el fallo antes de seguir.
 
-**RP2 · Integridad de ramas, HEADs, árbol y diff.** Todo desde `$ORIG`: la rama `fix/…` se lee por su referencia (los worktrees comparten referencias) y no se ejecuta Git en el worktree de la corrección.
+**RP2 · Integridad de ramas, HEADs, árbol y diff.** Todo desde `$ORIG`: las ramas `fix/…` se leen por su referencia (los worktrees comparten referencias) y no se ejecuta Git en los worktrees de las correcciones (`/home/proyectos/jozeuzz-poc-drizzle-fix`, que ahora tiene sacada otra rama, y `/home/proyectos/jozeuzz-poc-gate-a4-fix`).
 
 ```sh
 cd "$ORIG"
 test "$(g branch --show-current)" = poc/candidata-a-3 && echo rama-orig-ok
 test "$(g rev-parse --verify 'de692a4^{commit}')" = "$BASE_SHA" && test "$(g rev-parse --verify refs/heads/poc/candidata-a-3)" = "$BASE_SHA" && echo head-orig-ok
-test "$(g rev-parse --verify '42d7229^{commit}')" = "$CODE_SHA" && echo code-sha-ok
-test "$(g rev-parse --verify refs/heads/fix/poc3-drizzle-parametros)" = "$DOCREF" && echo head-fix-ok
+test "$(g rev-parse --verify '0bd7071^{commit}')" = "$CODE_SHA" && echo code-sha-ok
+test "$(g rev-parse --verify refs/heads/fix/poc3-gate-a4-evidencia)" = "$DOCREF" && echo head-fix-ok
+test "$(g rev-parse --verify refs/heads/fix/poc3-drizzle-parametros)" = "$DOCS_D07_SHA" && echo rama-d07-ok   # integridad: la rama de la corrección D07 no se movió
 rp2_st="$(g status --porcelain)" && test -z "$rp2_st" && echo arbol-orig-limpio
-g merge-base --is-ancestor "$BASE_SHA" "$DOCREF" && g merge-base --is-ancestor "$CODE_SHA" "$DOCREF" && echo ancestros-ok
+g merge-base --is-ancestor "$BASE_SHA" "$DOCREF" && g merge-base --is-ancestor "$D07_SHA" "$DOCREF" && g merge-base --is-ancestor "$DOCS_D07_SHA" "$DOCREF" && g merge-base --is-ancestor "$CODE_SHA" "$DOCREF" && echo ancestros-ok
+# la integración no mezcla otras ramas: exactamente df576ed, 986d7f3, 42d7229, 5d8a9d9, 0bd7071 y DOCREF, en ese orden y sin merges
+rp2_cadena="$(g rev-list --reverse "$BASE_SHA".."$DOCREF")" && rp2_c1="$(g rev-parse --verify 'df576ed^{commit}')" && rp2_c2="$(g rev-parse --verify '986d7f3^{commit}')" && test "$rp2_cadena" = "$(printf '%s\n' "$rp2_c1" "$rp2_c2" "$D07_SHA" "$DOCS_D07_SHA" "$CODE_SHA" "$DOCREF")" && echo cadena-ok
+rp2_merges="$(g rev-list --merges "$BASE_SHA".."$DOCREF")" && test -z "$rp2_merges" && echo sin-merges-ok
 g diff --no-renames --name-only "$BASE_SHA" "$DOCREF" | LC_ALL=C sort > "$S/RP2-rutas.txt"
-printf '%s\n' docs/GATE-DOCKER-POC-3.md poc1a/src/lib/drizzle-kit/correccion-push.test.ts poc1a/src/lib/drizzle-kit/correccion-push.ts poc1a/src/payload.config.ts poc1a/test/estatico/drizzle-kit-correccion.test.ts | LC_ALL=C sort > "$S/RP2-rutas-esperadas.txt"
+printf '%s\n' docs/GATE-DOCKER-POC-3.md poc1a/EVIDENCIA.md poc1a/src/lib/drizzle-kit/correccion-push.test.ts poc1a/src/lib/drizzle-kit/correccion-push.ts poc1a/src/payload.config.ts poc1a/test/estatico/docs-write-isolation.test.ts poc1a/test/estatico/drizzle-kit-correccion.test.ts poc1a/test/estatico/fixtures/tsconfig-pre-a4.json.txt poc1a/test/estatico/gate-a4-git.test.ts | LC_ALL=C sort > "$S/RP2-rutas-esperadas.txt"
 sha256sum "$S/RP2-rutas.txt" "$S/RP2-rutas-esperadas.txt" >> "$S/SHA256SUMS"
 cmp -s "$S/RP2-rutas.txt" "$S/RP2-rutas-esperadas.txt" && echo rutas-ok
 test "$(g diff --no-renames --name-only "$CODE_SHA" "$DOCREF")" = docs/GATE-DOCKER-POC-3.md && echo docref-solo-docs
+# fixture de las pruebas (observación de seguridad U3-O2): mismo blob que el tsconfig.json previo a A4
+test "$(g rev-parse --verify "$DOCREF":poc1a/test/estatico/fixtures/tsconfig-pre-a4.json.txt)" = 8d0831bd131e2da1581c6f54c20cb04269947c33 && test "$(g rev-parse --verify "$BASE_SHA~1":poc1a/tsconfig.json)" = 8d0831bd131e2da1581c6f54c20cb04269947c33 && echo fixture-ok
 rp2_attr="$(g check-attr -a -- $(cat "$S/RP2-rutas.txt"))" && test -z "$rp2_attr" && echo atributos-rp2-ok
 ```
 
-- **Esperado:** las siete marcas `*-ok`, `arbol-orig-limpio` y `docref-solo-docs`. `RP2-rutas.txt` contiene exactamente las cuatro rutas de código más `docs/GATE-DOCKER-POC-3.md`, así que ningún manifiesto ni ninguna ruta de `GUARDA` cambia. Con `--no-renames`, un renombrado lista la ruta de origen y la de destino.
-- `BASE_SHA` y `CODE_SHA` los aportó el orquestador; `head-orig-ok` y `code-sha-ok` los contrastan con los prefijos cortos.
+- **Esperado:** las once marcas `*-ok` (`rama-orig-ok`, `head-orig-ok`, `code-sha-ok`, `head-fix-ok`, `rama-d07-ok`, `ancestros-ok`, `cadena-ok`, `sin-merges-ok`, `rutas-ok`, `fixture-ok` y `atributos-rp2-ok`), `arbol-orig-limpio` y `docref-solo-docs`: trece marcas en total.
+- `RP2-rutas.txt` contiene exactamente nueve rutas: las tres de código de la corrección D07 (`correccion-push.ts`, `payload.config.ts` y su prueba `correccion-push.test.ts`), las cuatro de pruebas estáticas y fixture (`drizzle-kit-correccion.test.ts`, `gate-a4-git.test.ts`, `docs-write-isolation.test.ts` y `fixtures/tsconfig-pre-a4.json.txt`), `poc1a/EVIDENCIA.md` y `docs/GATE-DOCKER-POC-3.md`. Así, ningún manifiesto, ni `tsconfig.json`, ni ninguna ruta de `GUARDA` cambia. Con `--no-renames`, un renombrado lista la ruta de origen y la de destino.
+- `cadena-ok` y `sin-merges-ok` garantizan que el fast-forward de RP6 sólo integra esos seis commits: no puede entrar `work/jozeuzz-autonomo` ni ninguna otra rama. `cadena-ok` exige además que `DOCREF` sea hijo directo de `CODE_SHA`.
+- `rama-d07-ok` no interviene en la integración, que usa el SHA de `DOCREF`: comprueba que la rama de la corrección D07 sigue en `5d8a9d9`. Si no sale, el responsable lo explica y lo anota antes de seguir; sin explicación, parada dura (puede indicar escrituras concurrentes).
+- `fixture-ok` (observación de seguridad U3-O2) comprueba que el fixture que leen las pruebas de D11 es exactamente el `tsconfig.json` previo a A4, y no un archivo arbitrario. Usa `"$BASE_SHA~1"` (el padre de `de692a4`, el commit de A4; `de692a4~1` es `0faf1389dbeb3afae4dff89cba05e5887154db16`) para ligar la procedencia al padre de A4 en lugar de a un SHA corto literal.
+- `BASE_SHA`, `D07_SHA`, `DOCS_D07_SHA` y `CODE_SHA` los aportó el orquestador: `head-orig-ok` y `code-sha-ok` los contrastan con los prefijos cortos, y `cadena-ok` con el historial real.
 - Todas las comparaciones fallan cerradas: si `git` falla, no sale la marca.
-- **Si no:** parada dura. No se integra nada.
+- **Si no:** salvo `rama-d07-ok` (ver arriba), si falta cualquier marca: parada dura. No se integra nada.
 
 **RP3 · Revisión A2 de la corrección con `REV=de692a4`, antes de integrar.** Es la lectura de A2a y A2b sobre `DOCREF`, que aún no es HEAD.
 
@@ -168,13 +194,17 @@ g diff --no-ext-diff --no-textconv "$REV" "$DOCREF" -- \
 g diff --no-ext-diff --stat "$REV" "$DOCREF" -- poc1a/e2e poc1a/src poc1a/test poc1a/vitest.config.ts poc1a/tsconfig.json 'poc1a/next.config*'
 g diff --no-ext-diff --no-textconv "$REV" "$DOCREF" -- poc1a/src/lib/drizzle-kit/correccion-push.ts poc1a/src/payload.config.ts
 g diff --no-ext-diff --no-textconv "$REV" "$DOCREF" -- poc1a/src/lib/drizzle-kit/correccion-push.test.ts poc1a/test/estatico/drizzle-kit-correccion.test.ts
+g diff --no-ext-diff --no-textconv "$REV" "$DOCREF" -- poc1a/test/estatico/gate-a4-git.test.ts poc1a/test/estatico/docs-write-isolation.test.ts poc1a/test/estatico/fixtures/tsconfig-pre-a4.json.txt
+g diff --no-ext-diff --no-textconv "$REV" "$DOCREF" -- poc1a/EVIDENCIA.md
+test "$(g diff --no-ext-diff --numstat "$REV" "$DOCREF" -- poc1a/EVIDENCIA.md)" = "$(printf '16\t0\tpoc1a/EVIDENCIA.md')" && echo evidencia-solo-anade
 ```
 
 - **Esperado:**
-  - el `log` muestra sólo `df576ed`, `986d7f3` y `42d7229`;
+  - el `log` muestra sólo `df576ed`, `986d7f3`, `42d7229` y `0bd7071` (`5d8a9d9` y `DOCREF` sólo cambian `docs/`, fuera de esos pathspecs);
   - el diff de A2a sale vacío;
-  - el resumen de A2b lista las cuatro rutas de código;
-  - los dos diffs completos se leen enteros. Son obligatorios: `correccion-push.ts` y `payload.config.ts` se ejecutan en `app`, `app-prod` y en cada `exec-en`, y las dos pruebas se ejecutan dentro de `app` en D11 (`vitest.config.ts:9`: `src/**/*.test.ts` incluye `correccion-push.test.ts` y `test/**/*.test.ts`, `drizzle-kit-correccion.test.ts`).
+  - el resumen de A2b lista siete rutas: las de código `correccion-push.ts` y `payload.config.ts`, y las de pruebas `correccion-push.test.ts`, `drizzle-kit-correccion.test.ts`, `gate-a4-git.test.ts`, `docs-write-isolation.test.ts` y `fixtures/tsconfig-pre-a4.json.txt`;
+  - `evidencia-solo-anade`: el diff de `EVIDENCIA.md` añade 16 líneas y no borra ninguna;
+  - los cuatro diffs completos se leen enteros. Son obligatorios: `correccion-push.ts` y `payload.config.ts` se ejecutan en `app`, `app-prod` y en cada `exec-en`, y todas las pruebas se ejecutan dentro de `app` en D11 (`vitest.config.ts:9`: `src/**/*.test.ts` incluye `correccion-push.test.ts` y `test/**/*.test.ts`, las de `test/estatico`); `gate-a4-git.test.ts` lanza además `bash` y `git`. La adenda de `EVIDENCIA.md` no se ejecuta, pero es evidencia y se lee completa.
 - **Qué comprueba el humano en `correccion-push.ts`:**
   - sólo lee `node_modules/drizzle-kit/package.json` y `node_modules/drizzle-kit/api.js` bajo la raíz que le pasa `payload.config.ts` (`/app` en los contenedores);
   - falla cerrado si la versión no es `0.31.7`, si el sha256 de `api.js` no es `c87f9e8db2d4948521fd557d8f3945d4e4db482b06d5a2305dd51cdc410b0574` o si el bloque que sustituye no aparece exactamente una vez;
@@ -182,6 +212,12 @@ g diff --no-ext-diff --no-textconv "$REV" "$DOCREF" -- poc1a/src/lib/drizzle-kit
   - las consultas con parámetros van a `$client.query(consulta, params)`;
   - no escribe archivos, no lanza procesos y no abre red.
 - **En `payload.config.ts`:** sólo cambian el `import` y el envoltorio `conCorreccionPushSchema(…, { raiz: path.resolve(dirname, '..') })`.
+- **En `gate-a4-git.test.ts`, `docs-write-isolation.test.ts` y el fixture** (en D11 corren dentro de `app`, como uid 1000 y con `/app` de sólo lectura):
+  - **A4 no cambia.** Las pruebas extraen las fases del bloque A4 de este documento, que esta revisión no modifica, y sólo cambia su estado de partida: el `tsconfig.json` previo a A4 sale del fixture y los manifiestos son sintéticos. Las variantes `'real'` y `'post'` copian los archivos reales a un repositorio temporal. Los archivos reales (`package.json`, `package-lock.json` y `tsconfig.json`) sólo se leen, y la última prueba compara sus `sha256` con los del inicio. RP2 ya exige que ningún manifiesto cambie;
+  - **no hay escrituras bajo `/app`.** Todo `writeFileSync`, `mkdirSync` y `chmodSync`, y todo repositorio Git temporal, cuelga de `tmpRaiz` (`mkdtempSync(path.join(os.tmpdir(), 'gate-a4-git-'))`), que se borra en `afterAll`. `docs-write-isolation.test.ts` sólo lee archivos y no lanza procesos;
+  - **sólo se usa `os.tmpdir()`.** Los procesos (`bash`, `git`) corren con `cwd` en ese temporal y con un entorno reducido (`entornoBase`: `PATH`, `HOME` temporal, `GIT_CONFIG_NOSYSTEM=1` y `LC_ALL=C`). La excepción es `bash -n`, que no ejecuta nada. El `poc.sh` del repositorio temporal es un stub sin Docker ni red, y la sustitución del `cd` exige que no quede ninguna ruta `/home/proyectos/`;
+  - el fixture es JSON con extensión `.txt`, para que no lo descubran `tsc` ni `vite-tsconfig-paths`. Su blob es el de `0faf138:poc1a/tsconfig.json` (`fixture-ok`).
+- **En la adenda de `EVIDENCIA.md`:** sólo añade el aviso antes de la tabla y la «Adenda 2026-10-21 · HP-21» después. No cambia ninguna fila histórica (la «U8 axe» incluida) ni da por superada ninguna E2E: E2E axe sigue pendiente (D18 y D28).
 - **Si no:** parada dura ante cualquier otra cosa no explicada.
 
 **RP4 · Respaldo: validación de lectura.**
@@ -248,18 +284,19 @@ echo "RP6 rc=$rp6_rc"
 test "$rp6_rc" -eq 0 || echo "RP6 FALLÓ: parada dura" >&2
 test "$(umask)" = 0077 && echo umask-077
 rp6_st="$(g status --porcelain)" && test -z "$rp6_st" && echo arbol-limpio-tras-ff
-stat -c '%a %U:%G %n' poc1a/src/lib/drizzle-kit $(cat "$S/RP2-rutas.txt") > "$S/RP6-permisos.txt"
+stat -c '%a %U:%G %n' poc1a/src/lib/drizzle-kit poc1a/test/estatico/fixtures $(cat "$S/RP2-rutas.txt") > "$S/RP6-permisos.txt"
 cat "$S/RP6-permisos.txt"
 sha256sum "$S/RP6-permisos.txt" >> "$S/SHA256SUMS"
-rp6_malos="$(awk '($3=="poc1a/src/lib/drizzle-kit" && $1!="755") || ($3!="poc1a/src/lib/drizzle-kit" && $1!="644")' "$S/RP6-permisos.txt")" && test -z "$rp6_malos" && echo permisos-ok
+rp6_malos="$(awk '{d=($3=="poc1a/src/lib/drizzle-kit" || $3=="poc1a/test/estatico/fixtures")} (d && $1!="755") || (!d && $1!="644")' "$S/RP6-permisos.txt")" && test -z "$rp6_malos" && echo permisos-ok
 rp6_ilegibles="$(g ls-files -z -- poc1a | xargs -0 -r stat -c '%a %n' | awk '{d=substr($1,length($1),1)} d!~/[4-7]/')" && test -z "$rp6_ilegibles" && echo legibles-ok
 rp6_dirs="$(find poc1a/src poc1a/test -type d ! -perm -005)" && test -z "$rp6_dirs" && echo directorios-ok
 ```
 
 - **Esperado:**
   - `RP6 rc=0`, `umask-077` (la sesión conserva su `umask`) y `arbol-limpio-tras-ff`;
-  - en `RP6-permisos.txt`, `755` para `poc1a/src/lib/drizzle-kit` y `644` para las cinco rutas. El propietario (previsiblemente `root:root`) se registra sin bloquear;
-  - `legibles-ok`, es decir, ningún archivo versionado de `poc1a/` sin lectura para otros, y `directorios-ok`.
+  - en `RP6-permisos.txt`, `755` para los dos directorios nuevos (`poc1a/src/lib/drizzle-kit` y `poc1a/test/estatico/fixtures`) y `644` para las nueve rutas de `RP2-rutas.txt`. El propietario (previsiblemente `root:root`) se registra sin bloquear;
+  - `legibles-ok`, es decir, ningún archivo versionado de `poc1a/` sin lectura para otros, y `directorios-ok` (ningún directorio de `poc1a/src` ni de `poc1a/test` sin lectura y paso para otros).
+- Así se verifican los permisos de los archivos y directorios nuevos que leerá el uid 1000 por el bind RO: la corrección D07 en cada arranque de Payload y las pruebas estáticas y el fixture en D11.
 - `legibles-ok` también detectaría archivos que se reescribieron con `umask 077` en la ejecución 1 (por ejemplo, en la aplicación de A4p). No se sabe si los hay; si aparecen, se tratan igual.
 - **Si no:** parada dura. No se corrige con un `chmod` silencioso. Si el responsable decide corregir, lo registra y lo hace ruta a ruta, sólo sobre las listadas, sin `-R` ni modos simbólicos, con `stat` antes y después en `S_P` (`RP6-permisos-r2.txt`, con su hash en `SHA256SUMS`); después repite `permisos-ok`, `legibles-ok` y `directorios-ok`:
 
@@ -292,7 +329,7 @@ sha256sum "$S/SHA256SUMS"   # anotar fuera del host, junto con la ruta de S_P
 
 - **Esperado:** `k2-archivos-ok`, `k2-env-ok`, las dos búsquedas de K2 vacías y `sp-integro`. Una coincidencia de K2 es parada dura de seguridad (como en K). Después se cierra la shell: la sesión R empieza en una shell nueva, con su propio A0.
 
-### Sesión R · reanudación sobre `42d7229`
+### Sesión R · reanudación sobre `0bd7071`
 
 Se hace en una shell nueva, sobre `poc/candidata-a-3` en `DOCREF`. Cada paso se ejecuta como lo define su sección, con sus propias paradas, salvo lo que indica esta tabla.
 
@@ -300,8 +337,8 @@ Se hace en una shell nueva, sobre `poc/candidata-a-3` en `DOCREF`. Cada paso se 
 |---|---|---|
 | R0 | A0 y referencias | A0 crea `S` (aquí, `S_R`). Después, el bloque R0 de abajo |
 | R1 | A3e | Esperado: `A3e-antes.txt` vacío (RP5 ya retiró todo). Si aparece algún contenedor, alguien levantó servicios entre RP y R: parada dura |
-| R2 | A1 | `BLOB` anotado en RP0, `CODEREF=42d7229` y HEAD = `DOCREF` |
-| R3 | A2 | `REV=de692a4`. A2a sale vacío y el resumen de A2b lista tres rutas (`correccion-push.ts`, `correccion-push.test.ts` y `payload.config.ts`): su pathspec incluye `poc1a/test/http` y `poc1a/test/integracion`, pero no `poc1a/test/estatico`, a diferencia del de RP3 (`poc1a/test`). Los diffs completos ya se leyeron en RP3, sobre el mismo `DOCREF`. A2c y A2d se repiten completos |
+| R2 | A1 | `BLOB` anotado en RP0, `CODEREF=0bd7071` y HEAD = `DOCREF` |
+| R3 | A2 | `REV=de692a4`. A2a sale vacío y el resumen de A2b lista tres rutas (`correccion-push.ts`, `correccion-push.test.ts` y `payload.config.ts`): su pathspec incluye `poc1a/test/http` y `poc1a/test/integracion`, pero no `poc1a/test/estatico`, a diferencia del de RP3 (`poc1a/test`). `poc1a/test/estatico` (pruebas y fixture) y `poc1a/EVIDENCIA.md` (fuera de los pathspecs de A2) se leyeron completos en RP3, igual que el resto de diffs, sobre el mismo `DOCREF`. A2c y A2d se repiten completos |
 | R4 | A3 | Completo |
 | R5 | B1 y B1v | Completos |
 | R6 | A3f1, A3f2 y A3f3 | Completos; A3f2 se repite (decisión 3) |
@@ -311,7 +348,7 @@ Se hace en una shell nueva, sobre `poc/candidata-a-3` en `DOCREF`. Cada paso se 
 | R9 | Respaldo intacto | Bloque R9, antes de D01 |
 | R10 | D01–D03 | Sobre `DBMIG` (decisión 4), bloque R10 |
 | R11 | D04, D05, D06, D07 y D08 | Como en la sección D, con los controles del bloque R11 tras D04, D06 y D07 |
-| R12 | D09…D30, J y K | Como en el documento. D11 previsiblemente reproducirá los fallos de I-A4T (ver «Incidencias abiertas») |
+| R12 | D09…D30, J y K | Como en el documento. I-A4T está corregida en `0bd7071` y se intenta verificar en D11 (no concluyente mientras O1, O-3 y O-4 sigan abiertas), y D11 sigue previsiblemente siendo un fallo registrable por O1, O-3 y O-4 (ver «Incidencias abiertas»): se anota qué archivos fallan y por qué causa, extraída de `D11.log` (bloque R12). No hay diagnóstico previo D11pre |
 
 **R0 · Referencias de la reanudación.**
 
@@ -328,7 +365,7 @@ test "$(sha256sum "$S1/SHA256SUMS" | cut -d' ' -f1)" = "$S1_HASH" && echo s1-sin
 test "$(sha256sum "$SP/SHA256SUMS" | cut -d' ' -f1)" = "$SP_HASH" && echo sp-sin-cambios
 sha256sum -c --quiet "$S1/SHA256SUMS" && echo s1-integro
 sha256sum -c --quiet "$SP/SHA256SUMS" && echo sp-integro
-( set -C; printf 'S1=%s\nS1_SHA256SUMS=%s\nS_P=%s\nS_P_SHA256SUMS=%s\nDOCREF=%s\nCODEREF=42d7229\n' "$S1" "$S1_HASH" "$SP" "$SP_HASH" "$DOCREF" > "$S/R0-referencias.txt" )
+( set -C; printf 'S1=%s\nS1_SHA256SUMS=%s\nS_P=%s\nS_P_SHA256SUMS=%s\nDOCREF=%s\nCODEREF=0bd7071\n' "$S1" "$S1_HASH" "$SP" "$SP_HASH" "$DOCREF" > "$S/R0-referencias.txt" )
 sha256sum "$S/R0-referencias.txt" >> "$S/SHA256SUMS"
 ```
 
@@ -403,6 +440,13 @@ Tras D07, **`push` de `next dev`**: `FALLO: proxy TLS: HTTP 500` (`scripts/sonda
 3. Se cierra la evidencia sin J: K1, K2 y K3 sobre `S_R`, y el hash de `SHA256SUMS` se anota fuera del host. Sin D22 no hay `D22a.log`: K2 por patrón sólo admite `A2-compose-resuelto.yaml`, y la línea de `D22a.log` no aplica.
 4. **No se restaura** el respaldo sin decisión humana (RP4).
 5. Se avisa al orquestador. Un nuevo intento es otra unidad de corrección, con su propia revisión y una nueva revisión de este documento.
+
+**R12 · D09…D30, J y K; causas de los fallos de D11.** Se siguen las secciones D (desde D09) a K. I-A4T está corregida en `0bd7071`, pero eso no aprueba D11: por O1, O-3 y O-4 («Incidencias abiertas»), D11 previsiblemente seguirá fallando dentro de `app` en las pruebas estáticas que leen fuera de `/app` (`../docs`, `../contrato`, `../.gitignore`) o lanzan `git`. Se registra como fallo registrable, anotando qué archivos fallan y por qué causa.
+
+- **Las causas se extraen de `D11.log`, sin diagnóstico previo:** `ENOENT` con la ruta `/docs`, `/contrato` o `/.gitignore`; fallo de carga del archivo de pruebas; `git` ausente; y `EACCES`/`Permission denied` en `/tmp` (O-4: `/tmp` es `noexec`). Si una causa no se puede determinar desde el log, se anota «causa indeterminada»; el fallo sigue siendo registrable.
+- **Por qué no hay D11pre (decisión de seguridad M3).** Una versión anterior proponía un diagnóstico opcional entre D10 y D11 con `exec-en`. Se suprimió: `exec-en` ejecuta antes `scripts/verificar-db.ts`, que arranca Payload con `push` habilitado sobre `poc3_intake` (H-10), y eso añadiría un `push` más sobre esa base sin necesidad, porque el log de D11 ya contiene las causas.
+- **Límite de cobertura.** `gate-a4-git.test.ts` y `docs-write-isolation.test.ts` (y `retirada-r1.test.ts`, `guardas-base.test.ts` y `poc-sh-aislamiento.test.ts` en sus pruebas que leen fuera de `/app`) sólo se validan con `jz-run` en el árbol Git del host. Un D11 en verde nunca sería evidencia equivalente para ellas. Aislamiento comparado: `jz-run` tiene `/tmp` ejecutable, `docs/` visible, el `git` del host y el worktree escribible (la garantía de que las pruebas no escriben ahí se apoya en el código y en el hash de los tres manifiestos, no en un montaje de sólo lectura); `app` tiene el bind RO, uid 1000, raíz `read_only`, `/tmp` `noexec`, Node 24 y el `node_modules` del volumen.
+- `tls-efimera.test.ts` usa `it.skipIf(!hayOpenssl)` (`tls-efimera.test.ts:10,15`): en la imagen slim puede salir `skipped`, así que el «N passed» de D11 varía. Se anotan los `skipped`.
 
 ---
 
@@ -509,7 +553,7 @@ El humano lee este documento desde Git (`g show --no-textconv HEAD:docs/GATE-DOC
 ```sh
 BLOB=<blob anotado por el humano tras leer el documento>
 g branch --show-current                               # poc/candidata-a-3
-CODEREF=42d7229                                       # referencia vinculante de código (cabecera): último commit de la corrección D07
+CODEREF=0bd7071                                       # referencia vinculante de código (cabecera): último commit de código: corrección D07 + I-A4T/HP-21
 g rev-parse --short HEAD                              # CODEREF o un commit posterior que sólo cambie docs/
 g diff --name-only "$CODEREF"..HEAD                   # vacío o sólo rutas bajo docs/
 g diff --name-only "$CODEREF"..HEAD | grep -v '^docs/'   # vacío (rc=1 es lo esperado)
@@ -526,7 +570,7 @@ Es **parada dura** en cualquiera de estos casos:
 
 ### A2 · Revisión obligatoria del contenido editado por agentes (S2, S4)
 
-`<REV>` es el último commit que el humano revisó. **PENDIENTE:** lo fija el humano, porque este documento no lo conoce. En la reanudación es `de692a4`: el HEAD de la ejecución 1, cuyo último cambio de código (A4) aprobó el humano por hash. La corrección D07 se revisa en RP3 y en R3.
+`<REV>` es el último commit que el humano revisó. **PENDIENTE:** lo fija el humano, porque este documento no lo conoce. En la reanudación es `de692a4`: el HEAD de la ejecución 1, cuyo último cambio de código (A4) aprobó el humano por hash. La corrección D07 y la de I-A4T/HP-21 se revisan en RP3 y en R3.
 
 **A2a · Todo lo que el host ejecuta como root o que configura contenedores e instalación (diff completo, obligatorio):**
 
@@ -1138,7 +1182,7 @@ r D11 ./poc.sh exec-en poc3_intake npx vitest run --configLoader runner
   Se da por verificado si los 8 tests de `intake HTTP U5b` pasan y el log no contiene `fetch failed`, `ECONNREFUSED`, `ENOTFOUND`, `UNABLE_TO_VERIFY` ni `self-signed`.
 - **Verificación de H-2** (*corregido en `c8bbf0f`, pendiente de esta ejecución*). El caso «honeypot» ya envía token y cookie válidos (`intake.test.ts:46-47`). El manejador valida el origen (`manejador.ts:85`) y el CSRF (`manejador.ts:92`) antes de la trampa (`manejador.ts:93`). Se espera que el test «rechaza tipo, origen, CSRF, trampa y mínimo sin eco» pase con 400 `envio_rechazado`. El Origin coincide porque `ORIGEN` sale de `INTAKE_ORIGEN_PUBLICO=https://127.0.0.1:3443` (`intake.test.ts:6`; `compose.yaml:47`), aunque la URL sea `proxy:3443`.
 - **Precondición: proxy de pruebas** (D10). Los tests envían `x-poc-ip-sintetica` y cuentan límites por IP sintética (`intake.test.ts:23,69-89`). Con el proxy de producción, todos los envíos compartirían IP y agotarían el cupo.
-- Parada: fallo registrable. Hay que anotar qué archivos y qué tests fallan, y si H-1 o H-2 siguen presentes.
+- Parada: fallo registrable. Hay que anotar qué archivos y qué tests fallan, y si H-1 o H-2 siguen presentes. En la reanudación se anota además, para las pruebas estáticas que leen fuera de `/app` (`../docs`, `../contrato`, `../.gitignore`) o lanzan `git`, la causa de cada fallo, extraída de `D11.log` (O1, O-3 y O-4; ver R12 e «Incidencias abiertas»).
 - *Obsoleta:* la variante `D11-diag` del ciclo 1, con `POC_HTTP_BASE=https://proxy:3443`, ya no tiene sentido, porque ese es ahora el valor por defecto. No se ejecuta.
 
 **D12 · `tsc` dentro de `app`** (criterio «vitest y tsc», `docs/PLAN-POC-3.md:178`)
@@ -1436,7 +1480,7 @@ Basta con los conteos, las líneas de resumen y la ruta y el hash del log.
 
 ```markdown
 #### Gate Docker POC-3 (ejecución humana, docs/GATE-DOCKER-POC-3.md)
-Ejecutado por: <responsable> · CODEREF: 42d7229 · HEAD de ejecución: <DOCREF> · Blob del procedimiento: <BLOB>
+Ejecutado por: <responsable> · CODEREF: 0bd7071 · HEAD de ejecución: <DOCREF> · Blob del procedimiento: <BLOB>
 
 ##### Ejecución 1 (`de692a4`): detenida en D07; evidencia no reutilizable
 Salidas: <S1> · SHA256SUMS: <hash anotado en RP1, copia fuera del host>
@@ -1445,7 +1489,7 @@ Salidas: <S1> · SHA256SUMS: <hash anotado en RP1, copia fuera del host>
 |---|---|---|---|---|
 | A0–A3f3, B1, B1v y A4a–A4k | `0faf138` | <declarado> | <declarado> | antes del commit de A4 (deducción de Git) |
 | A4b0, A4b, A4c y B2–B4 | `de692a4` | <declarado> | <declarado> | A4 no se repite; se hereda el commit `de692a4` |
-| D01–D06 | `de692a4` | <declarado> | ejecutados (declarado por el responsable) | no cuentan para `42d7229` |
+| D01–D06 | `de692a4` | <declarado> | ejecutados (declarado por el responsable) | no cuentan para `0bd7071` |
 | D07 | `de692a4` | <declarado, distinto de 0> | **FALLIDO** | causa diagnosticada por el responsable y por la corrección (42P02 en `pushSchema`); salida en `S1`, no en el repositorio |
 | D08–K3 | — | — | no ejecutados | |
 
@@ -1454,16 +1498,16 @@ Salidas: <S_P> · SHA256SUMS: <hash anotado en RP7, copia fuera del host>
 
 | Paso | Fecha (UTC) | rc | Resultado | Observación | Archivo (sha256) |
 |---|---|---|---|---|---|
-| RP0 | | — | `docref-ok`; BLOB anotado | `DOCREF` completo | — |
+| RP0 | | — | `docref-ok`; BLOB anotado; BLOB = blob comunicado por el orquestador (sí/no); DOCREF contrastado con el comunicado (sí/no) | `DOCREF` completo | — |
 | RP1 | | — | `s1-ok`, `s1-integro`, `d07-registrado`; K2 de `S1` (a lo sumo `A2-compose-resuelto.yaml`; conteo 0; valor vacío) | hash de `S1/SHA256SUMS` | RP1-s1-sha256sums.txt |
-| RP2 | | — | 7 marcas `*-ok`, `arbol-orig-limpio`, `docref-solo-docs` | | RP2-rutas.txt |
-| RP3 | | — | `REV=de692a4`; A2a vacío; diffs completos leídos | sin hallazgos / hallazgos | — |
+| RP2 | | — | 11 marcas `*-ok` (`rama-orig-ok`, `head-orig-ok`, `code-sha-ok`, `head-fix-ok`, `rama-d07-ok`, `ancestros-ok`, `cadena-ok`, `sin-merges-ok`, `rutas-ok`, `fixture-ok`, `atributos-rp2-ok`), `arbol-orig-limpio` y `docref-solo-docs` | explicación si falta `rama-d07-ok` | RP2-rutas.txt, RP2-rutas-esperadas.txt |
+| RP3 | | — | `REV=de692a4`; A2a vacío; resumen A2b con siete rutas; `evidencia-solo-anade`; diffs completos leídos: corrección D07, pruebas, fixture y adenda de `EVIDENCIA.md` | sin hallazgos / hallazgos | — |
 | RP4 | | | `respaldo-modo-ok`, `respaldo-dir-ok`, `respaldo-hash-ok`, `respaldo-lista-ok`, `respaldo-lectura-ok`; n.º de tablas | `pg_restore` del host o excepción; versión | RP4-respaldo-lista.txt o RP4-respaldo-lista-db.txt |
 | RP5 | | | B1v; RP5a rc (no bloquea); `proyecto-sin-contenedores`, `sin-montajes-rw` | `down` + A3e, o sólo A3e | RP5a.log, A3e-antes.txt, A3e1.txt, A3e2.txt |
 | RP6 | | | RP6 rc=0; `umask-077`; `arbol-limpio-tras-ff`; `permisos-ok`; `legibles-ok`; `directorios-ok` | propietarios; corrección de permisos sí/no | RP6-merge.txt, RP6-permisos.txt |
 | RP7 | | — | K2 de `S_P` vacío (patrón y valor); `sp-integro` | hash de `SHA256SUMS` anotado fuera del host | SHA256SUMS |
 
-##### Reanudación (código `42d7229`; HEAD `<DOCREF>`)
+##### Reanudación (código `0bd7071`; HEAD `<DOCREF>`)
 Salidas: <S_R> · SHA256SUMS: <hash, copia fuera del host> · Referencias: R0-referencias.txt
 
 | Paso | Unidad / criterio | Fecha (UTC) | HEAD | rc | Conteo / resultado | Observación | Log (sha256) |
@@ -1495,7 +1539,7 @@ Salidas: <S_R> · SHA256SUMS: <hash, copia fuera del host> · Referencias: R0-re
 | D07 / D24 | U5a T-02 NV-3 | | | | 3 OK / 3 OK | en D07, `push` de `next dev`; `FALLO: proxy TLS: HTTP 500` = fallo de `push` | D07.log |
 | D08 | NV-17 | | | | tablas y CHECK en public | | |
 | D09 | T-01 (ii) NV-4 | | | | pass 2 / fail 0 | | |
-| D11 | U2 U5b U6 vitest | | | | Tests N passed (N) | H-1 verificado sí/no; H-2 verificado sí/no; fallos de I-A4T presentes sí/no (no se aprueba D11 mientras siga abierta) | |
+| D11 | U2 U5b U6 vitest | | | | Tests N passed (N), M skipped | H-1 verificado sí/no; H-2 verificado sí/no; fallos de I-A4T presentes sí/no; causa por archivo de los fallos de pruebas estáticas, de `D11.log` (`ENOENT` `/docs`, `/contrato` o `/.gitignore`; carga; `git` ausente; `EACCES` en `/tmp`; o «causa indeterminada»); skipped (p. ej. `tls-efimera.test.ts` sin openssl); archivos y número de pruebas excluidas y mecanismo, si se aplicó la opción (a); límite de cobertura (R12): no equivale a la suite `jz-run` | D11.log |
 | D12 | tsc | | | | sin errores | D12b vacío (sin `.tsbuildinfo` nuevo en el repo) | |
 | D13 | IN-* modo pruebas | | | | casos 12 · ok 12 · fail 0 · pendiente 0 | | |
 | D15 | U7 fallos | | | | pass 9 / fail 0 | | |
@@ -1543,10 +1587,30 @@ Salidas: <S_R> · SHA256SUMS: <hash, copia fuera del host> · Referencias: R0-re
 
 - **S-1 (jz-security, importante).** Los servicios `app`, `app-prod`, `deps` y `e2e` montaban `./` en escritura con uid 1000. La guarda de `r()` y `tls_ok` sólo detectan alteraciones; no las impiden. **Corrección implementada estáticamente, pendiente de verificación Docker (A2, A3f):** `./` se monta en sólo lectura en los cuatro servicios, con raíz `read_only: true`, `/tmp` tmpfs y escritura sólo en volúmenes nombrados (`node_modules` RW sólo en `deps`, RO en los demás; `npm_cache` sólo en `deps`). `next-env.d.ts` se monta como bind de archivo RO desde `contenedor/`. `package.json` y `package-lock.json` no se escriben desde contenedores: A4 produce un parche.
 
-**Incidencias abiertas, independientes de la reanudación** (no las causa la corrección D07, quedan sin aprobar y están fuera del alcance de la reanudación):
+**Incidencias abiertas, independientes de la reanudación** (no las causa la corrección D07). I-A4T y HP-21 están corregidas en `0bd7071` y se conservan aquí como registro; O1, O-3, O-4 y M-C siguen abiertas y no las corrige `0bd7071`; OB2 y N-7 siguen abiertas, igual que antes:
 
-- **I-A4T · 11 fallos de `test/estatico/gate-a4-git.test.ts`** en el vitest `jz-run` de `src test/estatico` sobre `42d7229` (`Tests 11 failed | 298 passed (309)`, `.jz-state/runs/20261021T050639Z-44526.log`, no versionado): diez casos del bloque «I-2: las fases del gate se ejecutan de punta a punta (docker simulado)…» y «el tsconfig.json real contiene exactamente una vez el bloque que A4a sustituye». Preexistentes y posteriores a A4: según el checkpoint del implementador, el `tsconfig.json` real ya no tiene el `exclude` de `e2e/intake-axe.spec.ts`, que A4 retiró en `de692a4`.
-  - Efecto: la suite `jz-run` del HEAD final no está en verde (criterio de cierre), y D11 (`vitest.config.ts:9` incluye `test/**/*.test.ts`) previsiblemente los reproducirá dentro de `app`. D11 se registra como fallo registrable y no se aprueba mientras I-A4T siga abierta. Corregirla es una unidad aparte de jz-implementer.
+- **I-A4T · fallos de `test/estatico/gate-a4-git.test.ts`. Corregida en `0bd7071`; pendiente de verificación en D11.**
+  - **Registro histórico:** 11 fallos en el vitest `jz-run` de `src test/estatico` sobre `42d7229` (`Tests 11 failed | 298 passed (309)`, `.jz-state/runs/20261021T050639Z-44526.log`, no versionado): diez casos del bloque «I-2: las fases del gate se ejecutan de punta a punta (docker simulado)…» y «el tsconfig.json real contiene exactamente una vez el bloque que A4a sustituye».
+  - **Causa:** el estado de partida de las pruebas de A4 era una copia del `tsconfig.json` real, que ya es posterior a A4: A4 retiró en `de692a4` el `exclude` de `e2e/intake-axe.spec.ts`, así que A4a no encontraba el bloque que sustituye.
+  - **Solución (`0bd7071`):**
+    - el estado de partida es un fixture pre-A4 versionado, `poc1a/test/estatico/fixtures/tsconfig-pre-a4.json.txt`, idéntico a `0faf138:poc1a/tsconfig.json` (blob `8d0831b`; RP2 lo comprueba con `fixture-ok`), con manifiestos sintéticos;
+    - pruebas nuevas del estado post-A4 de los archivos reales, que sólo se leen, y de que A4 no se repite sobre ese estado;
+    - se endurecieron las pruebas que antes pasaban por vacuidad.
+  - **Verificado por agentes (no es un paso del gate):** la suite `jz-run` de `src test/estatico` sobre `0bd7071` da 332/332, rc=0, con Node 20 del host (los logs de `jz-run` no registran la versión; `.jz-state/runs/20261021T201143Z-854227.log`, no versionado). Esa ejecución leyó este documento tal como está en `0bd7071`, no en `DOCREF` (ver «Criterio de cierre de U10»).
+  - **Pendiente:** D11, dentro de `app`. Las pruebas que corrige I-A4T leen este documento, así que, mientras O1 siga abierta, en D11 fallarán por `ENOENT` antes de llegar a sus aserciones, y aunque O1 y O-3 se resolvieran, O-4 impediría las que ejecutan trampas, hooks y el stub `poc.sh` en `/tmp`: D11 no puede verificar I-A4T hasta que se decida cómo tratar O1, O-3 y O-4 («Decisiones humanas»). Con la opción (a) de esa decisión, tampoco se ejecutarían en D11, y su verificación quedaría en la suite `jz-run` y en la regresión humana, en las condiciones de la fila I-A4T de «Decisiones humanas» (Node 24, dependencias verificadas, evidencia propia y aceptación humana); el verde de `jz-run` con Node 20 y `node_modules` del host no basta. En la fila D11 se anota si aparece algún fallo de I-A4T (aserción sobre el bloque `exclude` o sobre el `tsconfig.json`) y, aparte, la causa de los demás fallos.
+- **HP-21 · estado de A4 en `poc1a/EVIDENCIA.md`. Corregida en `0bd7071`** mediante el aviso previo a la tabla y la «Adenda 2026-10-21 · HP-21» de `poc1a/EVIDENCIA.md`. Sólo añade líneas (RP3: `evidencia-solo-anade`). La fila histórica «U8 axe» se conserva literal. E2E axe sigue PENDIENTE hasta que D18 y D28 se ejecuten con log. Es documental y no es un paso del gate.
+- **O1 · pruebas que leen fuera de `/app`: la raíz del repositorio no existe dentro de `app`. Abierta: es previa a la corrección de I-A4T y no está corregida.** `app` monta `poc1a/` en `/app` (`poc1a/compose.yaml:92-95`), con `working_dir: /app` (`compose.yaml:8`), y no monta la raíz del repositorio. Así, `/docs`, `/contrato` y `/.gitignore` (lo que resuelven `../docs`, `../contrato` y `../.gitignore` desde `/app`) no existen en el contenedor. Lista completa (búsqueda de rutas fuera de la raíz `poc1a` en `poc1a/src` y `poc1a/test`; en `poc1a/src` ninguna prueba sale de `poc1a`):
+  - `test/estatico/gate-a4-git.test.ts:13` (`RUTA_GATE = '../docs/GATE-DOCKER-POC-3.md'`);
+  - `test/estatico/docs-write-isolation.test.ts` (`leer('../docs/GATE-DOCKER-POC-3.md')` desde la línea 11; `../docs/POC-3-DISENO.md` en las líneas 299 y 418);
+  - `test/estatico/retirada-r1.test.ts:12` (`'../contrato'` en `DIRECTORIOS`; se lista en la línea 33);
+  - `test/estatico/guardas-base.test.ts:8,80-81` (`path.resolve(raiz, '..', 'contrato')`; lee `contrato/fixture.mjs` y `contrato/casos/util.mjs`);
+  - `test/estatico/poc-sh-aislamiento.test.ts:97` (`path.join(raiz, '..', '.gitignore')`).
+
+  En D11, las pruebas que leen esos archivos fallarán previsiblemente con `ENOENT`; la causa se extrae de `D11.log` (R12).
+- **O-3 · `git` en la imagen de `app`. Abierta, no verificada.** `gate-a4-git.test.ts` lanza `git` y `bash` en repositorios temporales. Previsiblemente, la imagen de `app` (`node:24.22.0-trixie-slim`, `compose.yaml:6`) no trae `git`. **No está verificado, y sólo quedará verificado si `D11.log` lo muestra** (no hay diagnóstico previo; R12). Si falta, esas pruebas fallan en D11 por infraestructura, no por el intake.
+- **O-4 · `/tmp` es `noexec` en `app`. Abierta, no verificada en ejecución.** `app` monta `/tmp` como tmpfs con `noexec` (`poc1a/compose.yaml:11`; `compose.pruebas.yaml` no lo cambia). `gate-a4-git.test.ts` crea en `os.tmpdir()` (`:26`) archivos que deben ejecutarse: las trampas (`chmodSync(ruta, 0o755)`, `:110-112`), los hooks (`:127-131`, `:143`) y el stub `poc.sh` (`:444-445`). Esas aserciones no pueden pasar en `app` aunque se resolvieran O1 y O-3: darían `EACCES`/`Permission denied`. **No se corrige relajando el tmpfs: es un control de S-1.**
+  - **Límite de cobertura:** `gate-a4-git.test.ts` y `docs-write-isolation.test.ts` (y `retirada-r1.test.ts`, `guardas-base.test.ts` y `poc-sh-aislamiento.test.ts` en sus pruebas que leen fuera de `/app`) sólo se validan con `jz-run` en el árbol Git del host; un D11 verde nunca sería evidencia equivalente para ellas. La diferencia de aislamiento está en R12.
+- **M-C · riesgo residual de la revisión de `0bd7071`.** De la tabla de `poc1a/EVIDENCIA.md`, las pruebas sólo protegen la fila «U8 axe» (frase histórica literal, una sola vez) y los dos tramos fijados por sha256 (el aviso y la adenda). El resto de las filas históricas no está protegido por pruebas: un cambio en ellas sólo lo detecta la revisión humana (en esta reanudación, la lectura del diff completo y `evidencia-solo-anade` en RP3).
 - **OB2 · nombres de restricciones de la migración frente a `esquema.ts`.** La observación la cita el checkpoint local `.jz-state/LATEST.md`, no versionado, con la etiqueta «B2». No es el paso B2 (`db-up`).
   - La migración `src/migrations/20261017_120000_poc3_intake.ts:6-15` declara los CHECK sin nombre, y `src/lib/intake/esquema.ts:24,38-40` los nombra (`intake_envio_clave_hex_check`, `intake_limite_clave_hmac_hex_check`, `intake_limite_tipo_check` e `intake_limite_n_positivo_check`).
   - Previsiblemente (no verificado en ejecución), PostgreSQL genera para los CHECK sin nombre nombres del tipo `<tabla>_<columna>_check`. Así, `poc_prod` (migraciones: D03 y D19) y `public` (`push`: D08) tendrían nombres distintos.
@@ -1582,7 +1646,8 @@ Los arreglos de H-1 a H-5, H-10 y S-1 son trabajo de jz-implementer, y su priori
 | RP5 | Cómo retirar los contenedores de la ejecución 1 antes de integrar | `./poc.sh down` (parada ordenada de PostgreSQL; su rc no bloquea) seguido de A3e, que es el control vinculante. Alternativa aceptable: sólo A3e (SIGKILL; recuperación de caída) | RP5 |
 | `DBMIG` | Base nueva `poc3_*` para repetir D01–D03 desde cero | `poc3_migraciones_r<n>`, con el primer `n` que no aparezca en B3 | R8; «Si `poc3_migraciones` ya existe…» (sección B) |
 | Restauración | Si se restaura el respaldo de `poc3_intake` y dónde | No restaurar salvo daño comprobado. Si se restaura, en una base `poc3_*` nueva, nunca sobre `poc3_intake` ni con `--clean`. **No probado** | RP4 |
-| I-A4T | Cómo y cuándo corregir los 11 fallos de `gate-a4-git.test.ts` | Unidad aparte. Mientras siga abierta, D11 y la suite `jz-run` del HEAD final no se aprueban | «Incidencias abiertas» |
+| I-A4T | Corregida en `0bd7071`. Queda por decidir cómo tratar D11 frente a O1, O-3 y O-4 | **PENDIENTE: la documentación no recomienda ninguna opción.** Alternativas: (a) excluir dentro del contenedor las pruebas estáticas que leen fuera de `/app` (`../docs`, `../contrato`, `../.gitignore`) o lanzan `git` (es un cambio de código, con su propia revisión), o (b) registrar D11 como fallo registrable esperado y anotar la causa de cada fallo. Cualquiera de las dos es una unidad aparte. Con (b), el criterio «vitest y `tsc` en verde» de U10 sigue sin cumplirse. Con (a), D11 queda como «verde con exclusiones»: la fila D11 anota los archivos y el número de pruebas excluidas y el mecanismo, que debe ser explícito y visible en el log, nunca un `skipIf` silencioso por detección de entorno; y el criterio «vitest y `tsc` en verde» no se cumple hasta que las pruebas excluidas pasen con Node 24, con dependencias verificadas, con evidencia propia y con aceptación humana registrada | «Incidencias abiertas» (I-A4T, O1, O-3 y O-4); R12 |
+| Regresión Node 24 (`0bd7071`) | Si el humano repite sobre `0bd7071`, con Node 24, la regresión en Docker aislado (sin red y con montaje RO), como la 25/25 de la ejecución 1 | La hará el humano («Clasificación de la evidencia»). Queda fuera del gate y no sustituye a D11 ni a D12. **PENDIENTE:** el alcance (suite de la corrección D07, `src test/estatico` o ambas) y el momento. Si se monta sólo `poc1a/`, las pruebas que leen fuera de `/app` (`../docs`, `../contrato`, `../.gitignore`) o lanzan `git` reproducirán O1. Si se hace, en un contenedor desechable aparte: uid 1000, `--network none`, `--cap-drop ALL`, `--security-opt no-new-privileges`, sin socket Docker, `node_modules` propio del contenedor desechable instalado con `npm ci` del lockfile verificado (no el heredado del host), raíz del repositorio en sólo lectura, `/tmp` ejecutable sólo en ese contenedor y `git` presente. Es diagnóstico, no es D11 ni D12, y no modifica el compose del gate | «Verificado por agentes sobre `0bd7071`» |
 | OB2 | Si se alinean los nombres de las restricciones de la migración con `esquema.ts` | Unidad aparte, fuera de la reanudación | «Incidencias abiertas» |
 
 ## Criterio de cierre de U10 (`docs/PLAN-POC-3.md:176-182`)
@@ -1590,10 +1655,10 @@ Los arreglos de H-1 a H-5, H-10 y S-1 son trabajo de jz-implementer, y su priori
 - [ ] **`--alcance poc-3` 12/12 IN-*:** D13, D17 y D27.
 - [ ] **Regresión de 44/44 contra el intake real:** D16 (44 en `app`) y D26 (43 en `app-prod`), y además la decisión **P-U1-01**.
 - [ ] **vitest y `tsc` en verde:**
-  - D11 y D12;
-  - la suite `jz-run` de los agentes repetida sobre el HEAD final, porque la de `EVIDENCIA.md:182` es de `95db8f4`. **A 2026-10-21 no está en verde sobre `42d7229`:** tiene 11 fallos de I-A4T;
+  - D11 y D12. **D11 sigue pendiente** y previsiblemente fallará por O1, O-3 y O-4 mientras no se decida cómo tratarlos («Incidencias abiertas»; fila I-A4T de «Decisiones humanas»);
+  - la suite `jz-run` de los agentes repetida sobre el HEAD final, porque la de `EVIDENCIA.md:182` es de `95db8f4`. **En verde sobre `0bd7071`:** 332/332, rc=0, con Node 20 del host (los logs de `jz-run` no registran la versión) (`.jz-state/runs/20261021T201143Z-854227.log`); sobre `42d7229` tenía los 11 fallos de I-A4T. No sustituye a D11 ni a D12, y la regresión en Node 24 queda pendiente del humano. **El HEAD final es `DOCREF`, no `0bd7071`:** `gate-a4-git.test.ts` y `docs-write-isolation.test.ts` leen este documento y `DOCREF` lo cambia, así que el verde de `0bd7071` no cubre esta revisión y hay que repetir la suite sobre `DOCREF`. La repetición la hacen agentes con `jz-run` **después del commit de `DOCREF` y antes de RP0** (durante RP y R ningún agente escribe en el worktree); vale también la comprobación de que la huella de árbol de `jz-run` del árbol confirmado coincide con la de una ejecución en verde;
   - H-1 y H-2 verificados en D11.
-- [ ] **Reanudación D07:** D04, D06, D07 y D08 superados en `S_R`, con `CODEREF=42d7229` y el prefijo corto de `DOCREF` en la cabecera de cada log (`r()` escribe `rev-parse --short`). Ninguna fila de la ejecución 1 (`S1`) cuenta para el cierre.
+- [ ] **Reanudación D07:** D04, D06, D07 y D08 superados en `S_R`, con `CODEREF=0bd7071` y el prefijo corto de `DOCREF` en la cabecera de cada log (`r()` escribe `rev-parse --short`). Ninguna fila de la ejecución 1 (`S1`) cuenta para el cierre.
 - [ ] **E2E en verde, con teclado y auditoría:** D18 y D28 con los 3 tests de axe ejecutados. Requiere A4 y P3-05.
 - [ ] **CSRF y origen con 403 sin registro:** D11 (`intake.test.ts:35-51`) y D25 (CSRF 403 en producción). Para cumplirlo tal como está escrito hace falta cerrar H-4.
 - [ ] **Mediciones registradas:**
@@ -1618,3 +1683,6 @@ Los arreglos de H-1 a H-5, H-10 y S-1 son trabajo de jz-implementer, y su priori
 | Reanudación D07 (`42d7229`) | jz-architect | Estado parcial declarado (hasta D06 sobre `de692a4`; D07 fallido); `CODEREF=42d7229`. Nueva sección «Ejecución 1 y reanudación»: hechos declarados/deducidos/verificados, clasificación de la evidencia, carpeta `S` por sesión, sesión RP (RP0–RP7) y sesión R (R0–R12). Excepción de `pg_restore` (advertencia 5), plantilla por ejecución, incidencias I-A4T y OB2. Sin ejecución |
 | Reanudación D07, ciclo de corrección 1 | jz-qa y jz-security | **QA I2 / Seg I-1:** el primer `push` es D06 (proceso `tsx`) y el de `next dev`, D07; R11 busca errores de `push` en `D06.log` y exige `DATABASE_OK`; D04L queda como control de arranque (`EACCES` de `/app/.env` esperado); 500 de D07 = fallo de `push`; diagnóstico con `D06-r2`. **QA I1 / Seg M-1:** hash de la lista de RP4 sólo si lista y lectura salen bien; la reserva escribe `RP4-respaldo-lista-db.txt`. **Menores:** plantilla en orden real y con filas que faltaban; prefijo corto de `DOCREF`; rc de RP5a no bloquea; bases deducidas de B3; R8 falla cerrado; K2 sobre todos los archivos (RP1, RP7 y K); `--no-renames` en RP2 y `diff.renames=false` y `status.showUntrackedFiles=normal` en `g`; sin Git en el worktree de la corrección; R0 con `head-docref-ok` y `sha256sum -c`; `chmod` acotado; volcado root 600 en directorio 700 y restauración con `--single-transaction`; SHA completos en RP2/RP3. Recorte de redundancias |
 | Reanudación D07, ciclo de corrección 2 | jz-qa y jz-security | Ciclo 2: N-1 (K2 por valor exige `.env` no vacío y 3 valores; RP1 sin B1v previo), N-2 (`chmod` de RP6 según el modo del índice), N-3 (`RP4-respaldo-lista*.txt` admitida), N-4 y M-K2a (bash ≥ 4.4 en A0; array de K2 no vacío), N-5 (`sha256sum -c` antes de `pg_restore`), N-6 (`LESS=` en RP0), M-D06r2 (`D06-r2` escribe en `poc3_intake`: decisión humana y R9). N-7 registrado como riesgo residual |
+| Reanudación con I-A4T/HP-21 (`0bd7071`) | jz-architect | `CODEREF` pasa de `42d7229` a `0bd7071` (cabecera, A1, R0, R2 y plantilla); `DOCREF` lo obtiene el humano tras el commit de `docs/`. Verificación de agentes sobre `0bd7071` (332/332 con Node 20.19; no es un paso del gate) y el dato sobre `42d7229` como registro histórico. RP0 con `D07_SHA`, `DOCS_D07_SHA` y `CODE_SHA`; RP2 con `rama-d07-ok`, `cadena-ok`, `sin-merges-ok`, nueve rutas y `fixture-ok` (trece marcas); RP3 con los diffs de pruebas, fixture y `EVIDENCIA.md`, y `evidencia-solo-anade`; RP6 con el directorio `fixtures` en 755. Decisión 2 (el fixture no es un manifiesto y A4 no se repite). R12 con el diagnóstico opcional D11pre (clase Docker; suprimido en el ciclo de corrección 1 de U3). Incidencias: I-A4T y HP-21 corregidas en `0bd7071`; O1, O-3 y M-C nuevas y abiertas. Decisiones: D11 frente a O1/O-3 y regresión en Node 24, ambas pendientes. Criterio de cierre: la suite hay que repetirla sobre `DOCREF`, porque las pruebas leen este documento. Sin ejecución del gate |
+| Reanudación con I-A4T/HP-21, ciclo de corrección 1 (U3) | jz-qa y jz-security | **QA:** O1 completa (además de `gate-a4-git` y `docs-write-isolation`, leen fuera de `/app` `retirada-r1`, `guardas-base` y `poc-sh-aislamiento`) y reformulada como «pruebas que leen fuera de `/app`»; nueva O-4 (`/tmp` `noexec` en `app`) con causa `EACCES` en R12/D11; límite de cobertura (esas pruebas sólo se validan con `jz-run` en el árbol Git del host) y diferencia de aislamiento; `skipIf(!hayOpenssl)` de `tls-efimera` y skipped anotados; citas de la verificación de `listFilesOnly` (otra huella: debe repetirse sobre `DOCREF`); origen no versionado de las revisiones de U1/U2; repetición de la suite sobre `DOCREF` por agentes tras su commit y antes de RP0. **Seguridad:** D11pre suprimido (M3: evita un `push` más sobre `poc3_intake` por `verificar-db.ts`; las causas salen de `D11.log`, con «causa indeterminada» si no se determinan); I-A4T (a) como «verde con exclusiones» con mecanismo explícito (M2); regresión Node 24 en contenedor desechable aparte (M1); blob de este documento comunicado y comparado en RP0 (O1); `fixture-ok` con `"$BASE_SHA~1"` (O2); «Node 20 del host» en el texto nuevo. Esta fila sustituye lo que dice la fila anterior sobre D11pre y sobre O1/O-3. Sin ejecución del gate |
+| Reanudación con I-A4T/HP-21, ciclo de corrección 2 (U3) | jz-qa y jz-security | **QA:** D11 «se intenta verificar; no concluyente mientras O1, O-3 y O-4 sigan abiertas» (clasificación, párrafo de I-A4T y fila R12), coherente con la incidencia I-A4T; «Node 20.19» deja de figurar en texto vigente (queda como registro histórico no verificable, y la fila de historial de `0bd7071` lo conserva sólo como dato antiguo). **Seguridad:** plantilla RP0 con BLOB comunicado y DOCREF contrastado (sí/no); etiquetas «observación de seguridad U3-O1/U3-O2» para no chocar con las incidencias O1/O-3/O-4; RP2 con la salvedad de `rama-d07-ok`; condiciones de la fila I-A4T de «Decisiones humanas» para la opción (a); `rev-parse --verify` en el blob de RP0; regresión Node 24 con `npm ci` del lockfile verificado, `--cap-drop ALL` y `no-new-privileges`. Sin ejecución del gate |
