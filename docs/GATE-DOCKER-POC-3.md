@@ -6,7 +6,8 @@
   - Entre `de692a4` y `0bd7071` cambian, además de esas cuatro rutas y de este documento, `poc1a/src/lib/drizzle-kit/correccion-push.ts`, `poc1a/src/lib/drizzle-kit/correccion-push.test.ts`, `poc1a/src/payload.config.ts` y `poc1a/test/estatico/drizzle-kit-correccion.test.ts`. Ninguna está en `GUARDA`, y no cambian manifiestos, `tsconfig.json`, `poc.sh`, compose ni `contrato/` (RP2 lo exige).
   - Historial de referencias: `c8bbf0f` → `69e1883` → `14278c1` → `ce500a7` → `e7fc5e8` → `0231888` → `de692a4` (commit de A4 en la ejecución 1; pasó a ser la referencia por la regla de A4 sin que se actualizara el literal de A1) → `42d7229` → `0bd7071`.
   - Las citas de línea no actualizadas siguen refiriéndose a `69e1883`; **la referencia vinculante de código es `CODEREF`**, no esas líneas.
-  - HEAD de ejecución: `DOCREF`, el commit sólo de `docs/` sobre `0bd7071` que contiene esta revisión. El documento no contiene su propio SHA: **el humano obtiene `DOCREF` después de ese commit**, desde `$ORIG` y con la `g` de A0, con `g rev-parse --verify refs/heads/fix/poc3-gate-a4-evidencia`, y lo contrasta con el que le comunique el orquestador. Debe ser hijo directo de `CODE_SHA` y cambiar sólo este documento: RP2 lo exige (`cadena-ok` y `docref-solo-docs`). En la reanudación A4 **no** se repite. `r()` escribe el prefijo corto de ese HEAD en la cabecera de cada log.
+  - HEAD de ejecución: `DOCREF`, el commit sólo de `docs/` que contiene esta revisión. El documento no contiene su propio SHA: **el humano obtiene `DOCREF` después de ese commit**, desde `$ORIG` y con la `g` de A0, con `g rev-parse --verify refs/heads/fix/poc3-gate-a4-evidencia`, y lo contrasta con el que le comunique el orquestador. Debe ser hijo directo de `DOCREF_ANT` (`2d7aad7`, la revisión anterior de este documento, a su vez hijo directo de `CODE_SHA`), de modo que entre `CODE_SHA` y `DOCREF` haya exactamente dos commits y cada uno cambie sólo este documento: RP2 lo exige (`cadena-ok`, `docref-ant-ok`, `docs-commits-ok` y `docref-solo-docs`). En la reanudación A4 **no** se repite. `r()` escribe el prefijo corto de ese HEAD en la cabecera de cada log.
+- **Revisión RP1-K2 (sobre `2d7aad7`):** la sesión de preparación `20261022T213818Z` (en adelante `S_P` detenida) se detuvo en RP1 porque el K2 por patrón casó con `A2a-diff-reciente.patch` de `S1`, que el responsable verificó idéntico byte a byte al diff de Git. Esta revisión admite ese parche sólo por comprobaciones deterministas (con una preverificación sin escritura, RP-pre, antes de abrir `S_P2`), endurece K2 para que falle cerrado en RP1, RP7 y K, añade el inventario de `S1` y la lectura de `poc1a/test/build` que el parche omitió, y exige iniciar una sesión nueva, `S_P2`. Las constantes del parche (`A2A_PATCH_SHA`, `A2A_K2_SHA`, `A2A_K2_LINEAS`) y la tabla de coincidencias **no las ha verificado ningún agente**: las comprueba el humano antes del commit (ver «Procedencia de las constantes del parche»). No corrige código ni pruebas, no aprueba RP1 ni da el gate por completado. Detalle en «Sesión RP · preparación» y en el «Historial de revisiones».
 - **Quién lo ejecuta:** el responsable del proyecto, como root en el host de la POC, con Docker y Compose v2 y con Node ≥ 20 en el host (`poc1a/README.md:34-36`). Los agentes no tienen Docker (`docs/PLAN-POC-3.md:157`, P3-07 `:199`). Mientras dure el gate, ningún agente escribe en este worktree.
 - **Duración:** no está medida. La estimación orientativa del ciclo 1 era de 1,5 a 3 h sin contar descargas de imágenes, y **puede quedarse corta**:
   - Referencias: una batería de 56 casos tardó 232 s en POC-1a (`poc1a/EVIDENCIA.md:20`), aunque sólo tenía 13 activos; el build tardó 16 s (`poc1a/EVIDENCIA.md:152`).
@@ -65,6 +66,14 @@
 
 **Deducido de Git:** `de692a4` es el commit de A4k (tiene su mensaje literal y su padre es `0faf138`, la base de A4a). Por el orden del procedimiento, los pasos hasta A4k registraron HEAD `0faf138` y los posteriores, `de692a4`.
 
+**Sesión de preparación `S_P` detenida en RP1 (declarado por el responsable tras su auditoría; no lo han verificado agentes).**
+
+- La carpeta es `/root/jz-gate-poc3/20261022T213818Z` y el sha256 de su `SHA256SUMS` es `c39d3d1c4a52187a40b968cdabf285b369777e9766ed77cce220cf271200a291`. Se detuvo en RP1: la búsqueda por patrón de K2 sobre `S1` (`/root/jz-gate-poc3/20261020T174723Z`) casó con `S1/A2a-diff-reciente.patch` (sha256 `9ad9360f0f9795b0adf3dd73e7c4aa6e37da614b326b41f49cd527fd33c521cd`), un archivo que el procedimiento no preveía.
+- El responsable verificó con `g()` que ese archivo es idéntico byte a byte al diff `g diff 0ba2003241fac5c80ea58d7857ed9af1c1c6eafb 0faf1389dbeb3afae4dff89cba05e5887154db16 -- <pathspecs de A2a sin poc1a/test/build>` (marcas `PARCHE_IDENTICO_A_GIT` y `K2_FALSO_POSITIVO_ESTRUCTURAL_CONFIRMADO`). `0faf138` es `de692a4~1`. Es un falso positivo estructural: las coincidencias son código versionado, sin valores literales (tabla en RP1).
+- `S_P` queda **detenida e inmutable**: no se reutiliza, no se reanuda, no se edita y su `SHA256SUMS` no se amplía. La preparación vuelve a empezar en una sesión nueva, `S_P2`, con esta revisión.
+
+**Cobertura de A2a en la ejecución 1 (deducido de Git y de lo declarado).** El parche conservado tiene 8 secciones `diff --git`; el diff completo de A2a entre esos dos commits tiene 9. Falta `poc1a/test/build/sin-inyeccion.test.mjs` (3 inserciones y 2 borrados en ese rango, deducción de Git). Por tanto, **el artefacto `A2a-diff-reciente.patch` no demuestra la revisión de ese archivo**. Esto no afirma que el responsable no lo revisara por otra vía, ni reescribe lo ocurrido: sólo fija qué prueba el artefacto. RP3 añade la lectura obligatoria de ese diff y de ese archivo.
+
 **Causa del fallo de D07.** En este documento D07 es la sonda de red (`./poc.sh sonda-red`) y D08 es la comprobación de `push`. El repositorio no contiene la salida de D07. Los commits de la corrección llevan la etiqueta «(D07)», y `df576ed` describe el defecto: el `pushSchema` pg de drizzle-kit 0.31.7 descarta los parámetros de `db.query`, y la introspección de la PK compuesta (`$1::regnamespace`) falla con 42P02 (`poc1a/src/lib/drizzle-kit/correccion-push.ts:9-11`). La relación entre ese defecto y el fallo de D07 es una **causa diagnosticada por el responsable y por la corrección; la salida no está registrada en el repositorio**. Tampoco consta por qué pasó D06, que también arranca Payload con `push` habilitado (H-10). La reanudación lo repite.
 
 **Registro histórico · verificado por agentes sobre `42d7229`** con `jz-run` (sin Docker; Node 20 del host (versión no registrada en el log; en el momento se anotó como 20.19) y `node_modules` del worktree, no el volumen nombrado; logs locales en `.jz-state/runs/`, no versionados): `tsc --noEmit` rc=0 (`20261021T050718Z`), `node --test contrato/` rc=0 (`20261021T050726Z`) y vitest de la corrección rc=0 (`20261021T050739Z`). El vitest de `src test/estatico` da rc=1 (`20261021T050639Z`): 11 fallos (298 de 309), que eran la incidencia I-A4T.
@@ -84,7 +93,7 @@ Ninguna de estas ejecuciones es un paso del gate. Su verde no prueba la integrid
 |---|---|---|
 | (a) Aprobado y con evidencia propia para `0bd7071` | **Ningún paso del gate.** Las verificaciones de agentes de arriba (sobre `42d7229` y sobre `0bd7071`) no son pasos del gate | No sustituyen a ningún paso Docker |
 | (b) Pendiente | Todos los pasos de la reanudación: RP0–RP7, A0, R0, A3e, A1, A2, A3, B1, B1v, A3f1–A3f3, R7, B2–B4, B4c, R9, D01–D30, J1–J3 y K1–K3. En particular, **D07 (fallido en la ejecución 1)**, **D08 (nunca ejecutado)** y **D11**, donde se intenta verificar la corrección de I-A4T (no concluyente mientras O1, O-3 y O-4 sigan abiertas) y que previsiblemente seguirá siendo un fallo registrable por O1, O-3 y O-4. También, fuera del alcance de la reanudación, OB2 | Un paso sólo pasa a (a) con log propio en `S_R`, el prefijo corto de `DOCREF` en la cabecera del log (`r()` escribe `rev-parse --short`) y rc conforme |
-| (c) Evidencia anterior no reutilizable | Ejecución 1: A0–A3f3, B1, B1v, A4 (A4a–A4k, A4b0, A4b y A4c), B2–B4, D01–D06 y D07 fallido | Se conserva en `S1` sin editarla, y nunca se cita como resultado de `0bd7071`. De A4 sólo se hereda el commit `de692a4`, por historial; RP2 comprueba que sus tres archivos no cambian hasta `DOCREF` |
+| (c) Evidencia anterior no reutilizable | Ejecución 1: A0–A3f3, B1, B1v, A4 (A4a–A4k, A4b0, A4b y A4c), B2–B4, D01–D06 y D07 fallido. Además, la sesión de preparación `S_P` detenida en RP1 (RP0 y el RP1 interrumpido por el falso positivo de K2) | Se conserva en `S1` sin editarla, y nunca se cita como resultado de `0bd7071`. De A4 sólo se hereda el commit `de692a4`, por historial; RP2 comprueba que sus tres archivos no cambian hasta `DOCREF`. **La sesión `S_P` detenida no es reutilizable**: no se continúa ni se cuenta; sólo se conserva con su hash, y la preparación se rehace en `S_P2` |
 
 La regresión 25/25 declarada no figura en (a): no es un paso del gate y su evidencia no está en el repositorio. Lo mismo vale para la regresión en Node 24 sobre `0bd7071`, que hará el humano.
 
@@ -92,7 +101,7 @@ I-A4T y HP-21 ya no quedan fuera del alcance. **I-A4T** está corregida en `0bd7
 
 ### Decisiones de la reanudación
 
-1. **Carpeta `S` nueva por sesión, no sufijos `-r2` en `S1`.** La preparación usa `S_P` y la reanudación `S_R`, cada una con su `SHA256SUMS` y su hash fuera del host; `S_R/R0-referencias.txt` cita `S1` y `S_P` con sus hashes. Motivos: A0, A2c, A2d y A3e escriben con `>` archivos de nombre fijo que en `S1` se sobrescribirían y harían fallar K3; un único `SHA256SUMS` mezclaría dos HEADs de código; y `S1` nunca llegó a K3 (RP1 congela su hash). Dentro de `S_R` los identificadores son los de este documento (`D04`, `D07`…) y la regla `-r2` sigue valiendo. `S1` y `S_P` no se editan ni se borran, y no se añade nada a sus `SHA256SUMS`.
+1. **Carpeta `S` nueva por sesión, no sufijos `-r2` en `S1`.** La preparación usa `S_P` y la reanudación `S_R`, cada una con su `SHA256SUMS` y su hash fuera del host; `S_R/R0-referencias.txt` cita `S1`, la `S_P` detenida y `S_P2` con sus hashes. Motivos: A0, A2c, A2d y A3e escriben con `>` archivos de nombre fijo que en `S1` se sobrescribirían y harían fallar K3; un único `SHA256SUMS` mezclaría dos HEADs de código; y `S1` nunca llegó a K3 (RP1 congela su hash). Dentro de `S_R` los identificadores son los de este documento (`D04`, `D07`…) y la regla `-r2` sigue valiendo. `S1` y la `S_P` detenida no se editan ni se borran, y no se añade nada a sus `SHA256SUMS`. Desde esta revisión la preparación no se reanuda en la `S_P` detenida: se rehace en una carpeta nueva, `S_P2`; `S_P` sólo designa ya la sesión detenida. Como `S1` no se escribe, RP1 registra en `S_P2` los nombres y los hashes de lo que `S1/SHA256SUMS` no inventaría.
 2. **A4 no se repite.** Consta en `de692a4` y sus artefactos pertenecen a la ejecución 1. `package.json`, `package-lock.json` y `tsconfig.json` no cambian entre `de692a4` y `DOCREF` (RP2 lo exige). El fixture nuevo de las pruebas no es un manifiesto: reproduce `0faf138:poc1a/tsconfig.json` para modelar el estado previo a A4 sin tocar los archivos reales (RP2, `fixture-ok`).
 3. **A3f2 (`npm ci`) se repite**, aunque el lockfile no cambió: `S_R` necesita evidencia propia de que el volumen `node_modules` corresponde al lockfile (R7 sólo cubre `api.js`). El riesgo (instalación con red) es el ya asumido en A4b0 con el mismo lockfile.
 4. **D01–D03 se repiten sobre una base nueva.** `migrate-en` arranca Payload con el `payload.config.ts` modificado (con `POC_NO_PUSH=1` no carga `api.js`, `correccion-push.ts:113-126`), y «desde cero» exige una base sin migraciones. El nombre (`DBMIG`) lo decide el humano: una `poc3_*` que no aparezca en B3.
@@ -101,53 +110,220 @@ I-A4T y HP-21 ya no quedan fuera del alcance. **I-A4T** está corregida en `0bd7
 
 ### Sesión RP · preparación (antes de integrar)
 
-La ejecuta el humano como root en una shell nueva. De los pasos del gate sólo ejecuta A0, A3 (para definir `GUARDA` y `r()`; `r A3d` es diagnóstico) y A3e (en RP5). **Cada punto termina en parada dura** si no sale lo esperado: se detiene, se conserva lo que haya y se avisa al orquestador. Las marcas que imprime cada punto (`docref-ok`, `s1-ok`…) se transcriben a la plantilla; sólo tiene hash lo que se escribe en `S_P`. Ningún agente escribe en `/home/proyectos/jozeuzz-poc-candidata-a`, `/home/proyectos/jozeuzz-poc-drizzle-fix` ni `/home/proyectos/jozeuzz-poc-gate-a4-fix` durante esta sesión.
+La ejecuta el humano como root en una **shell nueva y en una carpeta de salidas nueva, `S_P2`**: la `S_P` detenida (`20261022T213818Z`) no se reanuda ni se edita («Qué consta de la ejecución 1»). Antes de abrir `S_P2`, **RP-pre** preverifica el parche de A2a en una shell aparte, sin escribir nada: si no sale `a2a-parche-admitido`, no se abre `S_P2` y se avisa al orquestador. Después se ejecutan **de nuevo** A0 y RP0–RP7 completos, con esta revisión. De los pasos del gate sólo ejecuta A0, A3 (para definir `GUARDA` y `r()`; `r A3d` es diagnóstico) y A3e (en RP5). **Cada punto termina en parada dura** si no sale lo esperado: se detiene, se conserva lo que haya y se avisa al orquestador. Las marcas que imprime cada punto (`docref-ok`, `s1-ok`…) se transcriben a la plantilla; sólo tiene hash lo que se escribe en `S_P2`. Ningún agente escribe en `/home/proyectos/jozeuzz-poc-candidata-a`, `/home/proyectos/jozeuzz-poc-drizzle-fix` ni `/home/proyectos/jozeuzz-poc-gate-a4-fix` durante esta sesión.
 
-**RP0 · Sesión y variables.** Se ejecuta A0 completo, que crea `S` (aquí, `S_P`). Después:
+**Cobertura de A2a de la ejecución 1.** El parche conservado en `S1` omite `poc1a/test/build/sin-inyeccion.test.mjs` (8 secciones de 9): no demuestra que ese archivo se revisara. RP3 lo cubre con una lectura obligatoria de su diff y de su contenido, de modo que RP3 abarca así el conjunto completo de A2a.
+
+**RP-pre · Preverificación del parche sin escritura.** Antes de A0 y de crear `S_P2`, en una **shell aparte** (bash con `set -o pipefail`), desde `$ORIG`. No ejecuta el resto de A0 y no crea ninguna carpeta `S`: nada de lo que sigue escribe en disco.
+
+1. Define sólo la función `g` de A0: la línea `g() { … }` de A0.4.
+2. Define las variables de RP0 que necesita el parche: `ORIG`, `S1`, `BASE_SHA`, `A2A_PATCH`, `A2A_PATCH_SHA`, `A2A_DESDE`, `A2A_HASTA`, `A2A_K2_LINEAS`, `A2A_K2_SHA` y `A2A_RUTAS`, con los mismos valores que RP0.
+3. Define `P` (la línea `P='…'` de RP1).
+4. Se coloca en `$ORIG` y copia de RP1, sin cambios, las líneas desde `a2a_regen()` hasta `test "$a2a_admitido" -eq 1 || …` (la cadena `a2a-*` y el aviso final).
+
+```sh
+# shell aparte, sin A0 completo y sin carpeta S: pegar antes, en este orden y sin cambios, los pasos 1 a 3
+set -o pipefail; { set +x +v; } 2>/dev/null
+cd "$ORIG"
+# lectura (informativa salvo la primera marca): ninguna variable GIT_* en el entorno y qué git se ejecutaría
+test "$(env | cut -d= -f1 | grep -c '^GIT_')" = 0 && echo sin-git-env
+type -a git
+# a continuación, el paso 4: las líneas de RP1 desde a2a_regen() hasta test "$a2a_admitido" -eq 1 || …
+```
+
+- **Esperado:** `sin-git-env` y las nueve marcas `a2a-*` (`a2a-parche-regular`, `a2a-parche-sha`, `a2a-refs-ok`, `a2a-atributos-ok`, `a2a-regeneracion-identica`, `a2a-regeneracion-sha`, `a2a-cobertura-ok`, `a2a-clasificacion-ok` y, al final, `a2a-parche-admitido`): diez marcas en total, y ningún aviso `RP1: el parche de A2a NO queda admitido`. Ese aviso final dice «RP1:» aunque se copie en RP-pre (la línea no cambia). `type -a git` es informativo: el responsable comprueba que el primer `git` es el esperado.
+- **Riesgo residual:** RP-pre no ejecuta A0 completo, así que no comprueba la ruta, el propietario ni los permisos del binario de Git, ni la configuración efectiva (`bin-false-ok`, `g-efectiva-ok`, `atributos-ok`); sólo comprueba que no hay variables `GIT_*` (`sin-git-env`) y muestra `type -a git`. RP1 repite la cadena `a2a-*` bajo A0 completo y es la que manda.
+- **Si no sale `a2a-parche-admitido`: parada dura.** No se abre `S_P2` (no se ejecuta A0 ni RP0) y se avisa al orquestador. No se recalcula ni se edita ninguna constante (ver «Procedencia de las constantes del parche»).
+- RP-pre no sustituye a RP1: RP1 repite la cadena en `S_P2` y es la que fija `a2a_admitido` para K2. Su valor es detectar antes de abrir `S_P2` una constante mal transcrita, que de otro modo detendría RP1 con la sesión ya abierta.
+
+**RP0 · Sesión y variables.** Se ejecuta A0 completo, que crea `S` (aquí, `S_P2`). Después:
 
 ```sh
 ORIG=/home/proyectos/jozeuzz-poc-candidata-a
-S1=<carpeta S de la ejecución 1, anotada por el responsable>
-DOCREF=<SHA completo (40 hex) del commit de docs/ sobre 0bd7071 que contiene esta revisión>
+S1=/root/jz-gate-poc3/20261020T174723Z                  # carpeta S de la ejecución 1
+SP_DET=/root/jz-gate-poc3/20261022T213818Z              # sesión de preparación detenida en RP1: sólo lectura
+SP_DET_HASH=c39d3d1c4a52187a40b968cdabf285b369777e9766ed77cce220cf271200a291   # sha256 de SP_DET/SHA256SUMS
+DOCREF=<SHA completo (40 hex) del commit de docs/ que contiene esta revisión>
+DOCREF_ANT=2d7aad77cd88a9338ccbe8578780bd60a16699c6     # 2d7aad7, revisión anterior de este documento (RP2 lo contrasta)
+DOCREF_ANT_BLOB=2b204a1e424870ec4d0255b3560687ff6886abda   # blob de docs/GATE-DOCKER-POC-3.md en 2d7aad7 (RP2 lo contrasta)
 BASE_SHA=de692a43dbc2e43b099580e101f8e6f8eb0a1d37       # de692a4 (RP2 lo contrasta)
 D07_SHA=42d7229950951c3ce2a3af626feec7341487ff7a        # 42d7229, cierre de la corrección D07 (RP2 lo contrasta)
 DOCS_D07_SHA=5d8a9d918d0fb25bcd4d9c153a39cc5b7c603689   # 5d8a9d9, docs de la reanudación D07 (RP2 lo contrasta)
 CODE_SHA=0bd7071ba52bcef1f216182343f7ad5a170cf7d0       # 0bd7071, CODEREF (RP2 lo contrasta)
 DUMP=/root/jz-d07-respaldos/20261021T060116Z/poc3_intake.dump
 DUMP_SHA=01da9edc2fe32c4f072099329086added69d5f0ba78f496c296a45a012a5b7f7
+# parche histórico de A2a en S1 (RP1 lo admite sólo si todas sus comprobaciones salen en esta misma shell)
+A2A_PATCH="$S1/A2a-diff-reciente.patch"
+A2A_PATCH_SHA=9ad9360f0f9795b0adf3dd73e7c4aa6e37da614b326b41f49cd527fd33c521cd
+A2A_DESDE=0ba2003241fac5c80ea58d7857ed9af1c1c6eafb
+A2A_HASTA=0faf1389dbeb3afae4dff89cba05e5887154db16      # = de692a4~1 (RP1 lo contrasta)
+A2A_K2_LINEAS=9
+A2A_K2_SHA=c7459567f4ec85b66ab4cc280a0c54fe158a94f716a81c203caa7ad619cfd03d   # sha256 de la salida de grep -nE sobre el parche
+A2A_RUTAS=(poc1a/poc.sh 'poc1a/compose*.yaml' poc1a/proxy poc1a/scripts poc1a/package.json poc1a/package-lock.json poc1a/.npmrc poc1a/test/docker poc1a/medicion poc1a/contrato-driver.mjs poc1a/driver contrato poc1a/playwright.config.ts poc1a/playwright.medicion.config.ts .gitattributes poc1a/.gitattributes poc1a/contenedor)   # pathspecs de A2a sin poc1a/test/build
 printf %s "$DOCREF" | grep -Eq '^[0-9a-f]{40}$' && echo docref-ok
 g show --no-textconv "$DOCREF":docs/GATE-DOCKER-POC-3.md | LESS= LESSSECURE=1 LESSOPEN= less   # el humano lee esta revisión desde Git
 g rev-parse --verify "$DOCREF":docs/GATE-DOCKER-POC-3.md             # anotar como BLOB para A1 de la sesión R
+# sesión detenida: sólo lectura (nunca se escribe en SP_DET)
+test -d "$SP_DET" && test ! -L "$SP_DET" && test "$SP_DET" != "$S" && echo sp-det-ok
+test "$(sha256sum "$SP_DET/SHA256SUMS" | cut -d' ' -f1)" = "$SP_DET_HASH" && echo sp-det-hash-ok
+sha256sum -c --quiet --strict "$SP_DET/SHA256SUMS" && echo sp-det-integra
+# referencias de esta sesión (nombre fijo: set -C impide sobrescribir). Sólo se escribe si DOCREF tiene forma de SHA completo y el hash de SP_DET es el fijado
+printf %s "$DOCREF" | grep -Eq '^[0-9a-f]{40}$' && test "$(sha256sum "$SP_DET/SHA256SUMS" | cut -d' ' -f1)" = "$SP_DET_HASH" && test "$SP_DET" != "$S" && ( set -C; printf 'SP_DET=%s\nSP_DET_SHA256SUMS=%s\nDOCREF_ANT=%s\nDOCREF=%s\nCODEREF=0bd7071\n' "$SP_DET" "$SP_DET_HASH" "$DOCREF_ANT" "$DOCREF" > "${S:?}/RP0-referencias.txt" ) && sha256sum "${S:?}/RP0-referencias.txt" >> "${S:?}/SHA256SUMS" && echo rp0-referencias-ok
 ```
 
-- **Esperado:** `docref-ok`. **Si no:** parada dura.
+- **Esperado:** `docref-ok`, `sp-det-ok`, `sp-det-hash-ok`, `sp-det-integra` y `rp0-referencias-ok`: cinco marcas. **Si no:** parada dura. En particular, si el hash de `SP_DET/SHA256SUMS` o `sha256sum -c` no coinciden, la sesión detenida cambió desde la auditoría y el responsable lo explica antes de seguir.
+  - `rp0-referencias-ok` sólo sale si antes se cumplen dos precondiciones de la propia cadena: `DOCREF` tiene forma de SHA completo (40 hex) y el hash de `SP_DET/SHA256SUMS` es `SP_DET_HASH`. Si no, no se escribe `RP0-referencias.txt`.
+  - `sp-det-integra` (con `--strict`: una línea mal formada también falla) sólo cubre lo que lista `SP_DET/SHA256SUMS`, no la carpeta entera.
 - **Blob de este documento (observación de seguridad U3-O1):** además del SHA de `DOCREF`, el orquestador comunica el blob de `docs/GATE-DOCKER-POC-3.md` en `DOCREF`. El humano lo compara con el `BLOB` que anota aquí (el de `g rev-parse "$DOCREF":docs/GATE-DOCKER-POC-3.md`). **Si no coincide: parada dura.**
-- `DOCREF` lo obtiene el humano **después** del commit de `docs/` que contiene esta revisión (ver la cabecera): `g rev-parse --verify refs/heads/fix/poc3-gate-a4-evidencia`, desde `$ORIG`, contrastado con el SHA que le comunique el orquestador. Que su padre sea `CODE_SHA` y que sólo cambie este documento lo exige RP2.
+- `DOCREF` lo obtiene el humano **después** del commit de `docs/` que contiene esta revisión (ver la cabecera): `g rev-parse --verify refs/heads/fix/poc3-gate-a4-evidencia`, desde `$ORIG`, contrastado con el SHA que le comunique el orquestador. Que su padre sea `DOCREF_ANT` y que sólo cambien este documento esos dos commits lo exige RP2.
+- `S1` es literal (`/root/jz-gate-poc3/20261020T174723Z`) y ya no la anota el responsable: el hash del parche de A2a y el inventario de RP1 son de esa carpeta. Si la ejecución 1 está en otra ruta, es parada dura hasta que el responsable lo explique.
+- `RP0-referencias.txt` registra `SP_DET` con su hash, `DOCREF_ANT`, `DOCREF` y `CODEREF`, y su hash entra en `SHA256SUMS`. `SP_DET` no se escribe, ni se le añade nada.
+- `A2A_K2_SHA` es el sha256 de la salida de `grep -nE -- "$P"` sobre el parche (nueve líneas numeradas, `n:línea`). RP1 lo contrasta con el parche y nunca imprime esas líneas.
+- **Procedencia de las constantes del parche: qué está verificado y qué no.**
+  - **Verificado por el orquestador con `git rev-parse`/`diff --numstat` el 2026-10-23:** `A2A_DESDE` es `0ba2003241fac5c80ea58d7857ed9af1c1c6eafb` y `A2A_HASTA` es `0faf1389dbeb3afae4dff89cba05e5887154db16` (`de692a4~1`); `0ba2003` es ancestro de `0faf138`; el diff completo de A2a entre ambos tiene 9 archivos (8 con `A2A_RUTAS` más `poc1a/test/build/sin-inyeccion.test.mjs`, con 3 inserciones y 2 borrados).
+  - **Verificado por el orquestador por consulta directa de Git (lectura), sin log de `jz-run`, el 2026-10-23:** `2d7aad77cd88a9338ccbe8578780bd60a16699c6` con padre `0bd7071ba52bcef1f216182343f7ad5a170cf7d0`; el blob `2b204a1e424870ec4d0255b3560687ff6886abda` de este documento en `2d7aad7`; `0ba2003241fac5c80ea58d7857ed9af1c1c6eafb`; `de692a4~1` = `0faf1389dbeb3afae4dff89cba05e5887154db16`; que `0ba2003` es ancestro de `0faf138`; y los 9 archivos del diff de A2a por `numstat`.
+  - **No verificado por ningún agente:** `A2A_PATCH_SHA` (lo declara el responsable); `A2A_K2_SHA` y `A2A_K2_LINEAS`, que se calcularon en `jz-run` (`20261023T024136Z`) sobre una transcripción manual de nueve líneas, no sobre el parche ni sobre la salida de `g diff`; los números de línea y los signos de la tabla de las nueve coincidencias; y la lectura manual del diff regenerado según la cual 9 líneas casan con `P` (2 en `compose.yaml` y 7 en `poc.sh`): es una lectura manual, sus números y signos no se verificaron por programa y sólo importan para `A2A_K2_SHA`.
+  - **Pendiente de comprobación humana, fuera del sandbox y antes del commit de esta revisión:** `A2A_PATCH_SHA`, `A2A_K2_SHA`, `A2A_K2_LINEAS` y la tabla. La comprobación humana previa al commit (fuera de este documento) cubre las constantes y la tabla; RP-pre y RP1 repiten, en la sesión, la de las constantes (no la tabla).
+  - **Un valor erróneo sólo produce parada dura en RP1, nunca una admisión falsa:** el parche sólo se admite si coinciden a la vez su sha256, la regeneración desde Git y esas dos constantes; un valor mal transcrito rompe la cadena `a2a-*`, el parche no queda admitido y su coincidencia con `P` es parada dura en K2.
+  - **Salvaguarda:** una discrepancia de cualquiera de estas constantes es parada dura; no se recalcula ni se edita una constante a partir del parche sin una nueva revisión de este documento. Si la comprobación humana previa al commit discrepa, no se hace el commit: las constantes o la tabla sólo cambian en una nueva revisión de este documento, con los valores que aporte el responsable, y se repiten las pruebas que leen el documento.
 
-**RP1 · Congelar la ejecución 1 y comprobar fugas en `S1`.**
+**RP1 · Congelar la ejecución 1, inventariarla y comprobar fugas en `S1`.** Se hace desde `$ORIG` y con las variables de RP0. `S1` sólo se lee: nada de lo que sigue escribe en ella.
 
 ```sh
+cd "$ORIG"
 test -d "$S1" && test ! -L "$S1" && test "$S1" != "$S" && echo s1-ok
 sha256sum -c --quiet "$S1/SHA256SUMS" && echo s1-integro
 test -s "$S1/D07.log" && echo d07-registrado
 sha256sum "$S1/SHA256SUMS" > "$S/RP1-s1-sha256sums.txt"
 cat "$S/RP1-s1-sha256sums.txt"   # anotar este hash fuera del host, como en K3
 sha256sum "$S/RP1-s1-sha256sums.txt" >> "$S/SHA256SUMS"
-# K2 sobre S1: todos los archivos salvo SHA256SUMS; sólo nombres de archivo, nunca líneas
+# la sesión detenida, si registró este mismo hash, debe coincidir (sólo lectura)
+if test -e "$SP_DET/RP1-s1-sha256sums.txt"; then cmp -s -- "$SP_DET/RP1-s1-sha256sums.txt" "$S/RP1-s1-sha256sums.txt" && echo rp1-s1-coincide-sp-det || echo "RP1 FALLÓ: el hash de S1/SHA256SUMS difiere del registrado en la sesión detenida: parada dura" >&2; else echo sp-det-sin-rp1-s1; fi
+# inventario de S1 (1): sólo archivos regulares (ningún enlace, directorio ni FIFO)
+rp1_noreg="$(find "$S1" -mindepth 1 -maxdepth 1 ! -type f)" && test -z "$rp1_noreg" && echo s1-solo-regulares || { echo "RP1 FALLÓ: S1 tiene entradas que no son archivos regulares (nombres abajo, entrecomillados): parada dura" >&2; printf '%q\n' "$rp1_noreg" >&2; }
+# inventario de S1 (2): cada línea de S1/SHA256SUMS es <64 hex><dos espacios>S1/<nombre sin />
+rp1_fmt=0
+rp1_mal="$(awk -v pre="$S1/" 'length($0) <= 66 + length(pre) || substr($0, 1, 64) !~ /^[0-9a-f]+$/ || substr($0, 65, 2) != "  " || substr($0, 67, length(pre)) != pre || index(substr($0, 67 + length(pre)), "/") != 0 { print NR }' "$S1/SHA256SUMS")" && test -s "$S1/SHA256SUMS" && test -z "$rp1_mal" && rp1_fmt=1 && echo s1-manifiesto-formato-ok || { echo "RP1 FALLÓ: S1/SHA256SUMS vacío, ilegible o con líneas fuera del formato (n.º de línea abajo): parada dura" >&2; printf '%s\n' "$rp1_mal" >&2; }
+# inventario de S1 (3): archivos regulares que el manifiesto no lista (se registran sólo en S_P2). Un nombre con salto de línea (rp1_nl=1) impide s1-lista-ok y s1-no-inventariados-ok
+rp1_no_inv=(); rp1_nl=0
+if test "$rp1_fmt" -eq 1; then
+  rp1_off=$((66 + ${#S1} + 1))
+  declare -A rp1_inv=()
+  while IFS= read -r rp1_l || test -n "$rp1_l"; do rp1_inv["${rp1_l:rp1_off}"]=1; done < "$S1/SHA256SUMS"
+  mapfile -d '' rp1_reg < <(find "$S1" -mindepth 1 -maxdepth 1 -type f ! -name SHA256SUMS -print0 | LC_ALL=C sort -z)
+  for rp1_f in "${rp1_reg[@]}"; do
+    rp1_n="${rp1_f##*/}"
+    case "$rp1_n" in *$'\n'*) rp1_nl=1; echo "RP1 FALLÓ: nombre con salto de línea en S1 (abajo, entrecomillado): parada dura" >&2; printf '%q\n' "$rp1_n" >&2 ;; esac
+    test -n "${rp1_inv[$rp1_n]+x}" || rp1_no_inv+=("$rp1_n")
+  done
+  rp1_nreg="$(find "$S1" -mindepth 1 -maxdepth 1 -type f ! -name SHA256SUMS -printf x | wc -c)" && test "${#rp1_reg[@]}" -eq "$rp1_nreg" && test "$rp1_nl" -eq 0 && echo s1-lista-ok || echo "RP1 FALLÓ: la lista de archivos de S1 no coincide con su recuento o hay un nombre con salto de línea: parada dura" >&2
+  test "$rp1_nl" -eq 0 && ( set -C; : > "${S:?}/RP1-s1-no-inventariados.txt" && : > "${S:?}/RP1-s1-no-inventariados.sha256" || exit 1; for rp1_n in "${rp1_no_inv[@]}"; do printf '%s\n' "$rp1_n" >> "${S:?}/RP1-s1-no-inventariados.txt" && sha256sum -- "$S1/$rp1_n" >> "${S:?}/RP1-s1-no-inventariados.sha256" || exit 1; done ) && sha256sum "${S:?}/RP1-s1-no-inventariados.txt" "${S:?}/RP1-s1-no-inventariados.sha256" >> "${S:?}/SHA256SUMS" && cat "${S:?}/RP1-s1-no-inventariados.sha256" >> "${S:?}/SHA256SUMS" && echo s1-no-inventariados-ok || echo "RP1 FALLÓ: no se registraron los no inventariados de S1 (nombre con salto de línea o archivo ya existente en S_P2): parada dura" >&2
+else echo "RP1 FALLÓ: sin un manifiesto en formato no se calcula lo no inventariado: parada dura" >&2
+fi
+if test "$rp1_fmt" -eq 1 && test "$rp1_nl" -eq 0; then echo "archivos de S1 no inventariados: ${#rp1_no_inv[@]}"; else echo "archivos de S1 no inventariados: n/d"; fi   # informativo; los nombres están en RP1-s1-no-inventariados.txt
+# K2 sobre S1: todos los archivos regulares salvo SHA256SUMS; sólo nombres de archivo, nunca líneas. Primero se desactiva la traza (set -x/-v) para que ningún grep de K2 se trace
+{ set +x +v; } 2>/dev/null
 k2_dir="$S1"
 P='"password"|PAYLOAD_SECRET=|INTAKE_SECRETO=|POC_DB_PASSWORD=|PRIVATE KEY|E2E_RESET=|postgres://[^:@]*:[^@]*@'
+# parche histórico de A2a: sólo se admite si TODA la cadena sale en esta misma shell (a2a_admitido=1 se fija al final)
+a2a_regen() { g diff --no-color --no-ext-diff --no-textconv --no-renames --unified=3 --src-prefix=a/ --dst-prefix=b/ "$A2A_DESDE" "$A2A_HASTA" -- "$@"; }
+a2a_admitido=0
+test -f "$A2A_PATCH" && test ! -L "$A2A_PATCH" && echo a2a-parche-regular &&
+test "$(sha256sum "$A2A_PATCH" | cut -d' ' -f1)" = "$A2A_PATCH_SHA" && echo a2a-parche-sha &&
+test "$(g rev-parse --verify "$A2A_DESDE^{commit}")" = "$A2A_DESDE" && test "$(g rev-parse --verify "$A2A_HASTA^{commit}")" = "$A2A_HASTA" && test "$(g rev-parse --verify "$BASE_SHA~1")" = "$A2A_HASTA" && g merge-base --is-ancestor "$A2A_DESDE" "$A2A_HASTA" && echo a2a-refs-ok &&
+mapfile -t a2a_v < <(g diff --no-renames --name-only "$A2A_DESDE" "$A2A_HASTA" -- "${A2A_RUTAS[@]}" poc1a/test/build) && test "${#a2a_v[@]}" -eq 9 && a2a_attr="$(g check-attr -a -- "${a2a_v[@]}")" && test -z "$a2a_attr" && echo a2a-atributos-ok &&
+cmp -s -- "$A2A_PATCH" <(a2a_regen "${A2A_RUTAS[@]}") && echo a2a-regeneracion-identica &&
+a2a_h="$(a2a_regen "${A2A_RUTAS[@]}" | sha256sum | cut -d' ' -f1)" && test "$a2a_h" = "$A2A_PATCH_SHA" && echo a2a-regeneracion-sha &&
+test "$(grep -c '^diff --git ' "$A2A_PATCH")" -eq 8 && test "$(a2a_regen "${A2A_RUTAS[@]}" poc1a/test/build | grep -c '^diff --git ')" -eq 9 && test "$(g diff --no-renames --name-only "$A2A_DESDE" "$A2A_HASTA" -- poc1a/test/build)" = poc1a/test/build/sin-inyeccion.test.mjs && echo a2a-cobertura-ok &&
+a2a_n="$(grep -cE -- "$P" "$A2A_PATCH")" && test "$a2a_n" -eq "$A2A_K2_LINEAS" && a2a_k="$(grep -nE -- "$P" "$A2A_PATCH" | sha256sum | cut -d' ' -f1)" && test "$a2a_k" = "$A2A_K2_SHA" && echo a2a-clasificacion-ok &&
+a2a_admitido=1 && echo a2a-parche-admitido
+test "$a2a_admitido" -eq 1 || echo "RP1: el parche de A2a NO queda admitido (falta alguna marca a2a-*): si K2 lo detecta, es parada dura" >&2
+# K2 (1): lista de archivos, con su recuento independiente
+k2_a=0
 mapfile -d '' k2_f < <(find "$k2_dir" -maxdepth 1 -type f ! -name SHA256SUMS -print0)
-test "${#k2_f[@]}" -gt 0 && echo k2-archivos-ok || echo "K2 FALLÓ: ningún archivo que revisar (grep leería la entrada estándar): parada dura" >&2
-grep -lE "$P" -- "${k2_f[@]}"                                                        # a lo sumo A2-compose-resuelto.yaml
-test ! -e "$k2_dir/A2-compose-resuelto.yaml" || grep -E "$P" "$k2_dir/A2-compose-resuelto.yaml" | grep -vcF '${'   # 0
-# B1v no se ha ejecutado en esta sesión: misma comprobación antes de buscar por valor (sin imprimir valores)
-test -s "$ORIG/poc1a/.env" && test "$(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' "$ORIG/poc1a/.env" | grep -c .)" -eq 3 && echo k2-env-ok || echo "K2 FALLÓ: .env falta, está vacío o no da exactamente 3 valores: parada dura" >&2
-grep -lFf <(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' "$ORIG/poc1a/.env") -- "${k2_f[@]}"   # vacío
+k2_nf="$(find "$k2_dir" -maxdepth 1 -type f ! -name SHA256SUMS -printf x | wc -c)" && k2_nr="$(find "$k2_dir" -mindepth 1 -maxdepth 1 ! -type f -printf x | wc -c)" && test "${#k2_f[@]}" -gt 0 && test "${#k2_f[@]}" -eq "$k2_nf" && test "$k2_nr" -eq 0 && k2_nl="$(find "$k2_dir" -mindepth 1 -maxdepth 1 -name $'*\n*' -printf x | wc -c)" && test "$k2_nl" -eq 0 && shopt -oq pipefail && k2_a=1 && echo k2-archivos-ok
+test "$k2_a" -eq 1 || echo "K2 FALLÓ: lista vacía, distinta de su recuento, con entradas no regulares, con nombres con salto de línea o sin pipefail (grep leería la entrada estándar): parada dura" >&2
+# K2 (2): búsqueda por patrón con rc capturado (0 y 1 son válidos; 2 o más es un error) y comparación por programa con la lista admitida
+k2_p=0
+if test "$k2_a" -eq 1; then
+  k2_adm=("$k2_dir/A2-compose-resuelto.yaml"); test "$a2a_admitido" -eq 1 && k2_adm+=("$A2A_PATCH")
+  k2_rc=0; k2_coinc="$(grep -lE -- "$P" "${k2_f[@]}")" || k2_rc=$?
+  if test "$k2_rc" -le 1; then
+    echo k2-patron-ejecutado
+    k2_extra=0
+    while IFS= read -r k2_m; do
+      test -n "$k2_m" || continue
+      k2_ya=0; for k2_x in "${k2_adm[@]}"; do test "$k2_m" = "$k2_x" && k2_ya=1; done
+      test "$k2_ya" -eq 1 || { k2_extra=$((k2_extra + 1)); printf 'K2 FALLÓ: coincidencia no admitida en %q\n' "$k2_m" >&2; }
+    done <<< "$k2_coinc"
+    test "$k2_extra" -eq 0 && k2_p=1 && echo k2-patron-solo-admitidos
+  else echo "K2 FALLÓ: la búsqueda por patrón terminó con rc=$k2_rc (error, no «sin coincidencias»): parada dura" >&2
+  fi
+fi
+# K2 (3): las líneas admitidas de A2-compose-resuelto.yaml llevan todas ${ ; el rc del grep se captura y el recuento lo hace awk
+if test "$k2_p" -eq 1 && test -f "$k2_dir/A2-compose-resuelto.yaml"; then
+  k2_rc=0; k2_lin="$(grep -E -- "$P" "$k2_dir/A2-compose-resuelto.yaml")" || k2_rc=$?
+  k2_sin="$(printf '%s\n' "$k2_lin" | awk 'length($0) && index($0, "${") == 0 { n++ } END { print n + 0 }')" && test "$k2_rc" -le 1 && test "$k2_sin" -eq 0 && echo k2-compose-ok || echo "K2 FALLÓ: líneas de A2-compose-resuelto.yaml sin \${…} o grep con error (rc=$k2_rc): parada dura" >&2
+elif test "$k2_p" -eq 1; then echo k2-compose-ausente
+fi
+# K2 (4): .env equivalente a B1v (B1v no se ha ejecutado en esta sesión) y valores cargados en memoria, sin imprimirlos. Antes se desactiva la traza (set -x/-v), que los mostraría
+{ set +x +v; } 2>/dev/null
+k2_e=0; k2_env="$ORIG/poc1a/.env"
+mapfile -t k2_vals < <(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' "$k2_env")
+k2_vok=1; for k2_v in "${k2_vals[@]}"; do [[ "$k2_v" =~ ^[0-9a-f]+$ ]] || k2_vok=0; done
+k2_mal="$(awk '!/^(POC_DB_PASSWORD|PAYLOAD_SECRET|INTAKE_SECRETO)=[0-9a-f]+$/ { n++ } END { print n + 0 }' "$k2_env")" && k2_cl="$(awk -F= '/^(POC_DB_PASSWORD|PAYLOAD_SECRET|INTAKE_SECRETO)=/ { c[$1]++ } END { n = 0; for (k in c) if (c[k] == 1) n++; print n }' "$k2_env")" && test -f "$k2_env" && test ! -L "$k2_env" && test "$(stat -c '%U %a' "$k2_env")" = "root 600" && test "$k2_mal" -eq 0 && test "$k2_cl" -eq 3 && test "${#k2_vals[@]}" -eq 3 && test "$k2_vok" -eq 1 && k2_e=1 && echo k2-env-ok
+test "$k2_e" -eq 1 || echo "K2 FALLÓ: .env no es un archivo regular root 600 con exactamente 3 claves y valores hexadecimales: parada dura" >&2
+# K2 (5): búsqueda por valor; sólo vale rc=1 con salida vacía (printf es interno de bash: los valores no aparecen en ninguna línea de órdenes)
+if test "$k2_e" -eq 1 && test "$k2_a" -eq 1; then
+  k2_rc=0; k2_fuga="$(grep -lFf <(printf '%s\n' "${k2_vals[@]}") -- "${k2_f[@]}")" || k2_rc=$?
+  if test "$k2_rc" -eq 1 && test -z "$k2_fuga"; then echo k2-valor-ok
+  elif test "$k2_rc" -eq 0; then echo "K2 FALLÓ: un valor del .env aparece en algún archivo (nombres abajo, entrecomillados): parada dura de seguridad" >&2; printf '%s\n' "$k2_fuga" | while IFS= read -r k2_n; do printf '%q\n' "$k2_n" >&2; done
+  else echo "K2 FALLÓ: la búsqueda por valor terminó con rc=$k2_rc: parada dura" >&2
+  fi
+fi
+unset k2_vals k2_v k2_lin
 ```
 
-- **Esperado:** `s1-ok`, `s1-integro` y `d07-registrado`. A partir de aquí `S1` sólo se lee.
-- **K2 de `S1`:** por patrón, como mucho `A2-compose-resuelto.yaml`, cuyas coincidencias son los `${…}` sin interpolar de A2c (conteo `0`); `S1` no tiene `D22a.log`. Por valor, vacío, y sólo vale si antes salieron `k2-archivos-ok` y `k2-env-ok`: sin ellos una búsqueda vacía no prueba nada (falla abierta) y es parada dura; si se prefiere, el responsable ejecuta además las tres órdenes de B1v sobre `$ORIG/poc1a/.env`. Cualquier otra coincidencia: ese archivo no se comparte ni se abre en pantalla compartida, y es parada dura de seguridad.
+- **Esperado:** `s1-ok`, `s1-integro`, `d07-registrado`, `rp1-s1-coincide-sp-det` (o `sp-det-sin-rp1-s1`, si la sesión detenida no llegó a escribirlo), `s1-solo-regulares`, `s1-manifiesto-formato-ok`, `s1-lista-ok`, `s1-no-inventariados-ok`, las nueve marcas `a2a-*` (`a2a-parche-regular`, `a2a-parche-sha`, `a2a-refs-ok`, `a2a-atributos-ok`, `a2a-regeneracion-identica`, `a2a-regeneracion-sha`, `a2a-cobertura-ok`, `a2a-clasificacion-ok` y `a2a-parche-admitido`) y las seis de K2 (`k2-archivos-ok`, `k2-patron-ejecutado`, `k2-patron-solo-admitidos`, `k2-compose-ok` —o `k2-compose-ausente`—, `k2-env-ok` y `k2-valor-ok`): veintitrés marcas. A partir de aquí `S1` sólo se lee.
+- **Inventario de `S1` (qué prueba y qué no).**
+  - `s1-integro` sólo cubre los archivos que `S1/SHA256SUMS` inventaría. **No es una integridad completa de `S1`**: los archivos regulares que el manifiesto no lista (como `A2a-diff-reciente.patch`, que añadió el responsable después) no tienen hash de la ejecución 1.
+  - Esos archivos se registran por nombre en `RP1-s1-no-inventariados.txt` y por hash en `RP1-s1-no-inventariados.sha256` (ambos en `S_P2`), y sus hashes se añaden a `$S/SHA256SUMS` (K3 los comprueba). Su hash sólo prueba su estado **desde RP1 de `S_P2`**, no desde la ejecución 1. `S1` no se escribe.
+  - **Qué se espera que no esté inventariado.** Previsiblemente, `A2a-diff-reciente.patch` y también `A2-compose-resuelto.yaml`, porque A2c lo escribe con `>` sin calcular su hash (deducción del procedimiento A2c, no verificada sobre `S1`). La lista real es la de `RP1-s1-no-inventariados.txt`. **Cualquier otro nombre no inventariado lo explica el responsable antes de seguir.**
+  - **Escritura con `set -C` efectivo.** Los dos archivos se crean con `: > … && : > … || exit 1`: si cualquiera de los dos ya existe en `S_P2`, la subshell termina con error, no se anexa nada y no sale `s1-no-inventariados-ok`. Todos los destinos nuevos de RP1 usan `"${S:?}/…"`.
+  - Cualquier entrada de `S1` que no sea un archivo regular, o una línea de `S1/SHA256SUMS` fuera del formato `<64 hex><dos espacios>S1/<nombre sin />`, es parada dura: sin ese formato el cálculo de lo no inventariado no es fiable. El manifiesto se lee entero aunque su última línea no acabe en salto de línea.
+  - **Un nombre con salto de línea en `S1` es parada dura** (`rp1_nl=1`): impide `s1-lista-ok`, `s1-no-inventariados-ok` y `k2-archivos-ok`, no se escribe ninguna lista y el eco informativo del número de no inventariados imprime `n/d` (igual que si el manifiesto no está en formato). Los nombres de archivo que RP1 y K2 imprimen en mensajes salen entrecomillados con `printf '%q'`, para que un nombre con caracteres de control no manipule el terminal.
+  - **Riesgo residual (línea preexistente de `2d7aad7`, sin cambiar).** `sha256sum "$S1/SHA256SUMS" > "$S/RP1-s1-sha256sums.txt"` escribe con `>`, sin `set -C` ni `${S:?}`: repetir RP1 en la misma `S_P2` lo sobrescribiría sin aviso y, con `S` vacío, escribiría en `/`. RP1 se ejecuta una sola vez por `S_P2` y con la `S` de A0; si se repite, el responsable lo registra.
+- **Parche histórico de A2a (`a2a-*`).** `A2a-diff-reciente.patch` se admite en K2 sólo si **todas** las marcas salen en la misma shell: `a2a_admitido` se fija a 1 al final de la cadena y K2 lo lee; no depende de que el humano lea las marcas. Las comprobaciones, cada una fallando cerrada:
+  - archivo regular y no enlace, y sha256 igual a `A2A_PATCH_SHA`;
+  - los commits `A2A_DESDE` y `A2A_HASTA` existen y son los literales, `A2A_HASTA` es `"$BASE_SHA~1"` (`de692a4~1`) y `A2A_DESDE` es ancestro de `A2A_HASTA`;
+  - `g check-attr -a` vacío sobre las nueve rutas del diff completo de A2a entre esos commits (las ocho del parche y `poc1a/test/build/sin-inyeccion.test.mjs`), que se leen a un array con `mapfile` y se pasan a `check-attr` entrecomilladas, sin división de palabras;
+  - el parche es idéntico byte a byte (`cmp -s`) a `g diff` con opciones explícitas (`--no-color --no-ext-diff --no-textconv --no-renames --unified=3 --src-prefix=a/ --dst-prefix=b/`) que anulan color, diff externo, textconv, renombrados, contexto y prefijos. **No anulan** `diff.algorithm`, `diff.indentHeuristic`, `diff.interHunkContext`, `diff.orderFile`, `core.abbrev` ni `core.quotePath`, que siguen viniendo de la configuración: cualquier diferencia hace fallar `cmp` (parada dura) y nunca admite otro contenido. El sha256 de esa regeneración (por tubería, con `pipefail`) es `A2A_PATCH_SHA`. La regeneración no se escribe en ningún archivo;
+  - el parche tiene 8 secciones `diff --git`; el diff completo de A2a tiene 9, y la diferencia es exactamente `poc1a/test/build/sin-inyeccion.test.mjs`;
+  - `grep -cE -- "$P"` sobre el parche da `A2A_K2_LINEAS` (9) y el sha256 de la salida de `grep -nE -- "$P"` es `A2A_K2_SHA`. Esas líneas nunca se imprimen ni se escriben en `S_P2`.
+  - No se excluyen los `.patch` en general, `P` no cambia y un nombre de variable por sí solo nunca basta. Cualquier otra coincidencia es parada dura; si el parche no queda admitido y casa con `P`, también.
+- **K2 de `S1`:**
+  - por patrón, como mucho `A2-compose-resuelto.yaml` y, si quedó admitido, el parche; cualquier otro archivo que case es parada dura. Se compara por programa (`k2-patron-solo-admitidos`), no a ojo;
+  - en `A2-compose-resuelto.yaml`, las coincidencias son los `${…}` sin interpolar de A2c: todas las líneas que casan llevan `${` (recuento `0` de las que no, contado con `awk` tras capturar el rc del `grep`; `k2-compose-ok`). `S1` no tiene `D22a.log`;
+  - por valor, `k2-valor-ok` exige rc=1 y salida vacía: rc=0 es una fuga y rc ≥ 2 es un error, ambos parada dura. Sólo vale si antes salieron `k2-archivos-ok` y `k2-env-ok` (la lista no vacía, igual a su recuento, sólo con archivos regulares, sin nombres con salto de línea y con `pipefail` activo; el `.env` es un archivo regular que no es enlace, `root 600`, con 0 líneas fuera de `^(POC_DB_PASSWORD|PAYLOAD_SECRET|INTAKE_SECRETO)=[0-9a-f]+$` y las tres claves una vez). Sin ellos una búsqueda vacía no prueba nada (falla abierta). Los valores se cargan en memoria con `mapfile` (validados: tres, hexadecimales y no vacíos), se pasan a `grep -lFf` por sustitución de procesos con `printf` interno, así que no aparecen en la línea de órdenes, y se borran con `unset`. No se imprime ningún valor ni ninguna línea: los valores no se imprimen siempre que la traza (`set -x`, `set -v`) esté desactivada, y el bloque la desactiva antes de leerlos (`{ set +x +v; } 2>/dev/null`);
+  - si se prefiere, el responsable ejecuta además las tres órdenes de B1v sobre `$ORIG/poc1a/.env`.
+- Una coincidencia no admitida o una fuga: ese archivo no se comparte ni se abre en pantalla compartida, y es parada dura de seguridad.
 - **Si no:** parada dura. Si falta `D07.log`, el responsable explica dónde quedó registrado el fallo antes de seguir.
+
+**Las nueve coincidencias de `P` en el parche de A2a** (código versionado; ninguna contiene un valor literal). Los números pretenden ser los de la salida de `grep -nE` sobre el parche y el signo, el del diff (contexto, borrado `−` o añadido `+`); **ningún agente los ha verificado por programa** (ver «Procedencia de las constantes del parche») y los comprobará el humano antes del commit:
+
+| N.º | Archivo | Signo | Patrón | Por qué no hay un valor literal |
+|---|---|---|---|---|
+| 86 | `poc1a/compose.yaml` (`app`) | contexto | `postgres://…@` | `DATABASE_URL: postgres://poc:${POC_DB_PASSWORD:?ejecuta ./poc.sh init}@db…`: la contraseña es un `${…}` de Compose sin interpolar (con su mensaje de error si falta la variable) |
+| 128 | `poc1a/compose.yaml` (`app-prod`) | contexto | `postgres://…@` | la misma línea, con el mismo `${…}` sin interpolar |
+| 287 | `poc1a/poc.sh` (`init`) | contexto | `POC_DB_PASSWORD=`, `PAYLOAD_SECRET=` | `printf 'POC_DB_PASSWORD=%s\nPAYLOAD_SECRET=%s\n' "$(openssl rand -hex 24)" …`: el valor es `%s` y se genera al ejecutar `init`, con `$(…)` |
+| 289 | `poc1a/poc.sh` (`init`) | contexto | `INTAKE_SECRETO=` | `grep -q '^INTAKE_SECRETO=' .env \|\| printf 'INTAKE_SECRETO=%s\n' "$(openssl rand -hex 32)" …`: `%s` más `$(…)`, sin valor |
+| 328 | `poc1a/poc.sh` (`e2e`) | `−` | `E2E_RESET=` | `E2E_RESET="$(… node scripts/reset-e2e.mjs)"`: asignación con sustitución de comando; el valor se calcula al ejecutar |
+| 338 | `poc1a/poc.sh` (`e2e-en`) | `−` | `E2E_RESET=` | igual: `$(… node scripts/reset-e2e.mjs)` |
+| 339 | `poc1a/poc.sh` (`e2e-en`) | `+` | `E2E_RESET=` | igual, con más variables de entorno de rutas y de CA, ninguna secreta |
+| 347 | `poc1a/poc.sh` (`e2e-prod-en`) | `−` | `E2E_RESET=` | igual: `$(… node scripts/reset-e2e.mjs)` |
+| 351 | `poc1a/poc.sh` (`e2e-prod-en`) | `+` | `E2E_RESET=` | igual, con más variables de entorno de rutas y de CA, ninguna secreta |
+
+Ese reparto (2 en `compose.yaml` y 7 en `poc.sh`) sale de una lectura manual del diff regenerado entre `A2A_DESDE` y `A2A_HASTA` (con el rango y los 9 archivos verificados por el orquestador con Git), sin números de línea ni hash calculados sobre el parche. Un cambio en cualquiera de esas líneas, o una coincidencia más, cambia el recuento o `A2A_K2_SHA` y el parche deja de admitirse (parada dura).
 
 **RP2 · Integridad de ramas, HEADs, árbol y diff.** Todo desde `$ORIG`: las ramas `fix/…` se leen por su referencia (los worktrees comparten referencias) y no se ejecuta Git en los worktrees de las correcciones (`/home/proyectos/jozeuzz-poc-drizzle-fix`, que ahora tiene sacada otra rama, y `/home/proyectos/jozeuzz-poc-gate-a4-fix`).
 
@@ -159,26 +335,31 @@ test "$(g rev-parse --verify '0bd7071^{commit}')" = "$CODE_SHA" && echo code-sha
 test "$(g rev-parse --verify refs/heads/fix/poc3-gate-a4-evidencia)" = "$DOCREF" && echo head-fix-ok
 test "$(g rev-parse --verify refs/heads/fix/poc3-drizzle-parametros)" = "$DOCS_D07_SHA" && echo rama-d07-ok   # integridad: la rama de la corrección D07 no se movió
 rp2_st="$(g status --porcelain)" && test -z "$rp2_st" && echo arbol-orig-limpio
-g merge-base --is-ancestor "$BASE_SHA" "$DOCREF" && g merge-base --is-ancestor "$D07_SHA" "$DOCREF" && g merge-base --is-ancestor "$DOCS_D07_SHA" "$DOCREF" && g merge-base --is-ancestor "$CODE_SHA" "$DOCREF" && echo ancestros-ok
-# la integración no mezcla otras ramas: exactamente df576ed, 986d7f3, 42d7229, 5d8a9d9, 0bd7071 y DOCREF, en ese orden y sin merges
-rp2_cadena="$(g rev-list --reverse "$BASE_SHA".."$DOCREF")" && rp2_c1="$(g rev-parse --verify 'df576ed^{commit}')" && rp2_c2="$(g rev-parse --verify '986d7f3^{commit}')" && test "$rp2_cadena" = "$(printf '%s\n' "$rp2_c1" "$rp2_c2" "$D07_SHA" "$DOCS_D07_SHA" "$CODE_SHA" "$DOCREF")" && echo cadena-ok
+g merge-base --is-ancestor "$BASE_SHA" "$DOCREF" && g merge-base --is-ancestor "$D07_SHA" "$DOCREF" && g merge-base --is-ancestor "$DOCS_D07_SHA" "$DOCREF" && g merge-base --is-ancestor "$CODE_SHA" "$DOCREF" && g merge-base --is-ancestor "$DOCREF_ANT" "$DOCREF" && echo ancestros-ok
+# DOCREF_ANT: el commit y el blob de este documento en él son los comunicados (RP0)
+test "$(g rev-parse --verify '2d7aad7^{commit}')" = "$DOCREF_ANT" && test "$(g rev-parse --verify "$DOCREF_ANT":docs/GATE-DOCKER-POC-3.md)" = "$DOCREF_ANT_BLOB" && echo docref-ant-ok
+# la integración no mezcla otras ramas: exactamente df576ed, 986d7f3, 42d7229, 5d8a9d9, 0bd7071, DOCREF_ANT y DOCREF, en ese orden y sin merges
+rp2_cadena="$(g rev-list --reverse "$BASE_SHA".."$DOCREF")" && rp2_c1="$(g rev-parse --verify 'df576ed^{commit}')" && rp2_c2="$(g rev-parse --verify '986d7f3^{commit}')" && test "$rp2_cadena" = "$(printf '%s\n' "$rp2_c1" "$rp2_c2" "$D07_SHA" "$DOCS_D07_SHA" "$CODE_SHA" "$DOCREF_ANT" "$DOCREF")" && echo cadena-ok
 rp2_merges="$(g rev-list --merges "$BASE_SHA".."$DOCREF")" && test -z "$rp2_merges" && echo sin-merges-ok
 g diff --no-renames --name-only "$BASE_SHA" "$DOCREF" | LC_ALL=C sort > "$S/RP2-rutas.txt"
 printf '%s\n' docs/GATE-DOCKER-POC-3.md poc1a/EVIDENCIA.md poc1a/src/lib/drizzle-kit/correccion-push.test.ts poc1a/src/lib/drizzle-kit/correccion-push.ts poc1a/src/payload.config.ts poc1a/test/estatico/docs-write-isolation.test.ts poc1a/test/estatico/drizzle-kit-correccion.test.ts poc1a/test/estatico/fixtures/tsconfig-pre-a4.json.txt poc1a/test/estatico/gate-a4-git.test.ts | LC_ALL=C sort > "$S/RP2-rutas-esperadas.txt"
 sha256sum "$S/RP2-rutas.txt" "$S/RP2-rutas-esperadas.txt" >> "$S/SHA256SUMS"
 cmp -s "$S/RP2-rutas.txt" "$S/RP2-rutas-esperadas.txt" && echo rutas-ok
 test "$(g diff --no-renames --name-only "$CODE_SHA" "$DOCREF")" = docs/GATE-DOCKER-POC-3.md && echo docref-solo-docs
+# cada commit de CODE_SHA..DOCREF (exactamente DOCREF_ANT y DOCREF) cambia sólo este documento
+rp2_dd="$(g rev-list --reverse "$CODE_SHA".."$DOCREF")" && test "$rp2_dd" = "$(printf '%s\n' "$DOCREF_ANT" "$DOCREF")" && rp2_c=1 && for rp2_x in "$DOCREF_ANT" "$DOCREF"; do test "$(g diff --no-renames --name-only "$rp2_x~1" "$rp2_x")" = docs/GATE-DOCKER-POC-3.md || rp2_c=0; done && test "$rp2_c" -eq 1 && echo docs-commits-ok
 # fixture de las pruebas (observación de seguridad U3-O2): mismo blob que el tsconfig.json previo a A4
 test "$(g rev-parse --verify "$DOCREF":poc1a/test/estatico/fixtures/tsconfig-pre-a4.json.txt)" = 8d0831bd131e2da1581c6f54c20cb04269947c33 && test "$(g rev-parse --verify "$BASE_SHA~1":poc1a/tsconfig.json)" = 8d0831bd131e2da1581c6f54c20cb04269947c33 && echo fixture-ok
 rp2_attr="$(g check-attr -a -- $(cat "$S/RP2-rutas.txt"))" && test -z "$rp2_attr" && echo atributos-rp2-ok
 ```
 
-- **Esperado:** las once marcas `*-ok` (`rama-orig-ok`, `head-orig-ok`, `code-sha-ok`, `head-fix-ok`, `rama-d07-ok`, `ancestros-ok`, `cadena-ok`, `sin-merges-ok`, `rutas-ok`, `fixture-ok` y `atributos-rp2-ok`), `arbol-orig-limpio` y `docref-solo-docs`: trece marcas en total.
+- **Esperado:** las trece marcas `*-ok` (`rama-orig-ok`, `head-orig-ok`, `code-sha-ok`, `head-fix-ok`, `rama-d07-ok`, `ancestros-ok`, `docref-ant-ok`, `cadena-ok`, `sin-merges-ok`, `rutas-ok`, `fixture-ok`, `atributos-rp2-ok` y `docs-commits-ok`), `arbol-orig-limpio` y `docref-solo-docs`: quince marcas en total.
 - `RP2-rutas.txt` contiene exactamente nueve rutas: las tres de código de la corrección D07 (`correccion-push.ts`, `payload.config.ts` y su prueba `correccion-push.test.ts`), las cuatro de pruebas estáticas y fixture (`drizzle-kit-correccion.test.ts`, `gate-a4-git.test.ts`, `docs-write-isolation.test.ts` y `fixtures/tsconfig-pre-a4.json.txt`), `poc1a/EVIDENCIA.md` y `docs/GATE-DOCKER-POC-3.md`. Así, ningún manifiesto, ni `tsconfig.json`, ni ninguna ruta de `GUARDA` cambia. Con `--no-renames`, un renombrado lista la ruta de origen y la de destino.
-- `cadena-ok` y `sin-merges-ok` garantizan que el fast-forward de RP6 sólo integra esos seis commits: no puede entrar `work/jozeuzz-autonomo` ni ninguna otra rama. `cadena-ok` exige además que `DOCREF` sea hijo directo de `CODE_SHA`.
+- `cadena-ok` y `sin-merges-ok` garantizan que el fast-forward de RP6 sólo integra esos siete commits (`df576ed`, `986d7f3`, `42d7229`, `5d8a9d9`, `0bd7071`, `DOCREF_ANT` y `DOCREF`): no puede entrar `work/jozeuzz-autonomo` ni ninguna otra rama. `cadena-ok` exige además que `DOCREF` sea hijo directo de `DOCREF_ANT`, y éste de `CODE_SHA`.
+- `docref-ant-ok` comprueba que `DOCREF_ANT` es `2d7aad7` y que el blob de este documento en él es `DOCREF_ANT_BLOB`. `docs-commits-ok` comprueba que `CODE_SHA..DOCREF` son exactamente `DOCREF_ANT` y `DOCREF`, y que cada uno cambia sólo `docs/GATE-DOCKER-POC-3.md` (`docref-solo-docs` lo comprueba sobre el conjunto).
 - `rama-d07-ok` no interviene en la integración, que usa el SHA de `DOCREF`: comprueba que la rama de la corrección D07 sigue en `5d8a9d9`. Si no sale, el responsable lo explica y lo anota antes de seguir; sin explicación, parada dura (puede indicar escrituras concurrentes).
 - `fixture-ok` (observación de seguridad U3-O2) comprueba que el fixture que leen las pruebas de D11 es exactamente el `tsconfig.json` previo a A4, y no un archivo arbitrario. Usa `"$BASE_SHA~1"` (el padre de `de692a4`, el commit de A4; `de692a4~1` es `0faf1389dbeb3afae4dff89cba05e5887154db16`) para ligar la procedencia al padre de A4 en lugar de a un SHA corto literal.
-- `BASE_SHA`, `D07_SHA`, `DOCS_D07_SHA` y `CODE_SHA` los aportó el orquestador: `head-orig-ok` y `code-sha-ok` los contrastan con los prefijos cortos, y `cadena-ok` con el historial real.
+- `BASE_SHA`, `D07_SHA`, `DOCS_D07_SHA`, `CODE_SHA`, `DOCREF_ANT` y `DOCREF_ANT_BLOB` los aportó el orquestador: `head-orig-ok`, `code-sha-ok` y `docref-ant-ok` los contrastan con los prefijos cortos, y `cadena-ok` con el historial real.
 - Todas las comparaciones fallan cerradas: si `git` falla, no sale la marca.
 - **Si no:** salvo `rama-d07-ok` (ver arriba), si falta cualquier marca: parada dura. No se integra nada.
 
@@ -191,6 +372,9 @@ g diff --no-ext-diff --no-textconv "$REV" "$DOCREF" -- \
   poc1a/poc.sh 'poc1a/compose*.yaml' poc1a/proxy poc1a/scripts poc1a/package.json poc1a/package-lock.json poc1a/.npmrc \
   poc1a/test/docker poc1a/test/build poc1a/medicion poc1a/contrato-driver.mjs poc1a/driver \
   contrato poc1a/playwright.config.ts poc1a/playwright.medicion.config.ts .gitattributes poc1a/.gitattributes poc1a/contenedor
+# A2a de la ejecución 1 que el parche conservado no incluye: poc1a/test/build entre A2A_DESDE y A2A_HASTA, y el archivo completo en DOCREF
+g diff --no-ext-diff --no-textconv "$A2A_DESDE" "$A2A_HASTA" -- poc1a/test/build | LESS= LESSSECURE=1 LESSOPEN= less
+g show --no-textconv "$DOCREF":poc1a/test/build/sin-inyeccion.test.mjs | LESS= LESSSECURE=1 LESSOPEN= less
 g diff --no-ext-diff --stat "$REV" "$DOCREF" -- poc1a/e2e poc1a/src poc1a/test poc1a/vitest.config.ts poc1a/tsconfig.json 'poc1a/next.config*'
 g diff --no-ext-diff --no-textconv "$REV" "$DOCREF" -- poc1a/src/lib/drizzle-kit/correccion-push.ts poc1a/src/payload.config.ts
 g diff --no-ext-diff --no-textconv "$REV" "$DOCREF" -- poc1a/src/lib/drizzle-kit/correccion-push.test.ts poc1a/test/estatico/drizzle-kit-correccion.test.ts
@@ -200,11 +384,12 @@ test "$(g diff --no-ext-diff --numstat "$REV" "$DOCREF" -- poc1a/EVIDENCIA.md)" 
 ```
 
 - **Esperado:**
-  - el `log` muestra sólo `df576ed`, `986d7f3`, `42d7229` y `0bd7071` (`5d8a9d9` y `DOCREF` sólo cambian `docs/`, fuera de esos pathspecs);
+  - el `log` muestra sólo `df576ed`, `986d7f3`, `42d7229` y `0bd7071` (`5d8a9d9`, `DOCREF_ANT` y `DOCREF` sólo cambian `docs/`, fuera de esos pathspecs);
   - el diff de A2a sale vacío;
+  - **cobertura del A2a de la ejecución 1 (obligatoria, leída completa):** el diff de `poc1a/test/build` entre `A2A_DESDE` y `A2A_HASTA` (en la ejecución 1 sólo cambia `sin-inyeccion.test.mjs`, con 3 inserciones y 2 borrados) y el contenido de `sin-inyeccion.test.mjs` en `DOCREF`. `poc1a/test/build` está en el A2a obligatorio (advertencia 1) y el parche conservado en `S1` omitía este archivo. Con ellas, RP3 cubre el conjunto completo de A2a: las ocho secciones del parche (que RP1 verifica contra Git), esta novena y los cambios posteriores hasta `DOCREF`. En la plantilla se anota «`sin-inyeccion.test.mjs` revisado (sí/no)»;
   - el resumen de A2b lista siete rutas: las de código `correccion-push.ts` y `payload.config.ts`, y las de pruebas `correccion-push.test.ts`, `drizzle-kit-correccion.test.ts`, `gate-a4-git.test.ts`, `docs-write-isolation.test.ts` y `fixtures/tsconfig-pre-a4.json.txt`;
   - `evidencia-solo-anade`: el diff de `EVIDENCIA.md` añade 16 líneas y no borra ninguna;
-  - los cuatro diffs completos se leen enteros. Son obligatorios: `correccion-push.ts` y `payload.config.ts` se ejecutan en `app`, `app-prod` y en cada `exec-en`, y todas las pruebas se ejecutan dentro de `app` en D11 (`vitest.config.ts:9`: `src/**/*.test.ts` incluye `correccion-push.test.ts` y `test/**/*.test.ts`, las de `test/estatico`); `gate-a4-git.test.ts` lanza además `bash` y `git`. La adenda de `EVIDENCIA.md` no se ejecuta, pero es evidencia y se lee completa.
+  - los cuatro diffs completos se leen enteros (además de los dos de la cobertura de A2a, que también se leen enteros). Son obligatorios: `correccion-push.ts` y `payload.config.ts` se ejecutan en `app`, `app-prod` y en cada `exec-en`, y todas las pruebas se ejecutan dentro de `app` en D11 (`vitest.config.ts:9`: `src/**/*.test.ts` incluye `correccion-push.test.ts` y `test/**/*.test.ts`, las de `test/estatico`); `gate-a4-git.test.ts` lanza además `bash` y `git`. La adenda de `EVIDENCIA.md` no se ejecuta, pero es evidencia y se lee completa.
 - **Qué comprueba el humano en `correccion-push.ts`:**
   - sólo lee `node_modules/drizzle-kit/package.json` y `node_modules/drizzle-kit/api.js` bajo la raíz que le pasa `payload.config.ts` (`/app` en los contenedores);
   - falla cerrado si la versión no es `0.31.7`, si el sha256 de `api.js` no es `c87f9e8db2d4948521fd557d8f3945d4e4db482b06d5a2305dd51cdc410b0574` o si el bloque que sustituye no aparece exactamente una vez;
@@ -298,7 +483,7 @@ rp6_dirs="$(find poc1a/src poc1a/test -type d ! -perm -005)" && test -z "$rp6_di
   - `legibles-ok`, es decir, ningún archivo versionado de `poc1a/` sin lectura para otros, y `directorios-ok` (ningún directorio de `poc1a/src` ni de `poc1a/test` sin lectura y paso para otros).
 - Así se verifican los permisos de los archivos y directorios nuevos que leerá el uid 1000 por el bind RO: la corrección D07 en cada arranque de Payload y las pruebas estáticas y el fixture en D11.
 - `legibles-ok` también detectaría archivos que se reescribieron con `umask 077` en la ejecución 1 (por ejemplo, en la aplicación de A4p). No se sabe si los hay; si aparecen, se tratan igual.
-- **Si no:** parada dura. No se corrige con un `chmod` silencioso. Si el responsable decide corregir, lo registra y lo hace ruta a ruta, sólo sobre las listadas, sin `-R` ni modos simbólicos, con `stat` antes y después en `S_P` (`RP6-permisos-r2.txt`, con su hash en `SHA256SUMS`); después repite `permisos-ok`, `legibles-ok` y `directorios-ok`:
+- **Si no:** parada dura. No se corrige con un `chmod` silencioso. Si el responsable decide corregir, lo registra y lo hace ruta a ruta, sólo sobre las listadas, sin `-R` ni modos simbólicos, con `stat` antes y después en `S_P2` (`RP6-permisos-r2.txt`, con su hash en `SHA256SUMS`); después repite `permisos-ok`, `legibles-ok` y `directorios-ok`:
 
 ```sh
 p=<ruta listada>
@@ -312,22 +497,50 @@ test -d "$p" && test ! -L "$p" && chmod 0755 -- "$p"   # directorio
 
 - El fast-forward es un `merge`: es una operación humana (`docs/AUTONOMIA-JZ.md` §3). `g` anula los hooks (`post-merge`, `post-checkout`), `fsmonitor` y el mantenimiento automático. Los filtros `clean`/`smudge` los descarta el `check-attr -a` previo.
 
-**RP7 · Cierre de la sesión RP.** K2 sobre `S_P` (aquí `S`), desde `poc1a/`, y comprobación de hashes.
+**RP7 · Cierre de la sesión RP.** K2 sobre `S_P2` (aquí `S`), desde `poc1a/`, y comprobación de hashes. Aquí K2 no admite ninguna coincidencia por patrón.
 
 ```sh
 cd "$ORIG/poc1a"
+{ set +x +v; } 2>/dev/null   # traza desactivada antes de K2 (1): ningún grep de K2 se traza
 k2_dir="$S"
 P='"password"|PAYLOAD_SECRET=|INTAKE_SECRETO=|POC_DB_PASSWORD=|PRIVATE KEY|E2E_RESET=|postgres://[^:@]*:[^@]*@'
+# K2 (1): lista de archivos, con su recuento independiente
+k2_a=0
 mapfile -d '' k2_f < <(find "$k2_dir" -maxdepth 1 -type f ! -name SHA256SUMS -print0)
-test "${#k2_f[@]}" -gt 0 && echo k2-archivos-ok || echo "K2 FALLÓ: ningún archivo que revisar (grep leería la entrada estándar): parada dura" >&2
-grep -lE "$P" -- "${k2_f[@]}"                                          # vacío
-test -s .env && test "$(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' .env | grep -c .)" -eq 3 && echo k2-env-ok || echo "K2 FALLÓ: .env falta, está vacío o no da exactamente 3 valores: parada dura" >&2
-grep -lFf <(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' .env) -- "${k2_f[@]}"   # vacío
+k2_nf="$(find "$k2_dir" -maxdepth 1 -type f ! -name SHA256SUMS -printf x | wc -c)" && k2_nr="$(find "$k2_dir" -mindepth 1 -maxdepth 1 ! -type f -printf x | wc -c)" && test "${#k2_f[@]}" -gt 0 && test "${#k2_f[@]}" -eq "$k2_nf" && test "$k2_nr" -eq 0 && k2_nl="$(find "$k2_dir" -mindepth 1 -maxdepth 1 -name $'*\n*' -printf x | wc -c)" && test "$k2_nl" -eq 0 && shopt -oq pipefail && k2_a=1 && echo k2-archivos-ok
+test "$k2_a" -eq 1 || echo "K2 FALLÓ: lista vacía, distinta de su recuento, con entradas no regulares, con nombres con salto de línea o sin pipefail (grep leería la entrada estándar): parada dura" >&2
+# K2 (2): búsqueda por patrón con rc capturado; sólo vale rc=1 y salida vacía (ningún archivo admitido)
+if test "$k2_a" -eq 1; then
+  k2_rc=0; k2_coinc="$(grep -lE -- "$P" "${k2_f[@]}")" || k2_rc=$?
+  if test "$k2_rc" -le 1; then
+    echo k2-patron-ejecutado
+    if test "$k2_rc" -eq 1 && test -z "$k2_coinc"; then echo k2-patron-solo-admitidos
+    else echo "K2 FALLÓ: coincidencia por patrón (nombres abajo, entrecomillados): parada dura de seguridad" >&2; printf '%s\n' "$k2_coinc" | while IFS= read -r k2_n; do printf '%q\n' "$k2_n" >&2; done
+    fi
+  else echo "K2 FALLÓ: la búsqueda por patrón terminó con rc=$k2_rc (error, no «sin coincidencias»): parada dura" >&2
+  fi
+fi
+# K2 (3): .env equivalente a B1v y valores cargados en memoria, sin imprimirlos. Antes se desactiva la traza (set -x/-v), que los mostraría
+{ set +x +v; } 2>/dev/null
+k2_e=0; k2_env=.env
+mapfile -t k2_vals < <(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' "$k2_env")
+k2_vok=1; for k2_v in "${k2_vals[@]}"; do [[ "$k2_v" =~ ^[0-9a-f]+$ ]] || k2_vok=0; done
+k2_mal="$(awk '!/^(POC_DB_PASSWORD|PAYLOAD_SECRET|INTAKE_SECRETO)=[0-9a-f]+$/ { n++ } END { print n + 0 }' "$k2_env")" && k2_cl="$(awk -F= '/^(POC_DB_PASSWORD|PAYLOAD_SECRET|INTAKE_SECRETO)=/ { c[$1]++ } END { n = 0; for (k in c) if (c[k] == 1) n++; print n }' "$k2_env")" && test -f "$k2_env" && test ! -L "$k2_env" && test "$(stat -c '%U %a' "$k2_env")" = "root 600" && test "$k2_mal" -eq 0 && test "$k2_cl" -eq 3 && test "${#k2_vals[@]}" -eq 3 && test "$k2_vok" -eq 1 && k2_e=1 && echo k2-env-ok
+test "$k2_e" -eq 1 || echo "K2 FALLÓ: .env no es un archivo regular root 600 con exactamente 3 claves y valores hexadecimales: parada dura" >&2
+# K2 (4): búsqueda por valor; sólo vale rc=1 con salida vacía (printf es interno de bash: los valores no aparecen en ninguna línea de órdenes)
+if test "$k2_e" -eq 1 && test "$k2_a" -eq 1; then
+  k2_rc=0; k2_fuga="$(grep -lFf <(printf '%s\n' "${k2_vals[@]}") -- "${k2_f[@]}")" || k2_rc=$?
+  if test "$k2_rc" -eq 1 && test -z "$k2_fuga"; then echo k2-valor-ok
+  elif test "$k2_rc" -eq 0; then echo "K2 FALLÓ: un valor del .env aparece en algún archivo (nombres abajo, entrecomillados): parada dura de seguridad" >&2; printf '%s\n' "$k2_fuga" | while IFS= read -r k2_n; do printf '%q\n' "$k2_n" >&2; done
+  else echo "K2 FALLÓ: la búsqueda por valor terminó con rc=$k2_rc: parada dura" >&2
+  fi
+fi
+unset k2_vals k2_v k2_lin
 sha256sum -c --quiet "$S/SHA256SUMS" && echo sp-integro
-sha256sum "$S/SHA256SUMS"   # anotar fuera del host, junto con la ruta de S_P
+sha256sum "$S/SHA256SUMS"   # anotar fuera del host, junto con la ruta de S_P2
 ```
 
-- **Esperado:** `k2-archivos-ok`, `k2-env-ok`, las dos búsquedas de K2 vacías y `sp-integro`. Una coincidencia de K2 es parada dura de seguridad (como en K). Después se cierra la shell: la sesión R empieza en una shell nueva, con su propio A0.
+- **Esperado:** `k2-archivos-ok`, `k2-patron-ejecutado`, `k2-patron-solo-admitidos` (aquí, ninguna coincidencia), `k2-env-ok`, `k2-valor-ok` y `sp-integro`: seis marcas. Una coincidencia de K2 es parada dura de seguridad (como en K). `sp-integro` incluye los hashes de lo no inventariado de `S1` que RP1 añadió a `SHA256SUMS`. Después se cierra la shell: la sesión R empieza en una shell nueva, con su propio A0.
 
 ### Sesión R · reanudación sobre `0bd7071`
 
@@ -353,23 +566,36 @@ Se hace en una shell nueva, sobre `poc/candidata-a-3` en `DOCREF`. Cada paso se 
 **R0 · Referencias de la reanudación.**
 
 ```sh
-S1=<carpeta S de la ejecución 1>
+S1=/root/jz-gate-poc3/20261020T174723Z                  # carpeta S de la ejecución 1
 S1_HASH=<hash de S1/SHA256SUMS anotado en RP1>
-SP=<carpeta S de la sesión RP>
+SP_DET=/root/jz-gate-poc3/20261022T213818Z              # S_P detenida
+SP_DET_HASH=c39d3d1c4a52187a40b968cdabf285b369777e9766ed77cce220cf271200a291
+SP=<carpeta S de la sesión RP vigente (S_P2)>
 SP_HASH=<hash de SP/SHA256SUMS anotado en RP7>
 DOCREF=<SHA completo de DOCREF, el mismo de RP0>
+DOCREF_ANT=2d7aad77cd88a9338ccbe8578780bd60a16699c6     # 2d7aad7
 DUMP=/root/jz-d07-respaldos/20261021T060116Z/poc3_intake.dump
 DUMP_SHA=01da9edc2fe32c4f072099329086added69d5f0ba78f496c296a45a012a5b7f7
 test "$(g rev-parse --verify HEAD)" = "$DOCREF" && echo head-docref-ok
 test "$(sha256sum "$S1/SHA256SUMS" | cut -d' ' -f1)" = "$S1_HASH" && echo s1-sin-cambios
+test "$(sha256sum "$SP_DET/SHA256SUMS" | cut -d' ' -f1)" = "$SP_DET_HASH" && echo sp-det-sin-cambios
 test "$(sha256sum "$SP/SHA256SUMS" | cut -d' ' -f1)" = "$SP_HASH" && echo sp-sin-cambios
 sha256sum -c --quiet "$S1/SHA256SUMS" && echo s1-integro
+sha256sum -c --quiet --strict "$SP_DET/SHA256SUMS" && echo sp-det-integra
 sha256sum -c --quiet "$SP/SHA256SUMS" && echo sp-integro
-( set -C; printf 'S1=%s\nS1_SHA256SUMS=%s\nS_P=%s\nS_P_SHA256SUMS=%s\nDOCREF=%s\nCODEREF=0bd7071\n' "$S1" "$S1_HASH" "$SP" "$SP_HASH" "$DOCREF" > "$S/R0-referencias.txt" )
-sha256sum "$S/R0-referencias.txt" >> "$S/SHA256SUMS"
+# lo que S1/SHA256SUMS no inventaría tampoco cambió desde RP1 de S_P2 (falla cerrado si falta la lista; si está vacía, lo dice)
+if test ! -f "$SP/RP1-s1-no-inventariados.sha256" || test ! -f "$SP/RP1-s1-no-inventariados.txt"; then echo "R0 FALLÓ: faltan las listas de no inventariados de RP1 en S_P2: parada dura" >&2
+elif test -s "$SP/RP1-s1-no-inventariados.sha256"; then sha256sum -c --quiet --strict "$SP/RP1-s1-no-inventariados.sha256" && echo s1-no-inventariados-sin-cambios
+elif test ! -s "$SP/RP1-s1-no-inventariados.txt"; then echo s1-no-inventariados-vacio
+else echo "R0 FALLÓ: la lista de hashes de no inventariados está vacía pero la de nombres no: parada dura" >&2
+fi
+# referencias de la reanudación (nombre fijo: set -C impide sobrescribir). Sólo se escribe si los hashes y DOCREF tienen forma válida y S_P2 es otra carpeta que la detenida y que S_R
+printf %s "$S1_HASH" | grep -Eq '^[0-9a-f]{64}$' && printf %s "$SP_HASH" | grep -Eq '^[0-9a-f]{64}$' && printf %s "$DOCREF" | grep -Eq '^[0-9a-f]{40}$' && test "$SP" != "$SP_DET" && test "$SP" != "$S" && ( set -C; printf 'S1=%s\nS1_SHA256SUMS=%s\nS_P_DETENIDA=%s\nS_P_DETENIDA_SHA256SUMS=%s\nS_P2=%s\nS_P2_SHA256SUMS=%s\nDOCREF_ANT=%s\nDOCREF=%s\nCODEREF=0bd7071\n' "$S1" "$S1_HASH" "$SP_DET" "$SP_DET_HASH" "$SP" "$SP_HASH" "$DOCREF_ANT" "$DOCREF" > "${S:?}/R0-referencias.txt" ) && sha256sum "${S:?}/R0-referencias.txt" >> "${S:?}/SHA256SUMS" && echo r0-referencias-ok
 ```
 
-- **Esperado:** `head-docref-ok`, `s1-sin-cambios`, `sp-sin-cambios`, `s1-integro` y `sp-integro`. **Si no:** parada dura.
+- **Esperado:** `head-docref-ok`, `s1-sin-cambios`, `sp-det-sin-cambios`, `sp-sin-cambios`, `s1-integro`, `sp-det-integra`, `sp-integro` y `s1-no-inventariados-sin-cambios` (o `s1-no-inventariados-vacio`, si RP1 no encontró ninguno) y `r0-referencias-ok`: nueve marcas. `SP` es `S_P2`; la `S_P` detenida (`SP_DET`) se comprueba sólo en lectura. **Si no:** parada dura.
+- `r0-referencias-ok` sólo sale si `S1_HASH` y `SP_HASH` tienen 64 hex, `DOCREF` tiene 40 hex, `SP` no es `SP_DET` ni `S`, y `R0-referencias.txt` no existía (`set -C`); entonces se escribe y su hash entra en `SHA256SUMS`. `sp-det-integra` y `s1-no-inventariados-sin-cambios` usan `--strict` (una línea mal formada también falla); `sp-det-integra` sólo cubre lo que lista `SP_DET/SHA256SUMS`.
+- `s1-integro` sigue cubriendo sólo lo que `S1/SHA256SUMS` inventaría; los archivos no inventariados quedan cubiertos desde RP1 de `S_P2` por su propia lista de hashes, no desde la ejecución 1.
 
 **R7 · Huella de `api.js` en el volumen nombrado.** Se comprueba en el volumen que ven los contenedores, no en el `node_modules` del host. Va después de A3f2, que acaba de reinstalarlo, y antes de B2 y de cualquier proceso que cargue Payload con `push`. Se lanza en `app-prod` porque allí `node_modules` es RO, el servicio no tiene red externa y `POC_NO_PUSH=1`.
 
@@ -437,7 +663,7 @@ Tras D07, **`push` de `next dev`**: `FALLO: proxy TLS: HTTP 500` (`scripts/sonda
 
 1. **Parada dura.** No se ejecutan `./poc.sh down`, `resetdb` ni `destroy`, y los servicios se quedan como están.
 2. **Diagnóstico:** `r D06-r2 ./poc.sh comprobar-en poc3_intake` (o el siguiente identificador libre), salvo que el fallo sea que D06 no termina. **No es de sólo lectura:** vuelve a ejecutar `push` sobre `poc3_intake` (escribe en la base), así que exige decisión humana registrada y, antes, comprobar que el respaldo sigue validado (R9). `tsx` imprime el error en el log, que no se abre en pantalla compartida. Si `D06-r2` sale conforme y D07 sigue en 500, el fallo es propio de `next dev` y no queda registrado: se anota así.
-3. Se cierra la evidencia sin J: K1, K2 y K3 sobre `S_R`, y el hash de `SHA256SUMS` se anota fuera del host. Sin D22 no hay `D22a.log`: K2 por patrón sólo admite `A2-compose-resuelto.yaml`, y la línea de `D22a.log` no aplica.
+3. Se cierra la evidencia sin J: K1, K2 y K3 sobre `S_R`, con `K_RUTA=fallo-r11` en K2, y el hash de `SHA256SUMS` se anota fuera del host. Sin D22 no hay `D22a.log`: K2 por patrón sólo admite `A2-compose-resuelto.yaml` (y `D22a.log`, si existiera), y la comprobación de `D22a.log` sale con la marca `k2-d22a-no-aplica`, distinta de `k2-d22a-ok`. Con `K_RUTA=normal`, la falta de `D22a.log` es parada dura.
 4. **No se restaura** el respaldo sin decisión humana (RP4).
 5. Se avisa al orquestador. Un nuevo intento es otra unidad de corrección, con su propia revisión y una nueva revisión de este documento.
 
@@ -1440,22 +1666,72 @@ awk '{for(i=2;i<=NF;i++){s=$i; if (s=="/"||s=="/home"||s=="/home/proyectos"||s==
 sha256sum "$S/K1-montajes-rw.txt" "$S/K1-prohibidos.txt" >> "$S/SHA256SUMS"
 test ! -s "$S/K1-prohibidos.txt" && echo sin-montajes-rw   # mismo criterio que A3e.2
 # K2 · fugas: todos los archivos de $S salvo SHA256SUMS; sólo nombres de archivo, nunca líneas
+{ set +x +v; } 2>/dev/null   # traza desactivada antes de K_RUTA y de K2 (1): ningún grep de K2 se traza
+K_RUTA=<normal, o fallo-r11 si el gate se cerró sin D22 por la ruta de fallo de R11>
+k2_ruta=0; case "$K_RUTA" in normal|fallo-r11) k2_ruta=1 ;; *) echo "K2 FALLÓ: K_RUTA debe ser normal o fallo-r11: parada dura" >&2 ;; esac
 P='"password"|PAYLOAD_SECRET=|INTAKE_SECRETO=|POC_DB_PASSWORD=|PRIVATE KEY|E2E_RESET=|postgres://[^:@]*:[^@]*@'
+# K2 (1): lista de archivos, con su recuento independiente
+k2_a=0
 mapfile -d '' k2_f < <(find "$S" -maxdepth 1 -type f ! -name SHA256SUMS -print0)
-test "${#k2_f[@]}" -gt 0 && echo k2-archivos-ok || echo "K2 FALLÓ: ningún archivo que revisar (grep leería la entrada estándar): parada dura" >&2
-grep -lE "$P" -- "${k2_f[@]}"                                          # sólo D22a.log y A2-compose-resuelto.yaml
-grep -E "$P" "$S/D22a.log" | grep -vcF 'INTAKE_SECRETO=abcd'           # 0
-grep -E "$P" "$S/A2-compose-resuelto.yaml" | grep -vcF '${'            # 0
-test -s .env && test "$(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' .env | grep -c .)" -eq 3 && echo k2-env-ok || echo "K2 FALLÓ: .env falta, está vacío o no da exactamente 3 valores: parada dura" >&2
-grep -lFf <(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' .env) -- "${k2_f[@]}"   # vacío
+k2_nf="$(find "$S" -maxdepth 1 -type f ! -name SHA256SUMS -printf x | wc -c)" && k2_nr="$(find "$S" -mindepth 1 -maxdepth 1 ! -type f -printf x | wc -c)" && test "${#k2_f[@]}" -gt 0 && test "${#k2_f[@]}" -eq "$k2_nf" && test "$k2_nr" -eq 0 && k2_nl="$(find "$S" -mindepth 1 -maxdepth 1 -name $'*\n*' -printf x | wc -c)" && test "$k2_nl" -eq 0 && shopt -oq pipefail && k2_a=1 && echo k2-archivos-ok
+test "$k2_a" -eq 1 || echo "K2 FALLÓ: lista vacía, distinta de su recuento, con entradas no regulares, con nombres con salto de línea o sin pipefail (grep leería la entrada estándar): parada dura" >&2
+# K2 (2): búsqueda por patrón con rc capturado (0 y 1 son válidos; 2 o más es un error) y comparación por programa con la lista admitida
+k2_p=0
+if test "$k2_a" -eq 1; then
+  k2_adm=("$S/A2-compose-resuelto.yaml" "$S/D22a.log")
+  k2_rc=0; k2_coinc="$(grep -lE -- "$P" "${k2_f[@]}")" || k2_rc=$?
+  if test "$k2_rc" -le 1; then
+    echo k2-patron-ejecutado
+    k2_extra=0
+    while IFS= read -r k2_m; do
+      test -n "$k2_m" || continue
+      k2_ya=0; for k2_x in "${k2_adm[@]}"; do test "$k2_m" = "$k2_x" && k2_ya=1; done
+      test "$k2_ya" -eq 1 || { k2_extra=$((k2_extra + 1)); printf 'K2 FALLÓ: coincidencia no admitida en %q\n' "$k2_m" >&2; }
+    done <<< "$k2_coinc"
+    test "$k2_extra" -eq 0 && k2_p=1 && echo k2-patron-solo-admitidos
+  else echo "K2 FALLÓ: la búsqueda por patrón terminó con rc=$k2_rc (error, no «sin coincidencias»): parada dura" >&2
+  fi
+fi
+# K2 (3): líneas admitidas; el rc del grep se captura y el recuento lo hace awk (si el grep falla, no sale «0»). Exige una K_RUTA válida
+if test "$k2_p" -eq 1 && test "$k2_ruta" -eq 1; then
+  if test -f "$S/D22a.log"; then
+    k2_rc=0; k2_lin="$(grep -E -- "$P" "$S/D22a.log")" || k2_rc=$?
+    k2_sin="$(printf '%s\n' "$k2_lin" | awk 'length($0) && index($0, "INTAKE_SECRETO=abcd") == 0 { n++ } END { print n + 0 }')" && test "$k2_rc" -le 1 && test "$k2_sin" -eq 0 && echo k2-d22a-ok || echo "K2 FALLÓ: líneas de D22a.log sin INTAKE_SECRETO=abcd o grep con error (rc=$k2_rc): parada dura" >&2
+  elif test "$K_RUTA" = fallo-r11; then echo k2-d22a-no-aplica
+  else echo "K2 FALLÓ: falta D22a.log en la ruta normal: parada dura" >&2
+  fi
+  if test -f "$S/A2-compose-resuelto.yaml"; then
+    k2_rc=0; k2_lin="$(grep -E -- "$P" "$S/A2-compose-resuelto.yaml")" || k2_rc=$?
+    k2_sin="$(printf '%s\n' "$k2_lin" | awk 'length($0) && index($0, "${") == 0 { n++ } END { print n + 0 }')" && test "$k2_rc" -le 1 && test "$k2_sin" -eq 0 && echo k2-compose-ok || echo "K2 FALLÓ: líneas de A2-compose-resuelto.yaml sin \${…} o grep con error (rc=$k2_rc): parada dura" >&2
+  else echo "K2 FALLÓ: falta A2-compose-resuelto.yaml (A2c): parada dura" >&2
+  fi
+fi
+# K2 (4): .env equivalente a B1v y valores cargados en memoria, sin imprimirlos. Antes se desactiva la traza (set -x/-v), que los mostraría
+{ set +x +v; } 2>/dev/null
+k2_e=0; k2_env=.env
+mapfile -t k2_vals < <(sed -n 's/^[A-Z_]*=\(..*\)$/\1/p' "$k2_env")
+k2_vok=1; for k2_v in "${k2_vals[@]}"; do [[ "$k2_v" =~ ^[0-9a-f]+$ ]] || k2_vok=0; done
+k2_mal="$(awk '!/^(POC_DB_PASSWORD|PAYLOAD_SECRET|INTAKE_SECRETO)=[0-9a-f]+$/ { n++ } END { print n + 0 }' "$k2_env")" && k2_cl="$(awk -F= '/^(POC_DB_PASSWORD|PAYLOAD_SECRET|INTAKE_SECRETO)=/ { c[$1]++ } END { n = 0; for (k in c) if (c[k] == 1) n++; print n }' "$k2_env")" && test -f "$k2_env" && test ! -L "$k2_env" && test "$(stat -c '%U %a' "$k2_env")" = "root 600" && test "$k2_mal" -eq 0 && test "$k2_cl" -eq 3 && test "${#k2_vals[@]}" -eq 3 && test "$k2_vok" -eq 1 && k2_e=1 && echo k2-env-ok
+test "$k2_e" -eq 1 || echo "K2 FALLÓ: .env no es un archivo regular root 600 con exactamente 3 claves y valores hexadecimales: parada dura" >&2
+# K2 (5): búsqueda por valor; sólo vale rc=1 con salida vacía (printf es interno de bash: los valores no aparecen en ninguna línea de órdenes)
+if test "$k2_e" -eq 1 && test "$k2_a" -eq 1; then
+  k2_rc=0; k2_fuga="$(grep -lFf <(printf '%s\n' "${k2_vals[@]}") -- "${k2_f[@]}")" || k2_rc=$?
+  if test "$k2_rc" -eq 1 && test -z "$k2_fuga"; then echo k2-valor-ok
+  elif test "$k2_rc" -eq 0; then echo "K2 FALLÓ: un valor del .env aparece en algún archivo (nombres abajo, entrecomillados): parada dura de seguridad" >&2; printf '%s\n' "$k2_fuga" | while IFS= read -r k2_n; do printf '%q\n' "$k2_n" >&2; done
+  else echo "K2 FALLÓ: la búsqueda por valor terminó con rc=$k2_rc: parada dura" >&2
+  fi
+fi
+unset k2_vals k2_v k2_lin
 # K3 · hashes
 sha256sum -c --quiet "$S/SHA256SUMS"   # sin salida, rc=0
 sha256sum "$S/SHA256SUMS"              # anotar este hash fuera del host
 ```
 
 - **K1:** es parada dura si la guarda no sale vacía, porque significa que un contenedor alteró el árbol durante el último paso. `g status --short` con cualquier salida (cualquier cambio respecto a A1) es también parada dura. Si `git` falla (`GIT FALLÓ`) o si la comprobación de montajes RW imprime algo, también es parada dura.
-- **K2, por patrón:** las únicas coincidencias admisibles son `D22a.log`, por la cabecera con el valor falso `INTAKE_SECRETO=abcd`, y `A2-compose-resuelto.yaml`, por los `DATABASE_URL` con `${POC_DB_PASSWORD…}` sin interpolar de A2c (`compose.yaml:84,130`; los dos conteos dan `0`). Si el gate se cerró antes de D22 (ruta de fallo de R11), no hay `D22a.log` y su línea no aplica.
-- **K2, por valor:** la búsqueda usa como patrones los valores de `.env`. La sustitución de procesos los pasa por un descriptor, así que no aparecen en la línea de órdenes ni en pantalla, y `-l` sólo imprime nombres de archivo. Falla abierta si `.env` falta o no se lee (lista de patrones vacía, salida vacía) o si no hay archivos (`grep` leería la entrada estándar): por eso sólo vale tras `k2-env-ok` (`.env` no vacío y exactamente 3 valores, contados sin imprimirlos) y `k2-archivos-ok`; sin ellos, parada dura.
+- **K2, por patrón:** la búsqueda se hace con el rc capturado: 0 y 1 son válidos y 2 o más es un error y parada dura (`k2-patron-ejecutado`). Los archivos que casan se comparan por programa con la lista admitida, y las únicas coincidencias admisibles son `D22a.log`, por la cabecera con el valor falso `INTAKE_SECRETO=abcd`, y `A2-compose-resuelto.yaml`, por los `DATABASE_URL` con `${POC_DB_PASSWORD…}` sin interpolar de A2c (`compose.yaml:84,130`); cualquier otro archivo que case es parada dura (`k2-patron-solo-admitidos`). El `grep` de las líneas admitidas captura su rc y cuenta con `awk`, de modo que un `grep` que falla ya no se confunde con «0»: `k2-d22a-ok` (todas las líneas de `D22a.log` que casan llevan `INTAKE_SECRETO=abcd`) y `k2-compose-ok` (todas las de `A2-compose-resuelto.yaml` llevan `${`).
+- **`D22a.log` y la ruta de fallo de R11:** en la ruta normal (`K_RUTA=normal`) `D22a.log` es obligatorio y su falta es parada dura. Sólo si el gate se cerró antes de D22 (ruta de fallo de R11, `K_RUTA=fallo-r11`) no hay `D22a.log`, y la comprobación sale con una marca distinta, `k2-d22a-no-aplica`, que debe constar en la plantilla. Con una `K_RUTA` inválida (`k2_ruta=0`) K2 (3) no se ejecuta: no salen `k2-d22a-ok`, `k2-d22a-no-aplica` ni `k2-compose-ok`, y la parada es dura.
+- **K2, por valor:** la búsqueda usa como patrones los valores de `.env`, cargados en memoria con `mapfile` desde el `sed` de siempre y validados (exactamente tres, hexadecimales y no vacíos). Se pasan a `grep -lFf` con `printf` (interno de bash) por sustitución de procesos, así que no aparecen en la línea de órdenes ni en pantalla, y `-l` sólo imprime nombres de archivo; después se borran con `unset`. Los valores no se imprimen siempre que la traza (`set -x`, `set -v`) esté desactivada, y el bloque la desactiva antes de leerlos (`{ set +x +v; } 2>/dev/null`). Sólo vale rc=1 con salida vacía (`k2-valor-ok`): rc=0 es una fuga y rc ≥ 2 es un error, ambos parada dura. Falla abierta si `.env` falta o no se lee (lista de patrones vacía, salida vacía) o si no hay archivos (`grep` leería la entrada estándar): por eso sólo se busca tras `k2-env-ok` (equivalente a B1v: archivo regular que no es enlace, `root 600`, 0 líneas fuera de `^(POC_DB_PASSWORD|PAYLOAD_SECRET|INTAKE_SECRETO)=[0-9a-f]+$` y las tres claves una vez) y `k2-archivos-ok` (lista no vacía, igual a su recuento independiente con `find … -printf x | wc -c`, sin entradas no regulares en la carpeta, sin nombres con salto de línea y con `pipefail` activo); sin ellos, parada dura. Nunca se imprimen valores ni líneas.
+- **Esperado de K2:** `k2-archivos-ok`, `k2-patron-ejecutado`, `k2-patron-solo-admitidos`, `k2-d22a-ok` (o `k2-d22a-no-aplica` en la ruta de fallo de R11), `k2-compose-ok`, `k2-env-ok` y `k2-valor-ok`: siete marcas.
 - **Si K2 encuentra algo:** el archivo afectado se retira del material compartido, se avisa y se trata como parada dura de seguridad. No se abre el log en pantalla compartida.
 - La contraseña aleatoria del admin sintético no está en `.env`. La cubre el patrón `"password"`.
 - **K3:** `sha256sum -c` comprueba que ningún log cambió desde que `r()` lo registró. El hash de `SHA256SUMS` se guarda **fuera del host**, por ejemplo en otro equipo o en papel. Sólo así se puede comprobar después que la carpeta de salidas no se alteró (advertencia 9).
@@ -1480,7 +1756,7 @@ Basta con los conteos, las líneas de resumen y la ruta y el hash del log.
 
 ```markdown
 #### Gate Docker POC-3 (ejecución humana, docs/GATE-DOCKER-POC-3.md)
-Ejecutado por: <responsable> · CODEREF: 0bd7071 · HEAD de ejecución: <DOCREF> · Blob del procedimiento: <BLOB>
+Ejecutado por: <responsable> · CODEREF: 0bd7071 · DOCREF_ANT: 2d7aad7 · HEAD de ejecución: <DOCREF> · Blob del procedimiento: <BLOB>
 
 ##### Ejecución 1 (`de692a4`): detenida en D07; evidencia no reutilizable
 Salidas: <S1> · SHA256SUMS: <hash anotado en RP1, copia fuera del host>
@@ -1493,19 +1769,20 @@ Salidas: <S1> · SHA256SUMS: <hash anotado en RP1, copia fuera del host>
 | D07 | `de692a4` | <declarado, distinto de 0> | **FALLIDO** | causa diagnosticada por el responsable y por la corrección (42P02 en `pushSchema`); salida en `S1`, no en el repositorio |
 | D08–K3 | — | — | no ejecutados | |
 
-##### Preparación de la reanudación (sesión RP)
-Salidas: <S_P> · SHA256SUMS: <hash anotado en RP7, copia fuera del host>
+##### Preparación de la reanudación (sesión RP; carpeta nueva `S_P2`)
+Salidas: <S_P2> · SHA256SUMS: <hash anotado en RP7, copia fuera del host> · `S_P` detenida: `20261022T213818Z`, SHA256SUMS `c39d3d1c4a52187a40b968cdabf285b369777e9766ed77cce220cf271200a291` (inmutable, no reutilizable) · Referencias: RP0-referencias.txt
 
 | Paso | Fecha (UTC) | rc | Resultado | Observación | Archivo (sha256) |
 |---|---|---|---|---|---|
-| RP0 | | — | `docref-ok`; BLOB anotado; BLOB = blob comunicado por el orquestador (sí/no); DOCREF contrastado con el comunicado (sí/no) | `DOCREF` completo | — |
-| RP1 | | — | `s1-ok`, `s1-integro`, `d07-registrado`; K2 de `S1` (a lo sumo `A2-compose-resuelto.yaml`; conteo 0; valor vacío) | hash de `S1/SHA256SUMS` | RP1-s1-sha256sums.txt |
-| RP2 | | — | 11 marcas `*-ok` (`rama-orig-ok`, `head-orig-ok`, `code-sha-ok`, `head-fix-ok`, `rama-d07-ok`, `ancestros-ok`, `cadena-ok`, `sin-merges-ok`, `rutas-ok`, `fixture-ok`, `atributos-rp2-ok`), `arbol-orig-limpio` y `docref-solo-docs` | explicación si falta `rama-d07-ok` | RP2-rutas.txt, RP2-rutas-esperadas.txt |
-| RP3 | | — | `REV=de692a4`; A2a vacío; resumen A2b con siete rutas; `evidencia-solo-anade`; diffs completos leídos: corrección D07, pruebas, fixture y adenda de `EVIDENCIA.md` | sin hallazgos / hallazgos | — |
+| RP-pre | | — | shell aparte, sin escritura: `sin-git-env` y nueve marcas `a2a-*`, `a2a-parche-admitido` incluida (10 marcas; sí/no); `type -a git` revisado (sí/no) | si no sale, no se abre `S_P2` y se avisó al orquestador (sí/no); constantes del parche comprobadas por el humano sin sandbox (sí/no) | — |
+| RP0 | | — | `docref-ok`, `sp-det-ok`, `sp-det-hash-ok`, `sp-det-integra`, `rp0-referencias-ok`; BLOB anotado; BLOB = blob comunicado por el orquestador (sí/no); DOCREF contrastado con el comunicado (sí/no) | `DOCREF` completo | RP0-referencias.txt |
+| RP1 | | — | `s1-ok`, `s1-integro`, `d07-registrado`, `rp1-s1-coincide-sp-det` (o `sp-det-sin-rp1-s1`), `s1-solo-regulares`, `s1-manifiesto-formato-ok`, `s1-lista-ok`, `s1-no-inventariados-ok` (n.º de no inventariados: <n>, o `n/d`; previsiblemente `A2a-diff-reciente.patch` y `A2-compose-resuelto.yaml`; cualquier otro nombre, explicado por el responsable); nueve `a2a-*` (`a2a-parche-admitido` incluida); K2 de `S1`: `k2-archivos-ok`, `k2-patron-ejecutado`, `k2-patron-solo-admitidos`, `k2-compose-ok` (o `k2-compose-ausente`), `k2-env-ok`, `k2-valor-ok` (23 marcas) | hash de `S1/SHA256SUMS`; el parche de A2a admitido sí/no; `s1-integro` sólo cubre lo inventariado | RP1-s1-sha256sums.txt, RP1-s1-no-inventariados.txt, RP1-s1-no-inventariados.sha256 |
+| RP2 | | — | 13 marcas `*-ok` (`rama-orig-ok`, `head-orig-ok`, `code-sha-ok`, `head-fix-ok`, `rama-d07-ok`, `ancestros-ok`, `docref-ant-ok`, `cadena-ok`, `sin-merges-ok`, `rutas-ok`, `fixture-ok`, `atributos-rp2-ok`, `docs-commits-ok`), `arbol-orig-limpio` y `docref-solo-docs` (15 en total) | explicación si falta `rama-d07-ok` | RP2-rutas.txt, RP2-rutas-esperadas.txt |
+| RP3 | | — | `REV=de692a4`; A2a vacío; resumen A2b con siete rutas; `evidencia-solo-anade`; diffs completos leídos: corrección D07, pruebas, fixture y adenda de `EVIDENCIA.md`; diff de `poc1a/test/build` (`A2A_DESDE..A2A_HASTA`) y `sin-inyeccion.test.mjs` en `DOCREF` leídos; `sin-inyeccion.test.mjs` revisado (sí/no) | sin hallazgos / hallazgos; RP3 cubre el conjunto completo de A2a sí/no | — |
 | RP4 | | | `respaldo-modo-ok`, `respaldo-dir-ok`, `respaldo-hash-ok`, `respaldo-lista-ok`, `respaldo-lectura-ok`; n.º de tablas | `pg_restore` del host o excepción; versión | RP4-respaldo-lista.txt o RP4-respaldo-lista-db.txt |
 | RP5 | | | B1v; RP5a rc (no bloquea); `proyecto-sin-contenedores`, `sin-montajes-rw` | `down` + A3e, o sólo A3e | RP5a.log, A3e-antes.txt, A3e1.txt, A3e2.txt |
 | RP6 | | | RP6 rc=0; `umask-077`; `arbol-limpio-tras-ff`; `permisos-ok`; `legibles-ok`; `directorios-ok` | propietarios; corrección de permisos sí/no | RP6-merge.txt, RP6-permisos.txt |
-| RP7 | | — | K2 de `S_P` vacío (patrón y valor); `sp-integro` | hash de `SHA256SUMS` anotado fuera del host | SHA256SUMS |
+| RP7 | | — | K2 de `S_P2`: `k2-archivos-ok`, `k2-patron-ejecutado`, `k2-patron-solo-admitidos` (ninguna coincidencia), `k2-env-ok`, `k2-valor-ok`; `sp-integro` | hash de `SHA256SUMS` anotado fuera del host | SHA256SUMS |
 
 ##### Reanudación (código `0bd7071`; HEAD `<DOCREF>`)
 Salidas: <S_R> · SHA256SUMS: <hash, copia fuera del host> · Referencias: R0-referencias.txt
@@ -1513,7 +1790,7 @@ Salidas: <S_R> · SHA256SUMS: <hash, copia fuera del host> · Referencias: R0-re
 | Paso | Unidad / criterio | Fecha (UTC) | HEAD | rc | Conteo / resultado | Observación | Log (sha256) |
 |---|---|---|---|---|---|---|---|
 | A0 | ruta de ejecución y config Git | | | — | `bin-false-ok`, sin `GIT_*`, `g-efectiva-ok`, `atributos-ok`; `grep` de nombres vacío sí/no | explicación de lo que salga; `git --version` y `--exec-path` | A0-git-config-nombres.txt |
-| R0 | referencias (tras A0) | | | — | `head-docref-ok`, `s1-sin-cambios`, `sp-sin-cambios`, `s1-integro`, `sp-integro` | | R0-referencias.txt |
+| R0 | referencias (tras A0) | | | — | `head-docref-ok`, `s1-sin-cambios`, `sp-det-sin-cambios`, `sp-sin-cambios`, `s1-integro`, `sp-det-integra`, `sp-integro`, `s1-no-inventariados-sin-cambios` (o `s1-no-inventariados-vacio`), `r0-referencias-ok` (nueve marcas) | cita `S1`, la `S_P` detenida y `S_P2` con sus hashes | R0-referencias.txt |
 | A3e | contenedores de la era RW (antes de A1) | | | | `proyecto-sin-contenedores` y `sin-montajes-rw` | qué contenedores se retiraron con `docker rm -f` | A3e-antes.txt, A3e1.txt, A3e2-montajes-rw.txt, A3e2.txt |
 | A1 | estado y blob | | | — | blob-ok | | — |
 | A2 | revisión de seguridad | | | — | REV=<…> | sin hallazgos / hallazgos; config Compose conforme | — |
@@ -1556,7 +1833,7 @@ Salidas: <S_R> · SHA256SUMS: <hash, copia fuera del host> · Referencias: R0-re
 | D30 | U9 medición | | | | 150/150, FP 0, errores 0 | mediana de medianas, p95 | |
 | Resto de D09–D30 (D10, D14, D19, D23, D24, D29) | según su sección | | | | según su sección | | |
 | J1–J3 | limpieza | | | | J1 rc=0; J2 rc=0; J3 rc=1 (esperado) | | J1.log, J2.log, J3.log |
-| K1–K3 | integridad y fugas | | | — | guarda vacía; por patrón sólo D22a.log y A2-compose-resuelto.yaml (conteos 0); valor vacío; -c ok | | SHA256SUMS |
+| K1–K3 | integridad y fugas | | | — | guarda vacía; K2: `k2-archivos-ok`, `k2-patron-ejecutado`, `k2-patron-solo-admitidos` (sólo D22a.log y A2-compose-resuelto.yaml), `k2-d22a-ok` (o `k2-d22a-no-aplica`), `k2-compose-ok`, `k2-env-ok`, `k2-valor-ok`; -c ok | `K_RUTA` = normal / fallo-r11 | SHA256SUMS |
 ```
 
 ## Correcciones, huecos y hallazgos detectados al redactar
@@ -1666,7 +1943,7 @@ Los arreglos de H-1 a H-5, H-10 y S-1 son trabajo de jz-implementer, y su priori
   - CO-05 de D26;
   - `build_ms` de D20;
   - las decisiones **D-08** y **D-09**.
-- [ ] **Integridad de la evidencia:** sin `ARBOL ALTERADO` ni `TLS ALTERADO`; K1–K3 conformes; hashes de los `SHA256SUMS` de `S1`, `S_P` y `S_R` guardados fuera del host.
+- [ ] **Integridad de la evidencia:** sin `ARBOL ALTERADO` ni `TLS ALTERADO`; K1–K3 conformes; hashes de los `SHA256SUMS` de `S1`, de la `S_P` detenida (`c39d3d1c…`), de `S_P2` y de `S_R` guardados fuera del host; los no inventariados de `S1` comprobados en R0; K2 con todas sus marcas en RP1, RP7 y K.
 - [ ] **jz-security y jz-qa sin defectos importantes abiertos:** es la propia U10, sobre los logs de este gate, H-3, H-5, H-10 y S-1.
 
 ## Historial de revisiones
@@ -1686,3 +1963,4 @@ Los arreglos de H-1 a H-5, H-10 y S-1 son trabajo de jz-implementer, y su priori
 | Reanudación con I-A4T/HP-21 (`0bd7071`) | jz-architect | `CODEREF` pasa de `42d7229` a `0bd7071` (cabecera, A1, R0, R2 y plantilla); `DOCREF` lo obtiene el humano tras el commit de `docs/`. Verificación de agentes sobre `0bd7071` (332/332 con Node 20.19; no es un paso del gate) y el dato sobre `42d7229` como registro histórico. RP0 con `D07_SHA`, `DOCS_D07_SHA` y `CODE_SHA`; RP2 con `rama-d07-ok`, `cadena-ok`, `sin-merges-ok`, nueve rutas y `fixture-ok` (trece marcas); RP3 con los diffs de pruebas, fixture y `EVIDENCIA.md`, y `evidencia-solo-anade`; RP6 con el directorio `fixtures` en 755. Decisión 2 (el fixture no es un manifiesto y A4 no se repite). R12 con el diagnóstico opcional D11pre (clase Docker; suprimido en el ciclo de corrección 1 de U3). Incidencias: I-A4T y HP-21 corregidas en `0bd7071`; O1, O-3 y M-C nuevas y abiertas. Decisiones: D11 frente a O1/O-3 y regresión en Node 24, ambas pendientes. Criterio de cierre: la suite hay que repetirla sobre `DOCREF`, porque las pruebas leen este documento. Sin ejecución del gate |
 | Reanudación con I-A4T/HP-21, ciclo de corrección 1 (U3) | jz-qa y jz-security | **QA:** O1 completa (además de `gate-a4-git` y `docs-write-isolation`, leen fuera de `/app` `retirada-r1`, `guardas-base` y `poc-sh-aislamiento`) y reformulada como «pruebas que leen fuera de `/app`»; nueva O-4 (`/tmp` `noexec` en `app`) con causa `EACCES` en R12/D11; límite de cobertura (esas pruebas sólo se validan con `jz-run` en el árbol Git del host) y diferencia de aislamiento; `skipIf(!hayOpenssl)` de `tls-efimera` y skipped anotados; citas de la verificación de `listFilesOnly` (otra huella: debe repetirse sobre `DOCREF`); origen no versionado de las revisiones de U1/U2; repetición de la suite sobre `DOCREF` por agentes tras su commit y antes de RP0. **Seguridad:** D11pre suprimido (M3: evita un `push` más sobre `poc3_intake` por `verificar-db.ts`; las causas salen de `D11.log`, con «causa indeterminada» si no se determinan); I-A4T (a) como «verde con exclusiones» con mecanismo explícito (M2); regresión Node 24 en contenedor desechable aparte (M1); blob de este documento comunicado y comparado en RP0 (O1); `fixture-ok` con `"$BASE_SHA~1"` (O2); «Node 20 del host» en el texto nuevo. Esta fila sustituye lo que dice la fila anterior sobre D11pre y sobre O1/O-3. Sin ejecución del gate |
 | Reanudación con I-A4T/HP-21, ciclo de corrección 2 (U3) | jz-qa y jz-security | **QA:** D11 «se intenta verificar; no concluyente mientras O1, O-3 y O-4 sigan abiertas» (clasificación, párrafo de I-A4T y fila R12), coherente con la incidencia I-A4T; «Node 20.19» deja de figurar en texto vigente (queda como registro histórico no verificable, y la fila de historial de `0bd7071` lo conserva sólo como dato antiguo). **Seguridad:** plantilla RP0 con BLOB comunicado y DOCREF contrastado (sí/no); etiquetas «observación de seguridad U3-O1/U3-O2» para no chocar con las incidencias O1/O-3/O-4; RP2 con la salvedad de `rama-d07-ok`; condiciones de la fila I-A4T de «Decisiones humanas» para la opción (a); `rev-parse --verify` en el blob de RP0; regresión Node 24 con `npm ci` del lockfile verificado, `--cap-drop ALL` y `no-new-privileges`. Sin ejecución del gate |
+| RP1-K2 (corrección documental sobre `2d7aad7`), con los ciclos de corrección 1 y 2 | jz-implementer; revisión de los ciclos 1 y 2 de jz-qa y jz-security (hallazgos aplicados abajo); re-revisión de ambos pendiente | Auditoría humana de la `S_P` detenida: el K2 por patrón de RP1 casó con `S1/A2a-diff-reciente.patch`, falso positivo estructural (idéntico al diff de Git). **RP1:** inventario de `S1` (sólo archivos regulares, formato del manifiesto, no inventariados registrados sólo en `S_P2`; `s1-integro` no es una integridad completa); admisión del parche por comprobaciones deterministas (sha256, referencias, atributos, regeneración con opciones explícitas, 8 de 9 secciones, `grep -c` y `A2A_K2_SHA`) con una variable que sólo se fija al final de la cadena; tabla de las nueve coincidencias. **K2 en RP1, RP7 y K:** falla cerrado (recuento independiente de archivos, rc del `grep` capturado, comparación por programa con la lista admitida, `.env` equivalente a B1v, valores en memoria sin línea de órdenes, `k2-valor-ok` sólo con rc=1 y salida vacía, `D22a.log` obligatorio salvo `fallo-r11`). **A2a:** el parche omitía `poc1a/test/build/sin-inyeccion.test.mjs`; RP3 añade su lectura obligatoria. **Cadena:** `DOCREF_ANT` (`2d7aad7`) entre `CODE_SHA` y `DOCREF` (siete commits, dos de sólo docs); `docref-ant-ok` y `docs-commits-ok` (quince marcas en RP2). **`S_P2`:** sesión nueva; RP0 comprueba la `S_P` detenida en sólo lectura y escribe `RP0-referencias.txt`; R0 cita `S_P2` y la detenida con sus hashes y comprueba los no inventariados. **Hallazgos de ambos ciclos y su estado:** QA B1, I1–I5, M1–M8 (M8 = K1 preexistente, fuera de alcance, queda como seguimiento) y N1–N7 (N6 y N7 no aplicados: N6 queda cubierto por `cmp` y N7 es preexistente y aceptado); Seg I-1, M-1–M-6 y O-1–O-7 (O-3 no aplicado, aceptado; O-6, la barra final, queda como observación). **Ciclo de corrección 2 (QA N1–N5; Seg M-4 parcial, O-5, línea 180):** la lectura manual de las nueve coincidencias pasa de «verificado por el orquestador» a «no verificado por ningún agente»; se lista lo que el orquestador verificó por consulta directa de Git (sin log de `jz-run`); `DOCREF_ANT_BLOB` entra entre los valores que aportó el orquestador; la comprobación humana previa al commit cubre las constantes y la tabla, y RP-pre y RP1 repiten sólo la de las constantes; salvaguarda: si esa comprobación discrepa no se hace el commit; `{ set +x +v; } 2>/dev/null` al principio de cada bloque K2 (RP1, RP7 y K); `unset k2_lin` junto a `unset k2_vals k2_v`; RP-pre con `set -o pipefail`, `sin-git-env` y `type -a git` (diez marcas) y su riesgo residual declarado. **Ciclo de corrección 1 (QA B1, I1, I3, I4, M1–M7; Seg I-1, M-1–M-6, O-1, O-2, O-6, O-7):** procedencia honesta de las constantes del parche (qué verificó el orquestador con Git y qué no) y salvaguarda contra recalcularlas sin nueva revisión; RP-pre, preverificación del parche sin escritura antes de abrir `S_P2`; fallo cerrado de verdad en el inventario (`rp1_nl`: un nombre con salto de línea impide `s1-lista-ok` y `s1-no-inventariados-ok`; manifiesto leído aunque no acabe en salto de línea; eco `n/d`) y en K2 (nombres con salto de línea, `pipefail`, `k2_ruta` en K); `set -C` efectivo en RP1 (`&& … || exit 1`); `"${S:?}/…"` en los destinos nuevos de RP0, RP1 y R0; traza desactivada antes de leer los valores del `.env`; `rp0-referencias-ok` y `r0-referencias-ok` encadenados a sus precondiciones (R0 pasa a nueve marcas); `--strict` sólo en los `sha256sum -c` nuevos; lectura de las nueve rutas con `mapfile`; nombres impresos con `printf '%q'`; prosa de las opciones de `g diff` corregida (qué configuración sigue importando); no inventariados previsibles y alcance de `sp-det-integra`. **Hashes y tabla de coincidencias aún pendientes de comprobación humana antes del commit.** Sin cambios de código ni de pruebas, sin ejecución del gate y sin dar RP1 por aprobado |
