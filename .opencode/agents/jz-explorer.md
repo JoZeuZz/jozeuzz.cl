@@ -10,6 +10,18 @@ permission:
     "*": allow
     "*.env": deny
     "*.env.*": deny
+    "*.pem": deny
+    "*.key": deny
+    "*.p12": deny
+    "*.pfx": deny
+    "id_rsa*": deny
+    "*/id_rsa*": deny
+    "id_ed25519*": deny
+    "*/id_ed25519*": deny
+    "id_ecdsa*": deny
+    "*/id_ecdsa*": deny
+    "id_dsa*": deny
+    "*/id_dsa*": deny
     "*.env.example": allow
   glob: allow
   grep: allow

@@ -120,3 +120,39 @@ test('settings.json: los hooks PreToolUse bloquean si fallan, no arrancan o agot
     assert.notEqual(h.async, true, 'onFailure no se aplica a hooks asíncronos');
   }
 });
+
+// I1-FIX D: el git de consulta de la sesión (git status, diff, log en el host) no toma locks opcionales ni
+// ejecuta el fsmonitor del repositorio.
+test('settings.json: el entorno de Claude Code desactiva locks opcionales y fsmonitor de git', () => {
+  const { env } = JSON.parse(fs.readFileSync(path.join(SRC, '.claude/settings.json'), 'utf8'));
+  assert.equal(env.GIT_OPTIONAL_LOCKS, '0');
+  assert.equal(env.GIT_CONFIG_COUNT, '1');
+  assert.equal(env.GIT_CONFIG_KEY_0, 'core.fsmonitor');
+  assert.equal(env.GIT_CONFIG_VALUE_0, 'false');
+  assert.equal(env.CDPATH, '', 'cd no salta a directorios de CDPATH');
+});
+
+// QA F7: comportamiento, no sólo configuración: con ese entorno, git status no ejecuta el fsmonitor del
+// repositorio; sin él, sí (control positivo).
+test('settings.json: con su entorno, git status no ejecuta el fsmonitor del repositorio', () => {
+  const { env } = JSON.parse(fs.readFileSync(path.join(SRC, '.claude/settings.json'), 'utf8'));
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'jz-hook-git-')));
+  try {
+    const marker = path.join(repo, '..', `${path.basename(repo)}-fsmonitor`);
+    // Sin el GIT_* heredado: la propia sesión puede tener ya el entorno de settings.json.
+    const base = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+    const g = (args, extra = {}) => spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8',
+      env: { ...base, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...extra } });
+    g(['init', '-q']);
+    fs.writeFileSync(path.join(repo, 'a'), 'a\n');
+    fs.writeFileSync(path.join(repo, 'fsm.sh'), `#!/bin/sh\necho x >> '${marker}'\nexit 1\n`, { mode: 0o755 });
+    g(['config', 'core.fsmonitor', path.join(repo, 'fsm.sh')]);
+    g(['status', '--short'], env);
+    assert.equal(fs.existsSync(marker), false, 'fsmonitor ejecutado con el entorno de settings.json');
+    g(['status', '--short']);
+    assert.equal(fs.existsSync(marker), true, 'control: sin ese entorno el fsmonitor sí se ejecuta');
+    fs.rmSync(marker, { force: true });
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});

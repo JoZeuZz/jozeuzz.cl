@@ -2,13 +2,15 @@
 # jz-lock — consulta o libera el bloqueo de escritor único (.jz-state/writer.lock).
 # Lo adquieren y liberan automáticamente el hook de Claude Code y el plugin de OpenCode al delegar en
 # un escritor (jz-implementer*, jz-architect). "release" es para el humano o la recuperación manual
-# y se niega si el proceso titular sigue vivo, salvo con --force.
+# y se niega si el proceso titular sigue vivo, salvo con --force. También retira el mutex de una recuperación
+# de huérfano interrumpida (writer.lock.recover), que mientras exista impide adquirir el bloqueo.
 # Uso: .jz/bin/jz-lock status | release [--force]
 set -euo pipefail
 
 SELF=$(readlink -f "${BASH_SOURCE[0]}")
 WT=$(cd "$(dirname "$SELF")/../.." && pwd -P)
 LOCK=$WT/.jz-state/writer.lock
+RECOVER=$LOCK.recover
 
 case ${1:-status} in
   status)
@@ -20,6 +22,7 @@ case ${1:-status} in
     fi
     ;;
   release)
+    if [[ -f $RECOVER ]]; then rm -f "$RECOVER"; echo "mutex de recuperación retirado"; fi
     [[ -f $LOCK ]] || { echo "sin bloqueo"; exit 0; }
     if kill -0 "$(jq -r .pid "$LOCK")" 2>/dev/null && [[ ${2:-} != --force ]]; then
       echo "jz-lock: el titular sigue vivo; usa --force sólo si confirmaste que no está escribiendo" >&2

@@ -30,7 +30,8 @@ function makeFixture(engine) {
   fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
   fs.mkdirSync(alien);
   fs.writeFileSync(path.join(alien, 'secreto.txt'), 'SECRETO-FICTICIO-42\n');
-  for (const p of ['.claude/agents', '.claude/settings.json', '.opencode/agents', '.opencode/plugins', '.jz/bin',
+  for (const p of ['.claude/agents', '.claude/settings.json', '.opencode/agents', '.opencode/plugins',
+    '.opencode/jz-permissions.json', '.jz/bin',
     '.jz/hooks', '.jz/lib', '.jz/policy', 'AGENTS.md', 'CLAUDE.md', '.gitignore']) {
     fs.cpSync(path.join(SRC, p), path.join(repo, p), { recursive: true });
   }

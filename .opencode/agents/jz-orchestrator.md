@@ -10,6 +10,18 @@ permission:
     "*": allow
     "*.env": deny
     "*.env.*": deny
+    "*.pem": deny
+    "*.key": deny
+    "*.p12": deny
+    "*.pfx": deny
+    "id_rsa*": deny
+    "*/id_rsa*": deny
+    "id_ed25519*": deny
+    "*/id_ed25519*": deny
+    "id_ecdsa*": deny
+    "*/id_ecdsa*": deny
+    "id_dsa*": deny
+    "*/id_dsa*": deny
     "*.env.example": allow
   glob: allow
   grep: allow
@@ -29,38 +41,13 @@ permission:
   question: deny
   webfetch: deny
   websearch: deny
+  # Sin el plugin jz-guard (--pure, ausente o con error) el perfil es de sólo lectura y sólo delega en
+  # especialistas de lectura. Al cargarse, el plugin aplica bash y task desde .opencode/jz-permissions.json.
   edit: deny
-  # Lista blanca; el plugin .opencode/plugins/jz-guard.js analiza además cada comando completo.
-  bash:
-    "*": deny
-    ".jz/bin/jz-state": allow
-    ".jz/bin/jz-state *": allow
-    ".jz/bin/jz-checkpoint *": allow
-    ".jz/bin/jz-lock status": allow
-    "ls": allow
-    "ls *": allow
-    "pwd": allow
-    "echo *": allow
-    "git status*": allow
-    "git diff*": allow
-    "git log*": allow
-    "git show*": allow
-    "git rev-parse*": allow
-    "git ls-files*": allow
-    "git blame*": allow
-    "git branch --show-current": allow
-    "git worktree list*": allow
-    "git remote": allow
-    "git remote -v": allow
-    "git * --output*": deny
-    "git * --no-index*": deny
-  # Sólo delega en los especialistas del proyecto; los subagentes no delegan.
+  bash: deny
   task:
     "*": deny
-    "jz-architect": allow
     "jz-explorer": allow
-    "jz-implementer": allow
-    "jz-implementer-copilot": allow
     "jz-security": allow
     "jz-qa": allow
 ---

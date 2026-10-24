@@ -36,7 +36,7 @@ El orquestador es la sesión principal iniciada con `claude --agent jz-orchestra
 | `jz-security` | subagent | `github-copilot/claude-sonnet-4.6` | deny | deny | deny |
 | `jz-qa` | subagent | `openai/gpt-5.6-terra` | deny | deny | deny |
 
-Desde el 2026-10-16, cada perfil parte de `"*": deny`, que anula el `"*": allow` y el `external_directory: allow` de la configuración global, y el plugin `.opencode/plugins/jz-guard.js` aplica la misma política por rol que Claude Code (`docs/AUTONOMIA-JZ.md`). `webfetch` está denegado en todos los perfiles. Los subagentes tienen `task: deny` porque, sin esa regla, heredaban `task: allow`: un perfil de lectura podría haber obtenido escritura delegando en otro agente. El orquestador sólo puede delegar en `jz-*`, no en los agentes genéricos del host.
+Desde el 2026-10-16, cada perfil parte de `"*": deny`, que anula el `"*": allow` y el `external_directory: allow` de la configuración global, y el plugin `.opencode/plugins/jz-guard.js` aplica la misma política por rol que Claude Code (`docs/AUTONOMIA-JZ.md`). `webfetch` está denegado en todos los perfiles. Los subagentes tienen `task: deny` porque, sin esa regla, heredaban `task: allow`: un perfil de lectura podría haber obtenido escritura delegando en otro agente. El orquestador sólo puede delegar en `jz-*`, no en los agentes genéricos del host. Desde JZ-I1-FIX-001 (2026-10-24) los perfiles son la base de sólo lectura que rige si el plugin no carga; la shell, la escritura y la delegación en escritores las aplica el plugin desde `.opencode/jz-permissions.json` (`docs/AUTONOMIA-JZ.md` §2).
 
 ## 3. Validación realizada
 
@@ -99,7 +99,7 @@ Configuración descrita en `docs/AUTONOMIA-JZ.md`. Pruebas reproducibles en `.jz
 
 - **Ejecución de pruebas:** las ejecuta el implementador con `.jz/bin/jz-run`, un ejecutor aislado por espacios de nombres (sin red, sin capacidades, sin acceso fuera del worktree). Cada ejecución queda registrada en `.jz-state/runs.jsonl` con la huella del árbol, y QA y el orquestador verifican sobre ese registro, que ningún agente puede escribir.
 - **Implementadores:** desde el 2026-10-16 ya no tienen `bash: allow`, sino una lista blanca: `jz-run` y git local sin operaciones destructivas. El entorno corre como root por decisión del operador (`ORQUESTACION-IA-PROPUESTA.md` §5); el aislamiento real lo aporta `jz-run`, no el worktree.
-- **Orquestador de OpenCode:** se resolvió el problema de `ask` en `opencode run`. `edit` está en `deny` y `bash` admite sólo una lista blanca de lectura (`git status*`, `git diff*`, `git log*`… y `jz-state`), así que no hay ninguna solicitud que se rechace sola. No ejecuta pruebas: verifica con `jz-state`.
+- **Orquestador de OpenCode:** se resolvió el problema de `ask` en `opencode run`. `edit` está en `deny` y `bash` admite sólo una lista blanca de lectura (`git status *`, `git diff *`, `git log *`… y `jz-state`; antes de JZ-I1-FIX-001 eran `git status*`…, que también admitían `git difftool`), así que no hay ninguna solicitud que se rechace sola. No ejecuta pruebas: verifica con `jz-state`.
 - **Autonomía y límites:** ver `docs/AUTONOMIA-JZ.md` §3 (operaciones que requieren humano) y §8 (limitaciones).
 - **Contexto global:** ambos motores siguen cargando las skills, plugins e instrucciones globales del host (incluidas las de caveman). Los perfiles no los desactivan.
 - **Modelo efectivo:** se comprobó en estas pruebas, pero un cambio de catálogo o de cuota puede alterarlo. Conviene repetir O1 y C1 después de actualizar cualquiera de los motores.

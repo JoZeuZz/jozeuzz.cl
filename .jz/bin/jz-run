@@ -11,7 +11,8 @@
 #   - el proceso final no tiene capacidades (bounding set vacío, no_new_privs) y su entorno
 #     se reinicia (no hereda tokens ni variables del agente).
 # Al terminar registra el resultado real en .jz-state/runs.jsonl y pone en cuarentena
-# cualquier ruta del plano de control creada o enlace simbólico nuevo que apunte fuera del worktree.
+# cualquier ruta del plano de control creada o enlace simbólico nuevo que apunte fuera del worktree o al plano
+# de control.
 #
 # Uso: .jz/bin/jz-run [--cwd <subdirectorio>] [--] <comando> [argumentos...]
 #      .jz/bin/jz-run --fingerprint   (huella del árbol actual, la que registra cada ejecución)
@@ -108,6 +109,13 @@ fi
 WT=$(cd "$(dirname "$SELF")/../.." && pwd -P)
 STATE=$WT/.jz-state
 
+# Git de consulta con entorno limpio: no hereda GIT_DIR ni GIT_WORK_TREE del motor, no lee la configuración
+# global ni de sistema, no ejecuta fsmonitor ni hooks y no toma locks opcionales.
+hgit() {
+  env -i PATH=/usr/bin:/bin LC_ALL=C GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_OPTIONAL_LOCKS=0 \
+    GIT_TERMINAL_PROMPT=0 git --no-pager -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$WT" "$@"
+}
+
 # Sin git status/diff ni sha256sum sobre nombres del árbol: no ejecuta filtros, fsmonitor ni opciones
 # inyectadas, ni sigue enlaces (ver .jz/lib/tree.mjs).
 tree_fingerprint() {
@@ -142,11 +150,19 @@ control_snapshot() {
   done
 }
 
+# Enlaces que apuntan fuera del worktree o al plano de control: una edición posterior a través de ellos, fuera
+# del sandbox, escribiría donde el agente no puede.
 outside_symlinks() {
-  local l t
+  local l t p
   while IFS= read -r -d '' l; do
     t=$(readlink -m "$l")
-    case "$t/" in "$WT"/*) ;; *) printf '%s\n' "${l#"$WT"/}" ;; esac
+    case "$t/" in
+      "$WT"/*)
+        for p in "${PROTECTED[@]}"; do
+          case "$t/" in "$WT/$p"/*) printf '%s\n' "${l#"$WT"/}"; break ;; esac
+        done ;;
+      *) printf '%s\n' "${l#"$WT"/}" ;;
+    esac
   done < <(find "$WT" -path "$WT/.jz-state" -prune -o -type l -print0)
 }
 
@@ -154,7 +170,7 @@ outside_symlinks() {
 mkdir -p "$STATE/runs"
 ts=$(date -u +%Y%m%dT%H%M%SZ)
 log=$STATE/runs/$ts-$$.log
-head=$(git -C "$WT" rev-parse --short HEAD 2>/dev/null || echo none)
+head=$(hgit rev-parse --short HEAD 2>/dev/null || echo none)
 fp=$(tree_fingerprint)
 before_ctl=$(control_snapshot)
 before_links=$(outside_symlinks)

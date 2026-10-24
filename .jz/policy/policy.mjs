@@ -4,6 +4,7 @@
 // de OpenCode (.opencode/plugins/jz-guard.js). No depende del modelo ni del modo de permisos:
 // devuelve "allow" para el trabajo ordinario dentro del alcance (sin preguntar) y "deny" para
 // lo demás. Las reglas nativas de cada motor son la primera barrera; ésta es la segunda.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -163,6 +164,8 @@ export function tokenize(cmd) {
     }
     if (';&|<>()$`\\!{}\n\r'.includes(c)) return null;
     if (c === '~' && cur === null) return null;
+    // Comodines sin comillas: el shell los expande después de validar (echo /root/.ssh/*).
+    if ('*?['.includes(c)) return null;
     cur = (cur ?? '') + c;
   }
   push();
@@ -219,7 +222,14 @@ const GIT_WRITE = new Set(['add', 'commit', 'rm', 'mv', 'restore']);
 const BRANCH_READ = new Set(['--show-current', '--list', '-l', '-a', '--all', '-r', '--remotes', '-v', '-vv',
   '--verbose', '--contains', '--merged', '--no-merged', '--no-color', '--format']);
 
-function checkGit(argv) {
+// Opciones largas que escriben o leen archivos arbitrarios, o ejecutan programas externos. git acepta también
+// cualquier prefijo único (blame --cont=<archivo>): se deniega todo prefijo de cuatro o más caracteres.
+export const GIT_DENIED_LONG = ['--output', '--no-index', '--ext-diff', '--exec', '--upload-pack', '--receive-pack',
+  '--contents', '--exclude-from', '--pathspec-from-file', '--ignore-revs-file'];
+// Opciones cortas que leen un archivo, solas o agrupadas (-S<archivo>, -wS <archivo>).
+const GIT_DENIED_SHORT = { blame: /^-[^-]*S/, 'ls-files': /^-[^-]*X/, diff: /^-[^-]*O/, log: /^-[^-]*O/, show: /^-[^-]*O/ };
+
+function checkGit(argv, ctx, cwd) {
   let i = 1;
   while (argv[i] === '--no-pager') i++;
   const sub = argv[i];
@@ -227,10 +237,17 @@ function checkGit(argv) {
   if (!sub || sub.startsWith('-')) return deny(`opción global de git no permitida: ${sub ?? '(vacía)'}`);
   for (const a of args) {
     const flag = a.split('=')[0];
-    // Opciones que escriben o leen archivos arbitrarios, o ejecutan programas externos.
-    if (['--output', '--no-index', '--ext-diff', '--exec', '--upload-pack', '--receive-pack', '--contents',
-      '--exclude-from', '--pathspec-from-file', '--ignore-revs-file'].includes(flag)) {
+    if (GIT_DENIED_LONG.includes(flag)
+      || (flag.startsWith('--') && flag.length >= 4 && GIT_DENIED_LONG.some((d) => d.startsWith(flag)))
+      || GIT_DENIED_SHORT[sub]?.test(a)) {
       return deny(`opción de git no permitida: ${a}`);
+    }
+    // Una ruta fuera del worktree convierte git diff en diff sin índice (lee cualquier archivo) y, en los demás
+    // subcomandos, apunta fuera del repositorio. Las revisiones (HEAD~1, main..x, HEAD:ruta) resuelven dentro.
+    if (!a.startsWith('-')) {
+      const real = realResolve(a, cwd);
+      if (!inside(real, ctx.wt)) return deny(`git: ruta fuera del worktree: ${a}`);
+      if (isSecret(path.relative(ctx.wt, real))) return deny(`git: ruta de secreto bloqueada: ${a}`);
     }
   }
   if (GIT_READ.has(sub)) return allow(`git ${sub} (lectura)`);
@@ -273,7 +290,7 @@ function checkCommand(argv, bashRole, ctx, cwd) {
   }
   if (argv.some((a) => a.includes('$?')) && exe !== 'echo') return deny('$? sólo se admite en echo');
   if (exe === 'echo') return allow('echo');
-  if (exe === 'git') return checkGit(argv);
+  if (exe === 'git') return checkGit(argv, ctx, cwd);
   if (exe === 'pwd') return argv.length === 1 ? allow('pwd') : deny('pwd sin argumentos');
   if (exe === 'ls') {
     for (const a of argv.slice(1)) {
@@ -292,12 +309,15 @@ export function checkBash(cmd, role, ctx) {
   const bashRole = ROLES[role]?.bash;
   if (!bashRole) return deny(`${role} no tiene shell`);
   if (typeof cmd !== 'string') return deny('comando vacío');
+  // Antes que el comando: un directorio de trabajo externo (por «..» o por un enlace) daría acceso a otro
+  // repositorio aunque el comando sea de lectura.
+  let cwd = realResolve(ctx.cwd ?? ctx.wt, ctx.wt);
+  if (!inside(cwd, ctx.wt)) return deny(`directorio de trabajo fuera del worktree: ${cwd}`);
   const segments = parse(cmd.trim());
   if (!segments) {
     return deny('sintaxis de shell no admitida: sólo comandos simples unidos con &&, || o ; y filtros con |; '
       + 'sin &, redirecciones a archivo, $(), comillas invertidas, variables (salvo $?) ni subshells');
   }
-  let cwd = ctx.cwd;
   const reasons = [];
   for (const seg of segments) {
     const [first, ...filters] = seg;
@@ -310,8 +330,11 @@ export function checkBash(cmd, role, ctx) {
     const argv = first.map((t) => (t.heredoc !== undefined ? t.heredoc : t));
     if (argv[0] === 'cd') {
       if (argv.length !== 2 || filters.length) return deny('cd requiere un único destino');
+      // cd - y cd ±N saltan a $OLDPWD o a la pila de directorios, no a la ruta escrita.
+      if (/^[-+]/.test(argv[1])) return deny(`cd no admite opciones ni ${argv[1]}`);
       const dest = realResolve(argv[1], cwd);
       if (!inside(dest, ctx.wt)) return deny(`cd fuera del worktree: ${argv[1]}`);
+      if (!fs.statSync(dest, { throwIfNoEntry: false })?.isDirectory()) return deny(`cd: no es un directorio: ${argv[1]}`);
       cwd = dest;
       continue;
     }
@@ -362,45 +385,140 @@ export function readLock(wt) {
   }
 }
 
+const readRaw = (wt) => {
+  try {
+    return fs.readFileSync(lockPath(wt), 'utf8');
+  } catch (e) {
+    if (e.code === 'ENOENT') return null;
+    throw e;
+  }
+};
+
+// Mutex del bloqueo: quien lo crea es el único que puede retirar un huérfano, liberar o reescribir el bloqueo.
+// Crear el bloqueo no lo necesita: sólo tiene éxito si no existe. Si un proceso muere con el mutex tomado,
+// esas operaciones quedan denegadas hasta que el humano ejecute jz-lock release.
+export function recoverPath(wt) {
+  return `${lockPath(wt)}.recover`;
+}
+
+const MUTEX_WAIT_MS = 200;
+// Un bloqueo ilegible más reciente que esto se considera de otro escritor a medio crear (versión anterior o
+// escritura ajena); más antiguo, huérfano.
+const UNREADABLE_GRACE_MS = 60_000;
+const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+// Ejecuta fn con el mutex tomado; devuelve { busy: true } si no se obtiene a tiempo.
+function withMutex(wt, fn) {
+  const token = `${process.pid} ${crypto.randomUUID()}\n`;
+  const deadline = Date.now() + MUTEX_WAIT_MS;
+  for (;;) {
+    try {
+      fs.writeFileSync(recoverPath(wt), token, { flag: 'wx' });
+      break;
+    } catch (e) {
+      if (e.code !== 'EEXIST' || Date.now() >= deadline) return { busy: true, error: e };
+      pause(5);
+    }
+  }
+  try {
+    return { value: fn() };
+  } finally {
+    // Sólo el propio: el humano pudo retirarlo con jz-lock release mientras tanto.
+    try {
+      if (fs.readFileSync(recoverPath(wt), 'utf8') === token) fs.unlinkSync(recoverPath(wt));
+    } catch {
+      // Ya no existe.
+    }
+  }
+}
+
+const mutexDenied = (wt, r) => deny(r.error?.code === 'EEXIST'
+  ? 'otra operación sobre el bloqueo de escritor está en curso o quedó interrumpida '
+    + `(${path.relative(wt, recoverPath(wt))}); si no hay ningún escritor activo, el humano ejecuta .jz/bin/jz-lock release`
+  : `no se pudo tomar el mutex del bloqueo de escritor: ${r.error?.message}`);
+
+// Retira el bloqueo huérfano leído (seen) sólo si sigue siendo el mismo: entre la lectura y el borrado otro
+// proceso pudo recuperarlo y adquirir el suyo. Con el mutex tomado nadie más puede borrarlo ni reescribirlo,
+// y nadie puede crear otro mientras exista. Devuelve una denegación o null para reintentar.
+function reapOrphan(wt, seen) {
+  const r = withMutex(wt, () => {
+    if (readRaw(wt) === seen) fs.unlinkSync(lockPath(wt));
+  });
+  if (r.busy) return mutexDenied(wt, r);
+  return null;
+}
+
 // holder: { engine, pid, session, agent, call }
+// El bloqueo se escribe en un temporal y se enlaza con link(2), que falla si ya existe: nunca hay un bloqueo
+// visible a medio escribir.
 export function acquireWriter(wt, holder) {
   fs.mkdirSync(path.dirname(lockPath(wt)), { recursive: true });
   const data = JSON.stringify({ ...holder, since: new Date().toISOString() }) + '\n';
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      fs.writeFileSync(lockPath(wt), data, { flag: 'wx' });
-      return allow(`bloqueo de escritor adquirido por ${holder.agent}`);
-    } catch (e) {
-      if (e.code !== 'EEXIST') return deny(`no se pudo crear el bloqueo de escritor: ${e.message}`);
-      const cur = readLock(wt);
+  const tmp = `${lockPath(wt)}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(tmp, data, { flag: 'wx' });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        fs.linkSync(tmp, lockPath(wt));
+        return allow(`bloqueo de escritor adquirido por ${holder.agent}`);
+      } catch (e) {
+        if (e.code !== 'EEXIST') return deny(`no se pudo crear el bloqueo de escritor: ${e.message}`);
+      }
+      let seen;
+      let mtime;
+      try {
+        seen = readRaw(wt);
+        mtime = seen === null ? 0 : fs.statSync(lockPath(wt)).mtimeMs;
+      } catch (e) {
+        if (e.code === 'ENOENT') continue;
+        return deny(`no se pudo leer el bloqueo de escritor: ${e.message}`);
+      }
+      if (seen === null) continue; // liberado entre medias
+      let cur = null;
+      try {
+        cur = JSON.parse(seen);
+      } catch {
+        if (Date.now() - mtime < UNREADABLE_GRACE_MS) {
+          return deny('el bloqueo de escritor es ilegible y reciente (otro escritor podría estar creándolo); '
+            + 'reintenta más tarde o, si no hay ningún escritor, el humano ejecuta .jz/bin/jz-lock release');
+        }
+      }
       if (cur && pidAlive(cur.pid)) {
         return deny(`otro escritor está activo en este worktree: ${cur.agent} (${cur.engine}, pid ${cur.pid}, `
           + `desde ${cur.since}). Espera a que termine; no lances escritores en paralelo.`);
       }
       // Bloqueo huérfano: su proceso ya no existe.
-      fs.rmSync(lockPath(wt), { force: true });
+      const r = reapOrphan(wt, seen);
+      if (r) return r;
     }
+    return deny('no se pudo adquirir el bloqueo de escritor');
+  } catch (e) {
+    return deny(`no se pudo crear el bloqueo de escritor: ${e.message}`);
+  } finally {
+    fs.rmSync(tmp, { force: true });
   }
-  return deny('no se pudo adquirir el bloqueo de escritor');
 }
 
 // OpenCode: el bloqueo lo adquiere la sesión que delega; la sesión del subagente escritor se conoce después,
 // con su primera petición al modelo. Se vincula una sola vez, y sólo si coincide el titular.
 export function bindWriterSession(wt, match, session) {
-  const cur = readLock(wt);
-  if (!cur || cur.writer_session || !Object.entries(match).every(([k, v]) => cur[k] === v)) return false;
-  const tmp = `${lockPath(wt)}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify({ ...cur, writer_session: session }) + '\n');
-  fs.renameSync(tmp, lockPath(wt));
-  return true;
+  const r = withMutex(wt, () => {
+    const cur = readLock(wt);
+    if (!cur || cur.writer_session || !Object.entries(match).every(([k, v]) => cur[k] === v)) return false;
+    const tmp = `${lockPath(wt)}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ ...cur, writer_session: session }) + '\n');
+    fs.renameSync(tmp, lockPath(wt));
+    return true;
+  });
+  return r.busy ? false : r.value;
 }
 
 export function releaseWriter(wt, match) {
-  const cur = readLock(wt);
-  if (!cur) return false;
-  if (Object.entries(match).every(([k, v]) => cur[k] === v)) {
-    fs.rmSync(lockPath(wt), { force: true });
+  const r = withMutex(wt, () => {
+    const cur = readLock(wt);
+    if (!cur || !Object.entries(match).every(([k, v]) => cur[k] === v)) return false;
+    fs.unlinkSync(lockPath(wt));
     return true;
-  }
-  return false;
+  });
+  return r.busy ? false : r.value;
 }

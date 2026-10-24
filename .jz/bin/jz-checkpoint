@@ -28,6 +28,10 @@ case $state in validado|incompleto|bloqueado|cuota) ;; *)
   echo "jz-checkpoint: --state debe ser validado, incompleto, bloqueado o cuota" >&2; exit 2 ;;
 esac
 [[ -n $unit ]] || { echo "jz-checkpoint: falta --unit" >&2; exit 2; }
+# Los campos declarados ocupan una línea: un salto de línea fabricaría campos o veredictos en LATEST.md.
+oneline() { local v=${1//$'\r'/ }; printf '%s' "${v//$'\n'/ }"; }
+unit=$(oneline "$unit") next=$(oneline "$next")
+for i in "${!issues[@]}"; do issues[i]=$(oneline "${issues[i]}"); done
 if [[ -n $note ]]; then
   note_real=$(readlink -m "$WT/$note")
   case "$note_real" in "$STATE/notes/"*) ;; *)

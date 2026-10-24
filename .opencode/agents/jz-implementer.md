@@ -10,6 +10,18 @@ permission:
     "*": allow
     "*.env": deny
     "*.env.*": deny
+    "*.pem": deny
+    "*.key": deny
+    "*.p12": deny
+    "*.pfx": deny
+    "id_rsa*": deny
+    "*/id_rsa*": deny
+    "id_ed25519*": deny
+    "*/id_ed25519*": deny
+    "id_ecdsa*": deny
+    "*/id_ecdsa*": deny
+    "id_dsa*": deny
+    "*/id_dsa*": deny
     "*.env.example": allow
   glob: allow
   grep: allow
@@ -29,54 +41,10 @@ permission:
   question: deny
   webfetch: deny
   websearch: deny
-  edit:
-    "*": allow
-    "../*": deny
-    "/*": deny
-    ".git": deny
-    ".git/*": deny
-    ".claude/*": deny
-    ".opencode/*": deny
-    ".jz/*": deny
-    ".jz-state/*": deny
-    ".jz-state/notes/*": allow
-    "AGENTS.md": deny
-    "CLAUDE.md": deny
-    "opencode.json": deny
-    "opencode.jsonc": deny
-    ".mcp.json": deny
-    "*.env": deny
-    "*.env.*": deny
-  # Lista blanca; el plugin .opencode/plugins/jz-guard.js analiza además cada comando completo.
-  bash:
-    "*": deny
-    ".jz/bin/jz-run *": allow
-    ".jz/bin/jz-state": allow
-    ".jz/bin/jz-state *": allow
-    ".jz/bin/jz-checkpoint *": allow
-    ".jz/bin/jz-lock status": allow
-    "ls": allow
-    "ls *": allow
-    "pwd": allow
-    "echo *": allow
-    "git status*": allow
-    "git diff*": allow
-    "git log*": allow
-    "git show*": allow
-    "git rev-parse*": allow
-    "git ls-files*": allow
-    "git blame*": allow
-    "git branch --show-current": allow
-    "git worktree list*": allow
-    "git remote": allow
-    "git remote -v": allow
-    "git add*": deny
-    "git commit*": deny
-    "git rm*": deny
-    "git mv*": deny
-    "git restore*": deny
-    "git * --output*": deny
-    "git * --no-index*": deny
+  # Sin el plugin jz-guard (--pure, ausente o con error) el perfil es de sólo lectura. Al cargarse, el
+  # plugin aplica edit y bash desde .opencode/jz-permissions.json y valida además cada llamada.
+  edit: deny
+  bash: deny
   task: deny
 ---
 

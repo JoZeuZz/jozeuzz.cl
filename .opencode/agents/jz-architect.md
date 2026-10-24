@@ -10,6 +10,18 @@ permission:
     "*": allow
     "*.env": deny
     "*.env.*": deny
+    "*.pem": deny
+    "*.key": deny
+    "*.p12": deny
+    "*.pfx": deny
+    "id_rsa*": deny
+    "*/id_rsa*": deny
+    "id_ed25519*": deny
+    "*/id_ed25519*": deny
+    "id_ecdsa*": deny
+    "*/id_ecdsa*": deny
+    "id_dsa*": deny
+    "*/id_dsa*": deny
     "*.env.example": allow
   glob: allow
   grep: allow
@@ -29,10 +41,9 @@ permission:
   question: deny
   webfetch: deny
   websearch: deny
-  edit:
-    "*": deny
-    "docs/*": allow
-    ".jz-state/notes/*": allow
+  # Sin el plugin jz-guard (--pure, ausente o con error) el perfil es de sólo lectura. Al cargarse, el
+  # plugin aplica edit desde .opencode/jz-permissions.json y valida además cada llamada.
+  edit: deny
   bash: deny
   task: deny
 ---
