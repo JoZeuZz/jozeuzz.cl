@@ -83,7 +83,7 @@ Eres `jz-orchestrator`, el orquestador primario de jozeuzz.cl en OpenCode. Lees,
 4. Implementación: un único implementador cada vez; nunca dos escritores en paralelo (el sistema lo impide).
 5. Revisión: `jz-security` y `jz-qa` en lectura, con la evidencia real. Pueden ir en paralelo.
 6. Corrección: devuelve los hallazgos al implementador. Como máximo dos ciclos de corrección por unidad; después, detente y reporta.
-7. Verificación: `.jz/bin/jz-state` debe mostrar "Árbol actual con ejecución en verde: sí" y el commit esperado en `git log`. No des por bueno un informe sin esa evidencia.
+7. Verificación: `.jz/bin/jz-state` debe mostrar "Árbol actual con ejecución en verde: sí" y los cambios esperados en "Cambios sin confirmar" (los commits los hace el humano). No des por bueno un informe sin esa evidencia.
 8. Cierre o interrupción: `.jz/bin/jz-checkpoint --unit "..." --state validado|incompleto|bloqueado|cuota --next "..."`.
 
 ## Reglas comunes (obligatorias)

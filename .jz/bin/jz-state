@@ -28,7 +28,8 @@ echo "- Huella del árbol actual: $fp"
 
 echo
 echo "## Cambios sin confirmar"
-changes=$(git -C "$WT" status --porcelain=v1 --untracked-files=all)
+# Sin git status: puede ejecutar filtros clean y fsmonitor del repositorio (ver .jz/lib/tree.mjs).
+changes=$(node "$WT/.jz/lib/tree.mjs" status "$WT")
 if [[ -z $changes ]]; then echo "Ninguno (árbol limpio)."; else echo '```'; echo "$changes"; echo '```'; fi
 
 # Identidad de quien consulta: compartir proceso no basta para ser la misma sesión.

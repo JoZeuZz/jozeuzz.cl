@@ -219,7 +219,7 @@ const GIT_WRITE = new Set(['add', 'commit', 'rm', 'mv', 'restore']);
 const BRANCH_READ = new Set(['--show-current', '--list', '-l', '-a', '--all', '-r', '--remotes', '-v', '-vv',
   '--verbose', '--contains', '--merged', '--no-merged', '--no-color', '--format']);
 
-function checkGit(argv, role) {
+function checkGit(argv) {
   let i = 1;
   while (argv[i] === '--no-pager') i++;
   const sub = argv[i];
@@ -244,21 +244,11 @@ function checkGit(argv, role) {
   }
   if (sub === 'worktree' && args[0] === 'list') return allow('git worktree list');
   if (sub === 'remote' && args.every((a) => a === '-v' || a === '--verbose')) return allow('git remote (lectura)');
-  if (role === 'implementer' && GIT_WRITE.has(sub)) {
-    const flags = args.map((a) => a.split('=')[0]);
-    if (sub === 'commit') {
-      const bad = flags.find((f) => ['--amend', '-F', '--file', '-t', '--template', '-C', '-c',
-        '--reuse-message', '--reedit-message'].includes(f));
-      return bad ? deny(`git commit ${bad} no permitido (historial sólo se amplía)`) : allow('commit local');
-    }
-    if ((sub === 'rm' || sub === 'mv') && flags.some((f) => ['-f', '--force'].includes(f))) {
-      return deny(`git ${sub} --force descartaría cambios no confirmados`);
-    }
-    if (sub === 'restore' && (!flags.includes('--staged') && !flags.includes('-S')
-      || flags.includes('--worktree') || flags.includes('-W'))) {
-      return deny('git restore sólo con --staged (no descarta cambios del árbol de trabajo)');
-    }
-    return allow(`git ${sub} local`);
+  if (GIT_WRITE.has(sub)) {
+    // I1: add, commit, rm, mv y restore modifican el índice o el historial sin pasar por checkWrite y ejecutan
+    // hooks y filtros fuera de jz-run. Ningún rol autónomo los usa; los commits los hace el humano.
+    return deny(`git ${sub} no está permitido a los agentes: los commits (add, commit, rm, mv, restore) `
+      + 'los hace el humano; deja los cambios en el árbol y descríbelos en el informe');
   }
   return deny(`git ${sub} no está permitido para este rol (push, merge, reset, checkout, stash, clean, config, `
     + 'rebase y similares requieren al humano)');
@@ -283,7 +273,7 @@ function checkCommand(argv, bashRole, ctx, cwd) {
   }
   if (argv.some((a) => a.includes('$?')) && exe !== 'echo') return deny('$? sólo se admite en echo');
   if (exe === 'echo') return allow('echo');
-  if (exe === 'git') return checkGit(argv, bashRole);
+  if (exe === 'git') return checkGit(argv);
   if (exe === 'pwd') return argv.length === 1 ? allow('pwd') : deny('pwd sin argumentos');
   if (exe === 'ls') {
     for (const a of argv.slice(1)) {

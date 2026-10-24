@@ -20,7 +20,7 @@ after(() => {
 function fixture() {
   const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'jz-recovery-')));
   roots.push(repo);
-  for (const p of ['.jz/bin', '.jz/hooks', '.jz/policy', '.opencode/plugins']) {
+  for (const p of ['.jz/bin', '.jz/hooks', '.jz/lib', '.jz/policy', '.opencode/plugins']) {
     fs.cpSync(path.join(SRC, p), path.join(repo, p), { recursive: true });
   }
   fs.writeFileSync(path.join(repo, '.gitignore'), '.jz-state/\n');

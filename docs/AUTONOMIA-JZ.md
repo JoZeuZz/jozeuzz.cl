@@ -4,7 +4,7 @@ Estado: **configuración local validada** (2026-10-16) en Claude Code 2.1.301 y 
 
 ## 1. Objetivo y amenaza
 
-Los motores completan sin confirmaciones humanas una tarea de desarrollo aprobada: investigar, planificar, delegar, editar, probar, corregir, verificar, hacer commits locales y dejar un handoff recuperable. A la vez, no pueden alterar el CT ni otros proyectos.
+Los motores completan sin confirmaciones humanas una tarea de desarrollo aprobada: investigar, planificar, delegar, editar, probar, corregir, verificar y dejar un handoff recuperable. Desde I1 (`docs/propuestas/JZ-I1-CONTENCION.md`) los commits los hace el humano: Git de escritura está denegado a todos los agentes. A la vez, no pueden alterar el CT ni otros proyectos.
 
 El CT es compartido, el usuario es `root` y pertenece al grupo `docker`. Cualquier proceso con shell libre controla el host a través de `/var/run/docker.sock`, incluidos Wealthfolio y los demás servicios. La configuración global de OpenCode concede además `"*": allow` y `external_directory: allow`. Por eso las restricciones no se apoyan en el texto de los prompts, sino en controles que el modelo no puede eludir.
 
@@ -12,8 +12,9 @@ El CT es compartido, el usuario es `root` y pertenece al grupo `docker`. Cualqui
 
 1. **Herramientas por perfil.** Explorer, Security y QA no tienen shell ni herramientas de edición en ningún motor. OpenCode retira del modelo las herramientas denegadas, y en Claude Code la lista `tools:` del perfil define las únicas herramientas disponibles.
 2. **Reglas nativas.** En OpenCode, el `permission` V1 de cada perfil parte de `"*": deny` y anula el `allow` global. En Claude Code, `.claude/settings.json` deniega `git push`, `docker` y la lectura de `.env`.
-3. **Política determinista por rol** (`.jz/policy/policy.mjs`). La aplican el hook `PreToolUse` de Claude Code (`.jz/hooks/claude-policy.mjs`) y el plugin de OpenCode (`.opencode/plugins/jz-guard.js`). Para el trabajo ordinario dentro del alcance responde `allow`, de modo que no hay preguntas ni intervención del clasificador. Para todo lo demás responde `deny`, también en modo automático y con fallo cerrado ante errores. Funciona así:
-   - analiza el comando completo sin expansiones y valida por separado cada segmento unido con `&&`, `||` o `;`. Rechaza `&`, `$()`, comillas invertidas, variables (salvo `$?` en `echo`), redirecciones a archivo, subshells y asignaciones de entorno. Admite `cd` dentro del worktree, `echo`, filtros de salida (`| tail -n 40`) y el heredoc de `git commit -m "$(cat <<'EOF' … EOF)"`, verificando que el delimitador no se cierre antes;
+3. **Política determinista por rol** (`.jz/policy/policy.mjs`). La aplican el hook `PreToolUse` de Claude Code (`.jz/hooks/claude-policy.mjs`) y el plugin de OpenCode (`.opencode/plugins/jz-guard.js`). Para el trabajo ordinario dentro del alcance responde `allow`, de modo que no hay preguntas ni intervención del clasificador. Para todo lo demás responde `deny`, también en modo automático y con fallo cerrado ante errores: la política se importa dentro del manejador de errores (si falta o lanza, se deniega a los `jz-*` y a toda delegación), una entrada inválida sale con código 2 y el hook `PreToolUse` declara `"onFailure": "block"`, de modo que un hook que no arranca o agota su `timeout` también bloquea (Claude Code ≥ 2.1.295; comprobado en 2.1.310). Funciona así:
+   - analiza el comando completo sin expansiones y valida por separado cada segmento unido con `&&`, `||` o `;`. Rechaza `&`, `$()`, comillas invertidas, variables (salvo `$?` en `echo`), redirecciones a archivo, subshells y asignaciones de entorno. Admite `cd` dentro del worktree, `echo` y filtros de salida (`| tail -n 40`). El analizador sigue reconociendo el heredoc de `git commit -m "$(cat <<'EOF' … EOF)"`, pero desde I1 el commit se deniega;
+   - deniega `git add`, `commit`, `rm`, `mv` y `restore` a todos los roles, con cualquier ruta u opción: modifican el índice o el historial sin pasar por la validación de rutas y ejecutan hooks y filtros fuera de `jz-run`;
    - resuelve los enlaces simbólicos antes de autorizar una lectura o una escritura;
    - protege el plano de control: `.git`, `.claude/`, `.opencode/`, `.jz/`, `.jz-state/` (salvo `notes/`), `AGENTS.md`, `CLAUDE.md`, `opencode.json[c]` y `.mcp.json`;
    - impide la lectura de secretos (`.env*`, salvo los de ejemplo, además de `*.pem`, `*.key` e `id_*`) y de rutas fuera del worktree, con la excepción de las skills y de los resultados de herramientas del propio motor;
@@ -28,7 +29,7 @@ El CT es compartido, el usuario es `root` y pertenece al grupo `docker`. Cualqui
    - el proceso no tiene capacidades: el bounding set está vacío y `no_new_privs` activo, así que no puede remontar ni crear user namespaces;
    - el entorno se vacía, de modo que no hereda los tokens del agente;
    - el worktree es escribible, salvo el plano de control, que queda en sólo lectura;
-   - al terminar, registra el resultado en `.jz-state/runs.jsonl` (comando, `rc`, `head`, huella del árbol y log). Además, pone en cuarentena (`.jz-state/quarantine/`) los archivos de control que se hayan creado y los enlaces simbólicos nuevos que apunten fuera del worktree, y en ese caso devuelve el código 86.
+   - al terminar, registra el resultado en `.jz-state/runs.jsonl` (comando, `rc`, `head`, huella del árbol y log). La huella y la lista de cambios de `jz-state` las calcula `.jz/lib/tree.mjs` sin `git status` ni `git diff` contra el árbol: no ejecuta filtros `clean`, `textconv` ni `fsmonitor` del repositorio, no sigue enlaces simbólicos, no abre FIFO ni dispositivos y no pasa nombres de archivo como argumentos. Los archivos ignorados (`node_modules`, cachés) siguen fuera de la huella. Además, pone en cuarentena (`.jz-state/quarantine/`) los archivos de control que se hayan creado y los enlaces simbólicos nuevos que apunten fuera del worktree, y en ese caso devuelve el código 86.
 
    Sólo usa `unshare`, `setpriv`, `mount` y `pivot_root` de util-linux 2.41, que ya están instalados. El sandbox nativo de Claude Code necesita `bubblewrap` y `socat`, y no se instalaron (§8).
 
@@ -38,7 +39,7 @@ El CT es compartido, el usuario es `root` y pertenece al grupo `docker`. Cualqui
 |---|---|---|
 | `jz-orchestrator` | Read, Grep, Glob, Skill, TodoWrite, Bash, `Agent(jz-architect, jz-explorer, jz-implementer, jz-security, jz-qa)`. La shell sólo admite lectura de git (`status`, `diff`, `log`, `show`, `rev-parse`, `ls-files`, `blame`, `branch --show-current`, `worktree list`, `remote -v`), `jz-state`, `jz-checkpoint`, `jz-lock status`, `ls` y `pwd`. Sin escritura ni `jz-run`. | Igual. `edit: deny`; `task` sólo hacia los seis `jz-*`. |
 | `jz-architect` | Read, Grep, Glob, Write, Edit y Skill; escribe sólo en `docs/` y `.jz-state/notes/`. Sin shell. Precarga `writing-plans`. | `edit` sólo en `docs/*` y `.jz-state/notes/*`; `bash: deny`; `task: deny`. |
-| `jz-implementer` (y `-copilot` en OpenCode) | Read, Grep, Glob, Bash, Edit, Write y Skill. Edita el worktree salvo el plano de control y los secretos. La shell admite `jz-run <cmd>`, `jz-state`, `jz-checkpoint`, git local (`add`, `commit` sin `--amend`, `rm`/`mv` sin `--force`, `restore --staged` y las lecturas), `ls` y `pwd`. Precarga `test-driven-development` y `verification-before-completion`. | `edit` igual; `bash` con una lista blanca equivalente; `task: deny`. |
+| `jz-implementer` (y `-copilot` en OpenCode) | Read, Grep, Glob, Bash, Edit, Write y Skill. Edita el worktree salvo el plano de control y los secretos. La shell admite `jz-run <cmd>`, `jz-state`, `jz-checkpoint`, git sólo de lectura (`add`, `commit`, `rm`, `mv` y `restore` denegados desde I1), `ls` y `pwd`. Precarga `test-driven-development` y `verification-before-completion`. | `edit` igual; `bash` con una lista blanca equivalente; `task: deny`. |
 | `jz-explorer` | Read, Grep, Glob (dentro del worktree y las skills). | Sólo `read`, `glob`, `grep`, `list`, `skill` y `todowrite`. |
 | `jz-security` | Read, Grep, Glob. | Igual que explorer. |
 | `jz-qa` | Read, Grep, Glob y Skill. Precarga `verification-before-completion`. | Igual que explorer. |
@@ -47,6 +48,7 @@ Todos los perfiles tienen denegadas, en ambos motores, `webfetch`, `websearch`, 
 
 Siempre requieren intervención humana:
 
+- Los commits (`git add`, `commit`, `rm`, `mv`, `restore`), desde I1. Hasta que exista un ejecutor Git confinado, el implementador deja los cambios validados en el árbol y propone el mensaje.
 - `git push`, `merge`, `rebase`, `reset`, `checkout`, `stash`, `clean`, `tag`, `config` y crear, mover o borrar ramas o worktrees. Afectan a historial compartido o pueden descartar trabajo no confirmado.
 - Instalar dependencias o cualquier operación con red, porque `jz-run` no tiene red. Es una superficie de cadena de suministro y requiere autorización.
 - Modificar el plano de control (`.claude/`, `.opencode/`, `.jz/`, `AGENTS.md`, `CLAUDE.md`). Es lo que define los permisos de los agentes.
@@ -131,7 +133,7 @@ El procedimiento sólo usa los scripts de `.jz/bin/` y git, así que no necesita
 Las pruebas se reproducen así:
 
 ```sh
-.jz/bin/jz-run node --test .jz/tests/            # política por rol y recuperación (en el sandbox; omite las del sandbox)
+.jz/bin/jz-run node --test .jz/tests/            # política, hook, huella y recuperación (en el sandbox; omite las del sandbox)
 node --test .jz/tests/sandbox.test.mjs            # aislamiento de jz-run (en el host)
 node .jz/tests/integration.mjs --base <dir>       # motores reales en un repositorio desechable
 ```
@@ -149,7 +151,9 @@ El escenario I6 comprueba que la sesión trabaja en el worktree indicado aunque 
 ## 8. Limitaciones conocidas
 
 - **Cuarentena, no prevención.** `jz-run` no puede impedir que un comando cree un archivo de control que no existía, como `opencode.json` en la raíz. Lo detecta al terminar, lo mueve a cuarentena y el estado queda `BLOQUEADO` hasta que lo revise un humano. Mientras dura la ejecución, otra sesión que arranque podría leerlo.
-- **Código del proyecto.** Dentro de `jz-run` se ejecuta código arbitrario, pero confinado: puede romper o borrar archivos del worktree, aunque no los del plano de control ni el historial de git. Los cambios sin confirmar se protegen con commits frecuentes.
+- **Código del proyecto.** Dentro de `jz-run` se ejecuta código arbitrario, pero confinado: puede romper o borrar archivos del worktree, aunque no los del plano de control ni el historial de git. Los cambios sin confirmar se protegen con commits frecuentes, que hace el humano.
+- **El hook no es una frontera frente a root.** La política la aplican el hook y el plugin, que corren como el mismo usuario que el motor (`root` en este CT). Protegen frente al modelo, no frente a otro proceso del mismo usuario; la contención de procesos la da `jz-run`.
+- **Git de lectura en el host.** El orquestador y el implementador pueden ejecutar `git status` y `git diff` fuera del sandbox. Esos comandos aplican los filtros que define la configuración de Git, que es plano de control (hoy no hay filtros, `textconv` ni `fsmonitor` configurados); los atributos sí los elige el agente.
 - **Sesiones sin `--agent`.** La política no se aplica al hilo principal de Claude Code sin `--agent` ni a los agentes no `jz-*` de OpenCode.
 - **Plugin de OpenCode.** No se carga con `--pure` u `OPENCODE_PURE=1`. En ese caso quedan las reglas nativas, que también deniegan push y escritura fuera del alcance, pero no analizan el comando completo.
 - **Sandbox nativo de Claude Code.** No está disponible: faltan `bubblewrap` y `socat`. Instalarlos permitiría añadir `sandbox.enabled` como otra capa, pero requiere autorización.

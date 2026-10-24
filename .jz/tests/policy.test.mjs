@@ -44,14 +44,11 @@ test('implementer: inyección de shell rechazada', () => {
   }
 });
 
-test('implementer: git local permitido, historial y árbol protegidos', () => {
-  for (const cmd of ['git status --short', 'git diff --stat', 'git log --oneline -5', 'git add src/a.ts',
-    'git add -A', 'git commit -m "feat: algo"', 'git restore --staged src/a.ts', 'git mv src/a src/b',
-    'git rm src/viejo.ts', 'git branch --show-current', 'git worktree list', 'git --no-pager diff', 'git remote -v']) {
+test('implementer: git de lectura permitido, historial y árbol protegidos', () => {
+  for (const cmd of ['git status --short', 'git diff --stat', 'git log --oneline -5', 'git branch --show-current',
+    'git worktree list', 'git --no-pager diff', 'git remote -v']) {
     ok(checkBash(cmd, 'jz-implementer', ctx), cmd);
   }
-  ok(checkBash("git add src && git commit -m \"$(cat <<'EOF'\nfeat: algo\n\nCuerpo con $(no) y `nada`.\nEOF\n)\"",
-    'jz-implementer', ctx), 'commit con heredoc');
   for (const cmd of ['git push', 'git push origin HEAD', 'git merge main', 'git reset --hard', 'git reset HEAD~1',
     'git checkout -- src', 'git restore src/a.ts', 'git clean -fdx', 'git stash', 'git rebase main',
     'git commit --amend -m x', 'git commit -F /etc/shadow', 'git rm -f src/a', 'git branch -D x',
@@ -64,6 +61,43 @@ test('implementer: git local permitido, historial y árbol protegidos', () => {
   no(checkBash("git commit -m \"$(cat <<'EOF'\nx\nEOF\nrm -rf src\nEOF\n)\"", 'jz-implementer', ctx),
     'heredoc con cierre anticipado');
   no(checkBash("git log \"$(cat <<'EOF'\nx\nEOF\n)\"", 'jz-implementer', ctx), 'heredoc fuera de commit');
+});
+
+// I1 (JZ-IMPLEMENT-001): Git de escritura directo no es una vía para modificar el plano de control, añadir
+// secretos ni arrastrar cambios ajenos. Se deniega entero a los roles autónomos; los commits los hace el humano.
+test('git de escritura denegado a todos los roles autónomos, con cualquier ruta u opción', () => {
+  const cases = [
+    // add: rutas ordinarias, protegidas, secretos y modos que arrastran todo el árbol
+    'git add src/a.ts', 'git add -A', 'git add .', 'git add -u', 'git add --all', 'git add -f .env',
+    'git add --force src/.env.local', 'git add .claude/settings.json', 'git add -- .jz/policy/policy.mjs',
+    'git add AGENTS.md', 'git add src', 'git --no-pager add src/a.ts', 'git add -p src/a.ts',
+    // commit: mensajes simples, heredoc y opciones peligrosas
+    'git commit -m "feat: algo"', 'git commit -a -m x', 'git commit -am x', 'git commit --all -m x',
+    'git commit --no-verify -m x', 'git commit -n -m x', 'git commit --allow-empty -m x',
+    'git commit -m x -- .jz/bin/jz-run', 'git commit --include .claude -m x', 'git commit --only AGENTS.md -m x',
+    "git add src && git commit -m \"$(cat <<'EOF'\nfeat: algo\n\nCuerpo.\nEOF\n)\"",
+    // rm y mv: borrar, mover o reemplazar el plano de control
+    'git rm src/viejo.ts', 'git rm .jz/policy/policy.mjs', 'git rm -r .jz', 'git rm --cached .claude/settings.json',
+    'git rm -r --cached .', 'git mv src/a src/b', 'git mv AGENTS.md x.md', 'git mv .jz/bin/jz-run src/x',
+    'git mv src/x .jz/bin/jz-run', 'git mv -k .claude .claude-old',
+    // restore: incluso --staged modifica el índice
+    'git restore --staged src/a.ts', 'git restore -S .jz/policy/policy.mjs', 'git restore --staged .',
+    'git restore --source=HEAD~1 --staged AGENTS.md',
+    // encadenados detrás de una lectura permitida
+    'git status && git add -A', 'git status; git commit -m x', 'git log -1 || git rm AGENTS.md',
+    // otras escrituras del índice o del historial
+    'git apply x.patch', 'git am x.mbox', 'git cherry-pick HEAD', 'git revert HEAD', 'git update-index --add x',
+    'git read-tree HEAD', 'git checkout-index -a -f', 'git notes add -m x', 'git commit-tree HEAD^{tree} -m x',
+    'git hash-object -w src/a.ts', 'git replace HEAD HEAD~1', 'git switch -c x', 'git submodule update',
+  ];
+  for (const role of ['jz-implementer', 'jz-implementer-copilot', 'jz-orchestrator']) {
+    for (const cmd of cases) no(checkBash(cmd, role, ctx), `${role}: ${cmd}`);
+  }
+  for (const role of ['jz-architect', 'jz-explorer', 'jz-security', 'jz-qa']) {
+    no(checkBash('git add -A', role, ctx), `${role}: git add -A`);
+  }
+  const r = checkBash('git commit -m x', 'jz-implementer', ctx);
+  assert.match(r.reason, /humano/, 'el motivo indica que los commits los hace el humano');
 });
 
 test('orquestador: sólo lectura de git y estado; nunca ejecuta ni escribe', () => {

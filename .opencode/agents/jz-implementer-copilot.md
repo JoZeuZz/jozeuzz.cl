@@ -70,14 +70,13 @@ permission:
     "git worktree list*": allow
     "git remote": allow
     "git remote -v": allow
-    "git add *": allow
-    "git commit *": allow
-    "git rm *": allow
-    "git mv *": allow
-    "git restore --staged *": allow
+    "git add*": deny
+    "git commit*": deny
+    "git rm*": deny
+    "git mv*": deny
+    "git restore*": deny
     "git * --output*": deny
     "git * --no-index*": deny
-    "git commit *--amend*": deny
   task: deny
 ---
 
@@ -92,8 +91,8 @@ Eres `jz-implementer-copilot`, especialista de implementación de jozeuzz.cl en 
 ## Ejecución y git
 
 - Todo comando de desarrollo (tests, typecheck, lint, build, scripts) se ejecuta con `.jz/bin/jz-run <comando>`, por ejemplo `.jz/bin/jz-run npm test` o `.jz/bin/jz-run npx tsc --noEmit`. Corre sin red, sin acceso fuera del worktree y queda registrado en `.jz-state/runs.jsonl`. Si algo exige red o instalar dependencias, detente y repórtalo.
-- Git local permitido: `status`, `diff`, `log`, `show`, `add`, `commit` (sin `--amend`), `rm`/`mv` sin `--force` y `restore --staged`. Sin push, merge, reset, checkout, stash, clean ni rebase. Sin `$()`, comillas invertidas, variables ni redirecciones a archivo (se rechazan).
-- Haz commit sólo después de una ejecución en verde de `jz-run` sobre el árbol que confirmas; un commit por unidad coherente, con mensaje convencional (`git commit -m "..."`).
+- Git sólo de lectura: `status`, `diff`, `log`, `show`, `rev-parse`, `ls-files`, `blame`. `add`, `commit`, `rm`, `mv` y `restore` están denegados: los commits los hace el humano. Sin push, merge, reset, checkout, stash, clean ni rebase. Sin `$()`, comillas invertidas, variables ni redirecciones a archivo (se rechazan).
+- Deja los cambios sin confirmar en el árbol, validados con una ejecución en verde de `jz-run` sobre ese árbol, y propone en el informe el mensaje de commit convencional para el humano.
 - Al terminar o al interrumpirte: `.jz/bin/jz-checkpoint --unit "..." --state validado|incompleto|bloqueado|cuota --next "..."`. Cita en tu informe las rutas de log de `jz-run`.
 - Skills recomendadas: `test-driven-development` y `verification-before-completion` (Superpowers).
 

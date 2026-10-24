@@ -2,13 +2,18 @@
 // Hook de Claude Code (PreToolUse, PostToolUse, PostToolUseFailure, SessionEnd, StopFailure) que aplica
 // .jz/policy/policy.mjs a los especialistas jz-*. La sesión principal sin --agent no se
 // restringe aquí: la gobiernan el modo de permisos y las reglas de settings.json.
-// Ante cualquier error con un rol jz-* la decisión es "deny" (falla cerrado).
+// Falla cerrado: la política se importa dentro del manejador de errores, de modo que si falta o lanza,
+// un PreToolUse de un rol jz-* o una delegación se deniega. Una entrada que no es un objeto JSON sale con
+// código 2 (bloqueante). Lo que impide arrancar el propio hook, o un timeout, lo cubre
+// "onFailure": "block" en .claude/settings.json (Claude Code >= 2.1.295).
+// No es una frontera frente a procesos del mismo usuario o root: es una capa sobre tools:, settings y jz-run.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  roleOf, checkRead, checkWrite, checkBash, checkDelegate, acquireWriter, releaseWriter, WRITER_ROLES,
-} from '../policy/policy.mjs';
+
+const POLICY_EXPORTS = ['roleOf', 'checkRead', 'checkWrite', 'checkBash', 'checkDelegate', 'acquireWriter',
+  'releaseWriter', 'WRITER_ROLES'];
+let policy;
 
 const READ_TOOLS = { Read: 'file_path', Grep: 'path', Glob: 'path' };
 const WRITE_TOOLS = { Edit: 'file_path', MultiEdit: 'file_path', Write: 'file_path', NotebookEdit: 'notebook_path' };
@@ -34,6 +39,7 @@ function emit(event, decision, reason) {
 }
 
 function preToolUse(input, wt) {
+  const { roleOf, checkRead, checkWrite, checkBash, checkDelegate, acquireWriter, WRITER_ROLES } = policy;
   const role = roleOf(input.agent_type);
   const tool = input.tool_name;
   const ti = input.tool_input ?? {};
@@ -63,10 +69,20 @@ function preToolUse(input, wt) {
   return null;
 }
 
-let input = {};
-let wt = process.cwd();
+let input;
 try {
   input = JSON.parse(fs.readFileSync(0, 'utf8'));
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('no es un objeto');
+} catch (e) {
+  process.stderr.write(`jz-policy: entrada del hook inválida (${e.message}); se bloquea por seguridad\n`);
+  process.exit(2);
+}
+
+let wt = process.cwd();
+try {
+  policy = await import(new URL('../policy/policy.mjs', import.meta.url));
+  const missing = POLICY_EXPORTS.filter((k) => policy[k] === undefined);
+  if (missing.length) throw new Error(`a la política le faltan exportaciones: ${missing.join(', ')}`);
   wt = fs.realpathSync(process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd());
   const event = input.hook_event_name;
   if (event === 'PreToolUse') {
@@ -74,13 +90,13 @@ try {
     if (r) emit(event, r.decision, r.reason);
   } else if (event === 'PostToolUse' || event === 'PostToolUseFailure') {
     if (input.tool_name === 'Agent' || input.tool_name === 'Task') {
-      releaseWriter(wt, { session: input.session_id, call: input.tool_use_id });
+      policy.releaseWriter(wt, { session: input.session_id, call: input.tool_use_id });
     }
   } else if (event === 'SessionEnd') {
-    releaseWriter(wt, { session: input.session_id });
+    policy.releaseWriter(wt, { session: input.session_id });
   } else if (event === 'StopFailure') {
     // El turno terminó por un error de la API (cuota, límite, servicio): no reintentar, dejar checkpoint.
-    releaseWriter(wt, { session: input.session_id });
+    policy.releaseWriter(wt, { session: input.session_id });
     const detail = JSON.stringify(input.error ?? input.error_details ?? input).slice(0, 300);
     const quota = /rate.?limit|usage|quota|billing|credit|overloaded/i.test(detail);
     spawnSync(path.join(wt, '.jz/bin/jz-checkpoint'), [
@@ -91,7 +107,10 @@ try {
   }
   process.exit(0);
 } catch (e) {
-  if (input.hook_event_name === 'PreToolUse' && (roleOf(input.agent_type) || input.tool_name === 'Agent')) {
+  // Sin la política no se sabe qué está permitido: se deniega a los jz-* y toda delegación.
+  // La sesión principal sigue su modo de permisos normal (puede reparar la política).
+  const jz = typeof input.agent_type === 'string' && input.agent_type.startsWith('jz-');
+  if (input.hook_event_name === 'PreToolUse' && (jz || input.tool_name === 'Agent' || input.tool_name === 'Task')) {
     emit('PreToolUse', 'deny', `error interno de la política (${e.message}); se deniega por seguridad`);
     process.exit(0);
   }

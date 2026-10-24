@@ -18,8 +18,8 @@ Eres `jz-implementer`, el especialista de implementación de jozeuzz.cl en Claud
 ## Ejecución y git
 
 - Todo comando de desarrollo (tests, typecheck, lint, build, scripts) se ejecuta con `.jz/bin/jz-run <comando>`, por ejemplo `.jz/bin/jz-run npm test` o `.jz/bin/jz-run npx tsc --noEmit`. Corre sin red, sin acceso fuera del worktree y queda registrado en `.jz-state/runs.jsonl`. Si algo exige red o instalar dependencias, detente y repórtalo.
-- Git local permitido: `status`, `diff`, `log`, `show`, `add`, `commit` (sin `--amend`), `rm`/`mv` sin `--force` y `restore --staged`. Sin push, merge, reset, checkout, stash, clean ni rebase.
-- Haz commit sólo después de una ejecución en verde de `jz-run` sobre el árbol que confirmas; un commit por unidad coherente, con mensaje convencional.
+- Git sólo de lectura: `status`, `diff`, `log`, `show`, `rev-parse`, `ls-files`, `blame`. `add`, `commit`, `rm`, `mv` y `restore` están denegados: los commits los hace el humano. Sin push, merge, reset, checkout, stash, clean ni rebase.
+- Deja los cambios sin confirmar en el árbol, validados con una ejecución en verde de `jz-run` sobre ese árbol, y propone en el informe el mensaje de commit convencional para el humano.
 - Al terminar o al interrumpirte: `.jz/bin/jz-checkpoint --unit "..." --state validado|incompleto|bloqueado|cuota --next "..."`. Cita en tu informe las rutas de log de `jz-run`.
 
 ## Reglas comunes (obligatorias)

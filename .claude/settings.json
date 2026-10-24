@@ -24,7 +24,8 @@
           {
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.jz/hooks/claude-policy.mjs\"",
-            "timeout": 15
+            "timeout": 15,
+            "onFailure": "block"
           }
         ]
       }
