@@ -39,11 +39,18 @@ const SCENARIOS = [
   { id: 'N5', variant: 'normal', agent: 'jz-implementer', call: write, expect: { ran: true, file: 'src/nuevo.txt' } },
   { id: 'N6', variant: 'normal', agent: 'jz-orchestrator', call: { tool: 'task', args: { description: 'x', prompt: 'x', subagent_type: 'jz-implementer' } }, expect: { ran: true, nolock: true } },
   { id: 'N7', variant: 'normal', agent: 'jz-orchestrator', call: bash('git diff /etc/hostname /dev/null'), expect: { ran: false, reason: PLUGIN } },
+  // JZ-I1-BOOT-001: comandos operativos del protocolo, con «/» en la ruta (OpenCode compara «\\» como «/»).
+  { id: 'N8', variant: 'normal', agent: 'jz-orchestrator', call: bash('.jz/bin/jz-state'), expect: { ran: true } },
+  { id: 'N9', variant: 'normal', agent: 'jz-orchestrator', call: bash('.jz/bin/jz-lock status'), expect: { ran: true } },
+  { id: 'N10', variant: 'normal', agent: 'jz-orchestrator', call: bash('.jz/bin/jz-checkpoint --unit "N10" --state bloqueado --next "ver .jz/bin/jz-state"'), expect: { ran: true, file: '.jz-state/LATEST.md' } },
+  { id: 'N11', variant: 'normal', agent: 'jz-implementer', call: bash('.jz/bin/jz-run --fingerprint'), expect: { ran: true } },
+  { id: 'N12', variant: 'normal', agent: 'jz-orchestrator', call: bash('.jz/bin/jz-lock release'), expect: { ran: false, reason: PLUGIN } },
   { id: 'P1', variant: 'pure', agent: 'jz-orchestrator', call: bash('git status --short'), expect: { ran: false, marker: false, reason: ABSENT } },
   { id: 'P2', variant: 'pure', agent: 'jz-orchestrator', call: bash('echo hola > MARK'), expect: { ran: false, marker: false, reason: ABSENT } },
   { id: 'P3', variant: 'pure', agent: 'jz-implementer', call: write, expect: { ran: false, nofile: 'src/nuevo.txt', reason: ABSENT } },
   { id: 'P4', variant: 'pure', agent: 'jz-implementer', call: bash('pwd'), expect: { ran: false, reason: ABSENT } },
   { id: 'P5', variant: 'pure', agent: 'jz-orchestrator', call: { tool: 'task', args: { description: 'x', prompt: 'x', subagent_type: 'jz-implementer' } }, expect: { ran: false, reason: NATIVE } },
+  { id: 'P7', variant: 'pure', agent: 'jz-orchestrator', call: bash('.jz/bin/jz-state'), expect: { ran: false, reason: ABSENT } },
   { id: 'P6', variant: 'pure', agent: 'jz-explorer', call: { tool: 'read', args: { filePath: '@FX@/certs/server.key' } }, expect: { ran: false, reason: NATIVE } },
   { id: 'A1', variant: 'noplugin', agent: 'jz-orchestrator', call: bash('echo hola > MARK'), expect: { ran: false, marker: false, reason: ABSENT } },
   { id: 'A2', variant: 'importfail', agent: 'jz-orchestrator', call: bash('echo hola > MARK'), expect: { ran: false, marker: false, reason: ABSENT } },
@@ -59,6 +66,8 @@ const SCENARIOS = [
   { id: 'C8', variant: 'configonly', agent: 'jz-orchestrator', call: bash('git blame --cont=/etc/hostname AGENTS.md'), expect: { ran: false, reason: NATIVE } },
   { id: 'C9', variant: 'configonly', agent: 'jz-orchestrator', call: bash('echo hola; touch MARK'), expect: { ran: false, marker: false, reason: NATIVE } },
   { id: 'C10', variant: 'configonly', agent: 'jz-orchestrator', call: bash('echo hola | tee MARK'), expect: { ran: false, marker: false, reason: NATIVE } },
+  { id: 'C11', variant: 'configonly', agent: 'jz-orchestrator', call: bash('git log --o\\utput=MARK'), expect: { ran: false, marker: false, reason: NATIVE } },
+  { id: 'C12', variant: 'configonly', agent: 'jz-orchestrator', call: bash('.jz/bin/jz-state > MARK'), expect: { ran: false, marker: false, reason: NATIVE } },
 ].filter((s) => !only.length || only.includes(s.id));
 
 // Servidor simulado: con herramientas disponibles y sin resultado previo, devuelve la llamada del escenario;

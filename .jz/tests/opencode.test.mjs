@@ -64,9 +64,11 @@ function nativePermission(file) {
 }
 
 // Reglas de OpenCode: el comodín «*» admite cualquier secuencia (incluidos «/» y saltos de línea), un « *»
-// final hace opcionales los argumentos y gana la última regla que coincide.
+// final hace opcionales los argumentos y gana la última regla que coincide. Antes de comparar, OpenCode 1.17.18
+// convierte «\» en «/» en la orden y en el patrón (Wildcard.match): «*\*» equivale a «*/*».
 function wildcard(str, pattern) {
-  let re = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+  str = str.replaceAll('\\', '/');
+  let re = pattern.replaceAll('\\', '/').replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
   if (re.endsWith(' .*')) re = `${re.slice(0, -3)}( .*)?`;
   return new RegExp(`^${re}$`, 's').test(str);
 }
@@ -166,11 +168,21 @@ test('permisos operativos: los patrones nativos no aceptan prefijos ni metacarac
     'git blame --ignore-revs-f=/etc/hostname AGENTS.md', 'git blame -S /etc/hostname AGENTS.md',
     'git ls-files --exclude-fr=/etc/hostname', 'git ls-files -X /etc/hostname', 'git diff -O/etc/hostname',
     'echo /root/.ssh/*', 'ls /ro?t',
+    // JZ-I1-BOOT-001: «\» ocultaría opciones y rutas a los patrones; los ejecutores del proyecto, sólo acotados.
+    'git log --o\\utput=MARK', 'git diff .\\./a .\\./b', 'git show HEAD:.e\\nv', '.jz/bin/jz-lock release',
+    '.jz/bin/jz-lock st\\atus', '.jz/bin/jz-state > MARK', '.jz/bin/jz-checkpoint --next $(id)', './.jz/bin/jz-state',
+    '.jz/bin/jz-statex', '/tmp/.jz/bin/jz-state', 'x/.jz/bin/jz-state',
   ];
-  const legit = ['.jz/bin/jz-state', '.jz/bin/jz-lock status', 'ls', 'ls -la src', 'pwd', 'echo hola',
+  // Comandos operativos del protocolo (docs/AUTONOMIA-JZ.md), con «/» en la ruta y en los argumentos.
+  const legit = ['.jz/bin/jz-state', '.jz/bin/jz-state --', '.jz/bin/jz-lock status',
+    '.jz/bin/jz-checkpoint --unit "JZ-REVIEW-I1-FINAL" --state bloqueado --next "Corregir .jz/bin/jz-state y reanudar"',
+    'ls', 'ls -la src', 'pwd', 'echo hola',
     'git status', 'git status --short', 'git diff', 'git diff HEAD~1 -- src', 'git log -1 --format=%h',
-    'git show HEAD', 'git rev-parse HEAD', 'git ls-files', 'git blame src/a.ts', 'git branch --show-current',
-    'git log main..HEAD', 'git log -S needle', 'git show HEAD:src/a.ts', 'git diff --stat'];
+    'git show HEAD', 'git rev-parse HEAD', 'git ls-files', 'git branch --show-current',
+    'git log main..HEAD', 'git log -S needle', 'git diff --stat'];
+  // Con «/» fuera de los ejecutores del proyecto, la regla «*\*» (= «*/*») deniega de forma nativa: la regla no
+  // distingue «/» de «\». Limitación conocida; el agente lee esas rutas con read, glob y grep.
+  const slashDenied = ['git blame src/a.ts', 'git show HEAD:src/a.ts', 'git diff -- docs/a.md', 'ls docs/propuestas'];
   const resolved = Object.entries(perms).filter(([k]) => !k.startsWith('$'))
     .map(([agent, v]) => [agent, typeof v === 'string' ? perms[v] : v]);
   assert.deepEqual(resolved.filter(([, r]) => r?.bash).map(([a]) => a).sort(),
@@ -179,7 +191,13 @@ test('permisos operativos: los patrones nativos no aceptan prefijos ni metacarac
     if (!rules?.bash) continue;
     for (const cmd of dangerous) assert.equal(evaluate(rules.bash, cmd), 'deny', `${agent}: «${cmd}»`);
     for (const cmd of legit) assert.equal(evaluate(rules.bash, cmd), 'allow', `${agent}: «${cmd}»`);
+    for (const cmd of slashDenied) assert.equal(evaluate(rules.bash, cmd), 'deny', `${agent}: «${cmd}»`);
   }
+  for (const a of ['jz-implementer', 'jz-implementer-copilot']) {
+    const rules = resolved.find(([n]) => n === a)[1];
+    assert.equal(evaluate(rules.bash, '.jz/bin/jz-run node --test .jz/tests/'), 'allow', `${a}: jz-run`);
+  }
+  assert.equal(evaluate(perms['jz-orchestrator'].bash, '.jz/bin/jz-run node --test .jz/tests/'), 'deny', 'orquestador: jz-run');
 });
 
 // QA R2: abreviaturas de las opciones prohibidas. La política deniega todo prefijo de cuatro o más caracteres;
