@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # jz-state — estado verificable del worktree para reanudar trabajo entre motores.
 # Sólo lee: rama, HEAD, cambios, escritor activo, procesos de motores, últimas ejecuciones de
-# jz-run (indicando si validan el árbol actual), último checkpoint y cuarentena.
+# jz-run (indicando si terminaron en verde sobre el árbol actual), estado de la verificación reconocida
+# (jz-verify status), último checkpoint y cuarentena.
 # Termina con un veredicto: REANUDABLE o BLOQUEADO (código de salida 0 o 3).
 set -euo pipefail
 
@@ -112,10 +113,21 @@ if [[ -s $STATE/runs.jsonl ]]; then
     '"- \(.ts) rc=\(.rc) [\(.engine)] \(.cmd | tojson) head=\(.head) \(if .tree != $fp then "(otro árbol)" elif .rc == 0 then "(árbol actual, en verde)" else "(árbol actual, falló)" end) — \(.log)"'
   last_ok=$(jq -r --arg fp "$fp" 'select(.tree == $fp and .rc == 0) | .ts' "$STATE/runs.jsonl" | tail -n 1)
   echo
-  if [[ -n $last_ok ]]; then echo "Árbol actual con ejecución en verde: sí ($last_ok)."
+  if [[ -n $last_ok ]]; then
+    echo "Árbol actual con ejecución en verde: sí ($last_ok)."
+    echo "Sólo indica que alguna ejecución de jz-run terminó con rc=0, sea cual sea el comando: no es una verificación reconocida."
   else echo "Árbol actual con ejecución en verde: NO. Los cambios actuales no están validados."; fi
 else
   echo "Sin ejecuciones registradas."
+fi
+
+# I2: sólo un perfil de .jz/profiles ejecutado con jz-verify produce evidencia reconocida (.jz-state/verify/).
+echo
+echo "## Verificación reconocida"
+vrc=0
+"$WT/.jz/bin/jz-verify" status || vrc=$?
+if [[ $vrc -ne 0 ]]; then
+  blockers+=("verificación reconocida no comprobable (jz-verify status rc=$vrc): revisión humana")
 fi
 
 echo

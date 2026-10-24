@@ -1,5 +1,5 @@
 {
-  "$comment": "Permisos operativos de los agentes jz-* de OpenCode. Los aplica .opencode/plugins/jz-guard.js (hook config) al cargarse; sin el plugin (--pure, ausente o con error) rigen los perfiles de .opencode/agents, que son de sólo lectura. Cada clave reemplaza la del perfil. OpenCode aplica la última regla que coincide y compara texto (« *» final = argumentos opcionales): los patrones de lectura de git no terminan en «*» pegado («git diff*» admitiría «git difftool») y las denegaciones finales excluyen redirecciones, expansiones, opciones de git que leen o escriben archivos (también abreviadas, desde el primer prefijo que git no rechaza por ambiguo), rutas de git fuera del worktree, «[», ls y echo con rutas fuera del worktree. «*» y «?» no se pueden excluir con un patrón (son comodines): los comodines del shell los rechaza el plugin. OpenCode 1.17.18 convierte «\\» en «/» en la orden y en el patrón antes de comparar: «*\\*» deniega toda orden con «\\» o «/», y los ejecutores de .jz/bin se admiten justo después de esa regla y antes de las de redirección y expansión (git y ls con rutas quedan denegados de forma nativa). El plugin vuelve a validar cada llamada.",
+  "$comment": "Permisos operativos de los agentes jz-* de OpenCode. Los aplica .opencode/plugins/jz-guard.js (hook config) al cargarse; sin el plugin (--pure, ausente o con error) rigen los perfiles de .opencode/agents, que son de sólo lectura. Cada clave reemplaza la del perfil. OpenCode aplica la última regla que coincide y compara texto (« *» final = argumentos opcionales): los patrones de lectura de git no terminan en «*» pegado («git diff*» admitiría «git difftool») y las denegaciones finales excluyen redirecciones, expansiones, opciones de git que leen o escriben archivos (también abreviadas, desde el primer prefijo que git no rechaza por ambiguo), rutas de git fuera del worktree, «[», ls y echo con rutas fuera del worktree. «*» y «?» no se pueden excluir con un patrón (son comodines): los comodines del shell los rechaza el plugin. OpenCode 1.17.18 convierte «\\» en «/» en la orden y en el patrón antes de comparar: «*\\*» deniega toda orden con «\\» o «/», y los ejecutores de .jz/bin (también jz-verify: status para los dos, run <perfil> sólo para el implementador) se admiten justo después de esa regla y antes de las de redirección y expansión (git y ls con rutas quedan denegados de forma nativa). El plugin vuelve a validar cada llamada.",
   "jz-orchestrator": {
     "bash": {
       "*": "deny",
@@ -41,6 +41,7 @@
       ".jz/bin/jz-state *": "allow",
       ".jz/bin/jz-checkpoint *": "allow",
       ".jz/bin/jz-lock status": "allow",
+      ".jz/bin/jz-verify status": "allow",
       "*>*": "deny",
       "*<*": "deny",
       "*`*": "deny",
@@ -143,6 +144,8 @@
       ".jz/bin/jz-state *": "allow",
       ".jz/bin/jz-checkpoint *": "allow",
       ".jz/bin/jz-lock status": "allow",
+      ".jz/bin/jz-verify status": "allow",
+      ".jz/bin/jz-verify run *": "allow",
       "*>*": "deny",
       "*<*": "deny",
       "*`*": "deny",

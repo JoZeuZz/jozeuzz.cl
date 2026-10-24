@@ -1,0 +1,30 @@
+{
+  "id": "jz-core-tests",
+  "version": 1,
+  "description": "Las cinco suites del plano de control de agentes que corren dentro de jz-run: política, huella del árbol, recuperación, hook de Claude Code y plugin y reglas de OpenCode. No cubre sandbox.test.mjs (necesita el host), verify.test.mjs, opencode-native.mjs ni integration.mjs, ni el producto jozeuzz.cl.",
+  "cwd": ".",
+  "argv": [
+    "node",
+    "--test",
+    "--test-reporter=./.jz/lib/verify-reporter.mjs",
+    ".jz/tests/policy.test.mjs",
+    ".jz/tests/tree.test.mjs",
+    ".jz/tests/recovery.test.mjs",
+    ".jz/tests/hook.test.mjs",
+    ".jz/tests/opencode.test.mjs"
+  ],
+  "oracle": {
+    "format": "node-test-jz-v1",
+    "files": [
+      ".jz/tests/policy.test.mjs",
+      ".jz/tests/tree.test.mjs",
+      ".jz/tests/recovery.test.mjs",
+      ".jz/tests/hook.test.mjs",
+      ".jz/tests/opencode.test.mjs"
+    ],
+    "minTests": 1,
+    "allowSkipped": 0,
+    "allowTodo": 0
+  },
+  "ignoredInputs": []
+}

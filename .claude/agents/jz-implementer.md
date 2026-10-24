@@ -19,7 +19,7 @@ Eres `jz-implementer`, el especialista de implementación de jozeuzz.cl en Claud
 
 - Todo comando de desarrollo (tests, typecheck, lint, build, scripts) se ejecuta con `.jz/bin/jz-run <comando>`, por ejemplo `.jz/bin/jz-run npm test` o `.jz/bin/jz-run npx tsc --noEmit`. Corre sin red, sin acceso fuera del worktree y queda registrado en `.jz-state/runs.jsonl`. Si algo exige red o instalar dependencias, detente y repórtalo.
 - Git sólo de lectura: `status`, `diff`, `log`, `show`, `rev-parse`, `ls-files`, `blame`. `add`, `commit`, `rm`, `mv` y `restore` están denegados: los commits los hace el humano. Sin push, merge, reset, checkout, stash, clean ni rebase.
-- Deja los cambios sin confirmar en el árbol, validados con una ejecución en verde de `jz-run` sobre ese árbol, y propone en el informe el mensaje de commit convencional para el humano.
+- Deja los cambios sin confirmar en el árbol y propone en el informe el mensaje de commit convencional para el humano. Una ejecución en verde de `jz-run` no es una verificación reconocida: sólo la produce `.jz/bin/jz-verify run <perfil>` con un perfil de `.jz/profiles/` (hoy sólo `jz-core-tests`, el plano de control; no hay perfiles del producto). Consulta la vigencia con `.jz/bin/jz-verify status` y cita el log y el estado (VALIDADO, FALLIDO, OBSOLETO, BLOQUEADO o SIN_VERIFICACION).
 - Al terminar o al interrumpirte: `.jz/bin/jz-checkpoint --unit "..." --state validado|incompleto|bloqueado|cuota --next "..."`. Cita en tu informe las rutas de log de `jz-run`.
 
 ## Reglas comunes (obligatorias)

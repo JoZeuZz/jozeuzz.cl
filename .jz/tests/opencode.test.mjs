@@ -198,6 +198,22 @@ test('permisos operativos: los patrones nativos no aceptan prefijos ni metacarac
     assert.equal(evaluate(rules.bash, '.jz/bin/jz-run node --test .jz/tests/'), 'allow', `${a}: jz-run`);
   }
   assert.equal(evaluate(perms['jz-orchestrator'].bash, '.jz/bin/jz-run node --test .jz/tests/'), 'deny', 'orquestador: jz-run');
+
+  // I2: jz-verify con «/» en la ruta, igual que los demás ejecutores; sólo el implementador ejecuta perfiles.
+  for (const [agent, rules] of resolved) {
+    if (!rules?.bash) continue;
+    assert.equal(evaluate(rules.bash, '.jz/bin/jz-verify status'), 'allow', `${agent}: jz-verify status`);
+    for (const cmd of ['.jz/bin/jz-verify run x > MARK', '.jz/bin/jz-verify run $(id)', '.jz/bin/jz-verify r\\un x',
+      '.jz/bin/jz-verify status & touch MARK', 'x/.jz/bin/jz-verify status']) {
+      assert.equal(evaluate(rules.bash, cmd), 'deny', `${agent}: «${cmd}»`);
+    }
+  }
+  for (const a of ['jz-implementer', 'jz-implementer-copilot']) {
+    const rules = resolved.find(([n]) => n === a)[1];
+    assert.equal(evaluate(rules.bash, '.jz/bin/jz-verify run jz-core-tests'), 'allow', `${a}: jz-verify run`);
+  }
+  assert.equal(evaluate(perms['jz-orchestrator'].bash, '.jz/bin/jz-verify run jz-core-tests'), 'deny',
+    'orquestador: jz-verify run');
 });
 
 // QA R2: abreviaturas de las opciones prohibidas. La política deniega todo prefijo de cuatro o más caracteres;

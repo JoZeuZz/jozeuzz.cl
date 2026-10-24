@@ -34,14 +34,15 @@ El CT es compartido, el usuario es `root` y pertenece al grupo `docker`. Cualqui
    - al terminar, registra el resultado en `.jz-state/runs.jsonl` (comando, `rc`, `head`, huella del árbol y log). La huella y la lista de cambios de `jz-state` las calcula `.jz/lib/tree.mjs` sin `git status` ni `git diff` contra el árbol: no ejecuta filtros `clean`, `textconv` ni `fsmonitor` del repositorio, no sigue enlaces simbólicos, no abre FIFO ni dispositivos y no pasa nombres de archivo como argumentos. La huella liga `HEAD`, el índice completo (modo, OID, stage y ruta de cada entrada, incluidos los conflictos) y el contenido, tipo y permisos de cada ruta rastreada o no ignorada. La huella es el SHA-256 completo. Falla cerrada, con un código `JZ_TREE_*` y `jz-state` en `BLOQUEADO` (y `jz-run` no ejecuta el comando), ante nombres no UTF-8 (`JZ_TREE_NON_UTF8`), repositorios anidados o entradas `.git` a cualquier profundidad de lo no ignorado (`JZ_TREE_NESTED_REPO`), gitlinks o submódulos (`JZ_TREE_GITLINK`), errores de lectura (`JZ_TREE_IO`), archivos que cambian mientras se leen (`JZ_TREE_RACE`) y una configuración que desplace el árbol (`core.worktree`, `JZ_TREE_TOPLEVEL`). Los archivos ignorados (`node_modules`, cachés) siguen fuera de la huella, igual que los indicadores del índice (`intent-to-add`, `skip-worktree`, `assume-unchanged`). Además, pone en cuarentena (`.jz-state/quarantine/`) los archivos de control que se hayan creado y los enlaces simbólicos nuevos que apunten fuera del worktree o al plano de control, y en ese caso devuelve el código 86.
 
    Sólo usa `unshare`, `setpriv`, `mount` y `pivot_root` de util-linux 2.41, que ya están instalados. El sandbox nativo de Claude Code necesita `bubblewrap` y `socat`, y no se instalaron (§8).
+5. **Verificación reconocida** (`.jz/bin/jz-verify`, I2; diseño en `docs/propuestas/JZ-I2-VERIFICACION.md`). Una ejecución de `jz-run` con `rc=0` no valida nada por sí misma. Sólo un perfil del registro `.jz/profiles/` (plano de control) produce evidencia reconocida: `jz-verify run <perfil>` ejecuta su argv exacto mediante `jz-run`, comprueba desde fuera del sandbox HEAD, índice, huella y runtime antes y después, el registro de `runs.jsonl` y el resultado estructurado del Node Test Runner (reporter `.jz/lib/verify-reporter.mjs`), y escribe la evidencia en `.jz-state/verify/<perfil>.json`. `jz-verify status` la clasifica como `VALIDADO`, `FALLIDO`, `OBSOLETO`, `BLOQUEADO` o `SIN_VERIFICACION`. Hoy hay un perfil, `jz-core-tests` (las cinco suites del plano de control que corren en el sandbox); no hay perfiles del producto.
 
 ## 3. Permisos efectivos
 
 | Agente | Claude Code (herramientas → política) | OpenCode (`permission` → plugin) |
 |---|---|---|
-| `jz-orchestrator` | Read, Grep, Glob, Skill, TodoWrite, Bash, `Agent(jz-architect, jz-explorer, jz-implementer, jz-security, jz-qa)`. La shell sólo admite lectura de git (`status`, `diff`, `log`, `show`, `rev-parse`, `ls-files`, `blame`, `branch --show-current`, `worktree list`, `remote -v`), `jz-state`, `jz-checkpoint`, `jz-lock status`, `ls` y `pwd`. Sin escritura ni `jz-run`. | Igual (con el plugin cargado). Perfil base: `edit` y `bash` denegados y `task` sólo hacia explorer, security y qa; el plugin añade la shell y la delegación en los seis `jz-*`. |
+| `jz-orchestrator` | Read, Grep, Glob, Skill, TodoWrite, Bash, `Agent(jz-architect, jz-explorer, jz-implementer, jz-security, jz-qa)`. La shell sólo admite lectura de git (`status`, `diff`, `log`, `show`, `rev-parse`, `ls-files`, `blame`, `branch --show-current`, `worktree list`, `remote -v`), `jz-state`, `jz-checkpoint`, `jz-lock status`, `jz-verify status`, `ls` y `pwd`. Sin escritura, `jz-run` ni `jz-verify run`. | Igual (con el plugin cargado). Perfil base: `edit` y `bash` denegados y `task` sólo hacia explorer, security y qa; el plugin añade la shell y la delegación en los seis `jz-*`. |
 | `jz-architect` | Read, Grep, Glob, Write, Edit y Skill; escribe sólo en `docs/` y `.jz-state/notes/`. Sin shell. Precarga `writing-plans`. | `edit` sólo en `docs/*` y `.jz-state/notes/*`; `bash: deny`; `task: deny`. |
-| `jz-implementer` (y `-copilot` en OpenCode) | Read, Grep, Glob, Bash, Edit, Write y Skill. Edita el worktree salvo el plano de control y los secretos. La shell admite `jz-run <cmd>`, `jz-state`, `jz-checkpoint`, git sólo de lectura (`add`, `commit`, `rm`, `mv` y `restore` denegados desde I1), `ls` y `pwd`. Precarga `test-driven-development` y `verification-before-completion`. | `edit` igual; `bash` con una lista blanca equivalente; `task: deny`. |
+| `jz-implementer` (y `-copilot` en OpenCode) | Read, Grep, Glob, Bash, Edit, Write y Skill. Edita el worktree salvo el plano de control y los secretos. La shell admite `jz-run <cmd>`, `jz-verify run <perfil>` y `status`, `jz-state`, `jz-checkpoint`, git sólo de lectura (`add`, `commit`, `rm`, `mv` y `restore` denegados desde I1), `ls` y `pwd`. Precarga `test-driven-development` y `verification-before-completion`. | `edit` igual; `bash` con una lista blanca equivalente; `task: deny`. |
 | `jz-explorer` | Read, Grep, Glob (dentro del worktree y las skills). | Sólo `read`, `glob`, `grep`, `list`, `skill` y `todowrite`. |
 | `jz-security` | Read, Grep, Glob. | Igual que explorer. |
 | `jz-qa` | Read, Grep, Glob y Skill. Precarga `verification-before-completion`. | Igual que explorer. |
@@ -65,7 +66,7 @@ Siempre requieren intervención humana:
 - La investigación en lectura (explorer, security y qa) puede ir en paralelo. Los escritores (`jz-implementer*` y `jz-architect`) van de uno en uno y en primer plano; el bloqueo lo impone el sistema.
 - No hay cadenas: los subagentes no tienen la herramienta de delegación en Claude Code y tienen `task: deny` y bloqueo en la política en OpenCode. La delegación nunca sube de privilegios: el orquestador, sin escritura, sólo puede delegar en roles ya definidos y acotados.
 - Como máximo dos ciclos de corrección por unidad; después, se detiene y lo informa.
-- La verificación no se apoya en lo que diga el implementador. `jz-state` debe mostrar «Árbol actual con ejecución en verde: sí», que se calcula a partir de la huella que registró el propio `jz-run` y que ningún agente puede escribir. «En verde» sólo significa que alguna ejecución de `jz-run` terminó con `rc=0` sobre ese árbol, sea cual sea el comando (`jz-run true` basta): hay que mirar qué comando fue. La validación reconocida (perfiles fijos y oráculo de pruebas) es I2.
+- La verificación no se apoya en lo que diga el implementador. La sección «Verificación reconocida» de `jz-state` (o `jz-verify status`) debe mostrar el perfil aplicable en `VALIDADO`: la evidencia la escribe `jz-verify` fuera del sandbox, a partir de la huella y del registro de `jz-run`, y ningún agente puede escribirla. «Árbol actual con ejecución en verde: sí» se mantiene por compatibilidad, pero sólo significa que alguna ejecución de `jz-run` terminó con `rc=0` sobre ese árbol, sea cual sea el comando (`jz-run true` basta): no es una verificación reconocida. Sin perfil aplicable (hoy no hay perfiles del producto), el estado honesto de la unidad es `incompleto`.
 
 Cada especialista termina su respuesta con este bloque:
 
@@ -106,12 +107,13 @@ El estado se guarda en `.jz-state/` (ignorado por git, local al worktree):
 | Archivo | Quién lo escribe | Contenido |
 |---|---|---|
 | `runs.jsonl` y `runs/*.log` | `jz-run` | Cada ejecución real: comando, `rc`, `head`, huella del árbol y salida. |
+| `verify/<perfil>.json` | `jz-verify` | Última verificación reconocida del perfil: perfil y digest, comando, HEAD, índice y huella antes y después, runtime, registro y log de `jz-run`, resultado estructurado de las pruebas, estado y fecha. |
 | `writer.lock` | hook o plugin | Escritor activo: motor, pid, sesión que delega, sesión escritora (OpenCode), agente, llamada y hora. |
 | `checkpoints/*.md`, `LATEST.md` | `jz-checkpoint` | Unidad, estado declarado, problemas, siguiente paso y el estado real completo. |
 | `notes/*.md` | implementer o architect | Notas libres del handoff. |
 | `quarantine/` | `jz-run` | Rutas de control o enlaces hacia fuera creados por un comando. |
 
-`jz-checkpoint --state validado` sólo queda como validado si existe una ejecución en verde sobre el árbol actual. En caso contrario se registra como `incompleto` y se avisa. Así se distingue el código validado de los cambios a medias sin depender de la palabra del agente.
+`jz-checkpoint --state validado` sólo queda como validado si algún perfil está en `VALIDADO` para el estado actual (desde I2; antes bastaba una ejecución de `jz-run` en verde, `jz-run true` incluido). En caso contrario se registra como `incompleto` y se avisa. El checkpoint anota la ejecución en verde (compatibilidad) y el estado de cada perfil. Así se distingue el código validado de los cambios a medias sin depender de la palabra del agente.
 
 **Cuando se agota la cuota:**
 
@@ -137,6 +139,8 @@ Las pruebas se reproducen así:
 ```sh
 .jz/bin/jz-run node --test .jz/tests/            # política, hook, huella y recuperación (en el sandbox; omite las del sandbox)
 node --test .jz/tests/sandbox.test.mjs            # aislamiento de jz-run (en el host)
+node --test .jz/tests/verify.test.mjs             # verificación reconocida (en el host; en el sandbox omite las que usan jz-run)
+.jz/bin/jz-verify run jz-core-tests               # evidencia reconocida del plano de control (.jz-state/verify/)
 node .jz/tests/opencode-native.mjs                # OpenCode real con un modelo simulado local (sin cuota)
 node .jz/tests/integration.mjs --base <dir>       # motores reales en un repositorio desechable
 ```

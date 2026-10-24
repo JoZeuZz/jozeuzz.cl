@@ -161,6 +161,31 @@ test('orquestador: sólo lectura de git y estado; nunca ejecuta ni escribe', () 
   no(checkWrite('src/a.ts', 'jz-orchestrator', ctx), 'escritura');
 });
 
+// I2: la verificación reconocida sólo admite perfiles por identificador; nunca argv libre ni otro ejecutor.
+test('jz-verify: el implementador ejecuta perfiles por id y el orquestador sólo consulta', () => {
+  ok(checkBash('.jz/bin/jz-verify run jz-core-tests', 'jz-implementer', ctx), 'run de un perfil');
+  ok(checkBash('.jz/bin/jz-verify status', 'jz-implementer', ctx), 'status (implementer)');
+  ok(checkBash('.jz/bin/jz-verify status 2>&1 | tail -n 20', 'jz-implementer', ctx), 'status con filtro');
+  ok(checkBash('.jz/bin/jz-verify status', 'jz-orchestrator', ctx), 'status (orquestador)');
+  for (const cmd of ['.jz/bin/jz-verify', '.jz/bin/jz-verify run', '.jz/bin/jz-verify run a b',
+    '.jz/bin/jz-verify run ../policy', '.jz/bin/jz-verify run .jz/profiles/x.json', '.jz/bin/jz-verify run Jz',
+    '.jz/bin/jz-verify run jz-core-tests -- sh -c id', '.jz/bin/jz-verify run jz-core-tests true',
+    '.jz/bin/jz-verify status x', '.jz/bin/jz-verify bogus', '.jz/bin/jz-verify run "jz core"',
+    '.jz/bin/jz-verify run jz-core-tests > .jz-state/verify/x.json', 'node .jz/lib/verify.mjs run jz-core-tests',
+    'node --test --test-reporter=./.jz/lib/verify-reporter.mjs .jz/tests/policy.test.mjs']) {
+    no(checkBash(cmd, 'jz-implementer', ctx), cmd);
+  }
+  no(checkBash('.jz/bin/jz-verify run jz-core-tests', 'jz-orchestrator', ctx), 'el orquestador no ejecuta código');
+  for (const role of ['jz-architect', 'jz-explorer', 'jz-security', 'jz-qa']) {
+    no(checkBash('.jz/bin/jz-verify status', role, ctx), `${role} sin shell`);
+  }
+  for (const p of ['.jz/profiles/jz-core-tests.json', '.jz/profiles/nuevo.json', '.jz/lib/verify.mjs',
+    '.jz/lib/verify-reporter.mjs', '.jz/bin/jz-verify', '.jz-state/verify/jz-core-tests.json']) {
+    no(checkWrite(p, 'jz-implementer', ctx), p);
+    no(checkWrite(p, 'jz-architect', ctx), `architect ${p}`);
+  }
+});
+
 test('explorer, security y qa: sin shell ni escritura', () => {
   for (const role of ['jz-explorer', 'jz-security', 'jz-qa']) {
     no(checkBash('git status', role, ctx), `${role} bash`);

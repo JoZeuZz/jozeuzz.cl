@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # jz-checkpoint — registra un punto de recuperación en .jz-state/checkpoints/ y .jz-state/LATEST.md.
 # Combina lo que declara el agente (unidad, estado, problemas, siguiente paso) con el estado real
-# que calcula jz-state. Si se declara "validado" sin una ejecución de jz-run en verde sobre el árbol
-# actual, lo registra como "incompleto" y lo advierte.
+# que calcula jz-state. Si se declara "validado" sin una verificación reconocida vigente (jz-verify) sobre el
+# estado actual, lo registra como "incompleto" y lo advierte: una ejecución de jz-run en verde no basta.
 #
 # Uso: .jz/bin/jz-checkpoint --unit "<unidad funcional>" --state validado|incompleto|bloqueado|cuota \
 #        [--next "<siguiente paso>"] [--issue "<problema abierto>"]... [--note .jz-state/notes/<archivo>.md]
@@ -42,10 +42,15 @@ fi
 fp=$("$WT/.jz/bin/jz-run" --fingerprint)
 green=''
 [[ -s $STATE/runs.jsonl ]] && green=$(jq -r --arg fp "$fp" 'select(.tree == $fp and .rc == 0) | .ts' "$STATE/runs.jsonl" | tail -n 1)
+# I2: "validado" exige una verificación reconocida vigente (jz-verify), no sólo una ejecución con rc=0.
+vjson=$("$WT/.jz/bin/jz-verify" status --json 2>/dev/null) || true
+verification=$(jq -r 'if length == 0 then "ningún perfil registrado" else map("\(.id) \(.state)") | join(", ") end' \
+  <<<"${vjson:-[]}" 2>/dev/null) || verification='no se pudo consultar (jz-verify status)'
+recognized=$(jq -r 'map(select(.state == "VALIDADO") | .id) | join(", ")' <<<"${vjson:-[]}" 2>/dev/null) || recognized=''
 warning=''
-if [[ $state == validado && -z $green ]]; then
+if [[ $state == validado && -z $recognized ]]; then
   state=incompleto
-  warning='AVISO: se declaró "validado", pero no hay ejecución de jz-run en verde sobre el árbol actual; se registra como incompleto.'
+  warning='AVISO: se declaró "validado", pero no hay una verificación reconocida vigente (jz-verify run <perfil>) sobre el estado actual; se registra como incompleto. Una ejecución de jz-run en verde no basta.'
 fi
 
 mkdir -p "$STATE/checkpoints"
@@ -59,7 +64,8 @@ file=$STATE/checkpoints/$ts-$engine.md
   echo "- Motor: $engine"
   echo "- Unidad: $unit"
   echo "- Estado declarado: $state"
-  echo "- Validación del árbol actual: ${green:-ninguna ejecución en verde}"
+  echo "- Validación del árbol actual: ${green:-ninguna ejecución en verde} (jz-run con rc=0; no es una verificación reconocida)"
+  echo "- Verificación reconocida: $verification"
   echo "- Siguiente paso: ${next:-(no indicado)}"
   [[ -n $warning ]] && echo "- $warning"
   echo

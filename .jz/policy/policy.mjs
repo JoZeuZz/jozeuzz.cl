@@ -271,7 +271,21 @@ function checkGit(argv, ctx, cwd) {
     + 'rebase y similares requieren al humano)');
 }
 
-const JZ_TOOLS = { implementer: ['jz-run', 'jz-state', 'jz-checkpoint', 'jz-lock'], orchestrator: ['jz-state', 'jz-checkpoint', 'jz-lock'] };
+const JZ_TOOLS = {
+  implementer: ['jz-run', 'jz-state', 'jz-checkpoint', 'jz-lock', 'jz-verify'],
+  orchestrator: ['jz-state', 'jz-checkpoint', 'jz-lock', 'jz-verify'],
+};
+// I2: la verificación reconocida sólo acepta perfiles del registro por identificador, nunca argv libre. Ejecutar
+// un perfil corre código del proyecto (en jz-run): no lo hace el orquestador.
+const PROFILE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+function checkVerify(argv, bashRole) {
+  if (argv[1] === 'status' && argv.length === 2) return allow('jz-verify status (consulta)');
+  if (argv[1] === 'run' && argv.length === 3 && PROFILE_ID.test(argv[2])) {
+    return bashRole === 'implementer' ? allow(`jz-verify run ${argv[2]} (perfil reconocido en jz-run)`)
+      : deny('jz-verify run ejecuta código del proyecto: lo delega el orquestador en jz-implementer');
+  }
+  return deny('jz-verify: sólo "status" o "run <perfil>" (identificador del registro .jz/profiles, sin argumentos libres)');
+}
 
 function checkCommand(argv, bashRole, ctx, cwd) {
   const exe = argv[0];
@@ -284,6 +298,7 @@ function checkCommand(argv, bashRole, ctx, cwd) {
       if (name === 'jz-lock' && !['status', undefined].includes(argv[1])) {
         return deny('jz-lock: sólo "status" (liberar un bloqueo lo decide el humano)');
       }
+      if (name === 'jz-verify') return checkVerify(argv, bashRole);
       return allow(`${name} (ejecutor acotado del proyecto)`);
     }
     return deny(`ejecutable no permitido: ${exe}`);

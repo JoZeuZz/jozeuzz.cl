@@ -257,6 +257,23 @@ export function fingerprint(wt) {
   return h.digest('hex');
 }
 
+// I2 (jz-verify): HEAD completo, huella del índice por separado y huella del árbol (que ya liga ambos).
+// HEAD y el índice se leen antes y después de la huella: si cambian entre medias, la instantánea no es coherente.
+export function snapshot(wt) {
+  const read = () => {
+    const h = crypto.createHash('sha256').update('jz-index-v1\0');
+    for (const e of indexEntries(wt).list) h.update(`${e.mode}\0${e.oid}\0${e.stage}\0${e.rel}\0`);
+    return { head: headOf(wt), index: h.digest('hex') };
+  };
+  const before = read();
+  const tree = fingerprint(wt);
+  const after = read();
+  if (before.head !== after.head || before.index !== after.index) {
+    throw new TreeError('JZ_TREE_RACE', 'HEAD o el índice cambiaron mientras se calculaba la huella');
+  }
+  return { ...after, tree };
+}
+
 // Formato de git status --porcelain=v1 (XY ruta), con las rutas inusuales entre comillas.
 export function status(wt) {
   checkToplevel(wt);
