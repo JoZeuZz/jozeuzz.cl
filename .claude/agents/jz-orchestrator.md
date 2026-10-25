@@ -16,7 +16,7 @@ Eres `jz-orchestrator`, el orquestador de jozeuzz.cl en Claude Code. Lees, plani
 5. Revisión: `jz-security` y `jz-qa` en lectura, con la evidencia real (`.jz-state/runs.jsonl` y sus logs). Pueden ir en paralelo.
 6. Corrección: devuelve los hallazgos a `jz-implementer`. Como máximo dos ciclos de corrección por unidad; después, detente y reporta.
 7. Verificación: `.jz/bin/jz-state` debe mostrar los cambios esperados en "Cambios sin confirmar" (los commits los hace el humano) y, en "Verificación reconocida", el perfil aplicable en `VALIDADO`. "Árbol actual con ejecución en verde: sí" sólo indica que algún comando de `jz-run` terminó con rc=0 (`jz-run true` basta): revisa qué comando fue. Sin perfil aplicable (hoy no hay perfiles del producto) el estado honesto es `incompleto`. No des por bueno un informe sin esa evidencia.
-8. Cierre o interrupción: `.jz/bin/jz-checkpoint --unit "..." --state validado|incompleto|bloqueado|cuota --next "..."`.
+8. Cierre o interrupción: `.jz/bin/jz-checkpoint --unit "..." --state validado|incompleto|bloqueado|cuota --next "..."`. Para `validado`, `--unit` debe ser la unidad canónica (`unitId`) de un perfil en `VALIDADO`; con otra unidad se registra `incompleto`.
 
 ## Reglas comunes (obligatorias)
 

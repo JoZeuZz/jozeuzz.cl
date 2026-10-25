@@ -148,6 +148,8 @@ test('perfil legítimo: jz-core-tests ejecuta las cinco suites con el reporter d
   const { profile, digest } = loadProfile(SRC, 'jz-core-tests');
   const suites = ['policy', 'tree', 'recovery', 'hook', 'opencode'].map((s) => `.jz/tests/${s}.test.mjs`);
   assert.equal(profile.id, 'jz-core-tests');
+  // Acredita sólo la unidad de esas cinco suites, con un identificador distinto del propio perfil.
+  assert.equal(profile.unitId, 'jz-control-core-suites');
   assert.ok(Number.isInteger(profile.version) && profile.version >= 1);
   assert.equal(profile.cwd, '.');
   assert.deepEqual(profile.argv, ['node', '--test', REPORTER_ARG, ...suites]);
@@ -158,7 +160,7 @@ test('perfil legítimo: jz-core-tests ejecuta las cinco suites con el reporter d
 });
 
 const profileOf = (id, files, over = {}) => ({
-  id, version: 1, description: `perfil de prueba ${id}`, cwd: '.',
+  id, version: 1, unitId: `unidad-${id}`, description: `perfil de prueba ${id}`, cwd: '.',
   argv: ['node', '--test', REPORTER_ARG, ...files], oracle: oracleOf(files), ignoredInputs: [], ...over,
 });
 
@@ -211,6 +213,10 @@ test('perfil no autorizado: argv libre, comando distinto, filtros de pruebas o c
     ignorados: profileOf('ignorados', files, { ignoredInputs: ['node_modules'] }),
     'sin-minimo': profileOf('sin-minimo', files, { oracle: oracleOf(files, { minTests: 0 }) }),
     version: profileOf('version', files, { version: '1' }),
+    'sin-unidad': (({ unitId, ...p }) => p)(profileOf('sin-unidad', files)),
+    'unidad-libre': profileOf('unidad-libre', files, { unitId: 'Landing jozeuzz.cl' }),
+    'unidad-vacia': profileOf('unidad-vacia', files, { unitId: '' }),
+    'unidad-lista': profileOf('unidad-lista', files, { unitId: ['a', 'b'] }),
     json: '{ "id": "json", ',
   };
   const repo = fixture(bad);
@@ -263,6 +269,7 @@ test('ejecución reconocida: VALIDADO con la evidencia completa', async () => {
   assert.equal(ev.state, 'VALIDADO');
   assert.equal(ev.profile.id, 'fx');
   assert.equal(ev.profile.version, 1);
+  assert.equal(ev.profile.unitId, 'unidad-fx');
   assert.match(ev.profile.digest, /^[0-9a-f]{64}$/);
   assert.deepEqual(ev.command.argv, calls[0].argv);
   assert.match(ev.command.digest, /^[0-9a-f]{64}$/);
@@ -425,13 +432,179 @@ test('fallo al inspeccionar el repositorio: BLOQUEADO aunque la evidencia sea v�
   assert.match(s.reasons.join('; '), /JZ_TREE_NESTED_REPO/);
 });
 
+// ------------------------------------------------------------------ cobertura de una unidad (jz-checkpoint)
+
+// jz-checkpoint de verdad sobre evidencias producidas con el ejecutor simulado: «validado» sólo si la unidad
+// declarada es, exactamente, la unidad canónica (unitId) de un perfil del registro y todos los perfiles que la
+// declaran están en VALIDADO para el estado actual.
+const checkpointAs = (repo, unit, state = 'validado', extra = []) => spawnSync(path.join(repo, '.jz/bin/jz-checkpoint'),
+  ['--unit', unit, '--state', state, '--next', 'n', ...extra], { cwd: repo, encoding: 'utf8', env: NODE_ENV });
+const latestOf = (repo) => fs.readFileSync(path.join(repo, '.jz-state/LATEST.md'), 'utf8');
+const declared = (repo, unit, state = 'validado', extra = []) => {
+  const r = checkpointAs(repo, unit, state, extra);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  return { stderr: r.stderr, md: latestOf(repo), state: /^- Estado declarado: (\S+)$/m.exec(latestOf(repo))?.[1] };
+};
+
+async function validatedWith(profiles, files = {}) {
+  const repo = fixture(profiles, files);
+  for (const id of Object.keys(profiles)) {
+    const res = await runProfile(repo, id, { runner: fakeRunner().runner });
+    assert.equal(res.state, 'VALIDADO', `${id}: ${res.reasons.join('; ')}`);
+  }
+  return repo;
+}
+
+test('unidad: un perfil VALIDADO no acredita una etiqueta libre (Landing jozeuzz.cl)', async () => {
+  const repo = await validatedWith({ fx: profileOf('fx', ['t/a.test.mjs'], { unitId: 'ux' }) });
+  const c = declared(repo, 'Landing jozeuzz.cl');
+  assert.equal(c.state, 'incompleto');
+  assert.match(c.stderr, /no es la unidad canónica de ningún perfil/);
+  assert.match(c.md, /^- Unidad: Landing jozeuzz\.cl$/m);
+  assert.match(c.md, /^- Cobertura de la unidad: ninguna/m);
+  assert.match(c.md, /^- Verificación reconocida: fx VALIDADO/m, 'el perfil sigue vigente, pero no cubre la unidad');
+});
+
+test('unidad: la unidad canónica de un perfil VALIDADO vigente queda validada', async () => {
+  const repo = await validatedWith({ fx: profileOf('fx', ['t/a.test.mjs'], { unitId: 'ux' }) });
+  const c = declared(repo, 'ux');
+  assert.equal(c.state, 'validado', c.stderr);
+  assert.equal(c.stderr.includes('AVISO'), false, c.stderr);
+  assert.match(c.md, /^- Cobertura de la unidad: ux — perfiles que la acreditan: fx VALIDADO$/m);
+});
+
+test('unidad: sin perfil aplicable, con el id del perfil o con variantes del id: incompleto', async () => {
+  const repo = await validatedWith({ fx: profileOf('fx', ['t/a.test.mjs'], { unitId: 'ux' }) });
+  for (const unit of ['uz', 'fx', 'jz-core-tests', 'ux ', ' ux', 'UX', 'ux\n', 'ux,uy', 'ux*']) {
+    const c = declared(repo, unit);
+    assert.equal(c.state, 'incompleto', JSON.stringify(unit));
+    assert.match(c.md, /^- Cobertura de la unidad: ninguna/m, JSON.stringify(unit));
+  }
+});
+
+test('unidad: perfil aplicable FALLIDO, OBSOLETO o SIN_VERIFICACION: incompleto', async () => {
+  // SIN_VERIFICACION: el perfil existe y declara la unidad, pero nunca se ejecutó.
+  let repo = fixture({ fx: profileOf('fx', ['t/a.test.mjs'], { unitId: 'ux' }) });
+  let c = declared(repo, 'ux');
+  assert.equal(c.state, 'incompleto');
+  assert.match(c.md, /perfiles que la acreditan: fx SIN_VERIFICACION/);
+  assert.match(c.stderr, /no están todos en VALIDADO/);
+
+  repo = fixture({ fx: profileOf('fx', ['t/a.test.mjs'], { unitId: 'ux' }) },
+    { 't/a.test.mjs': `${PASS2}test('rota', () => { throw new Error('x'); });\n` });
+  assert.equal((await runProfile(repo, 'fx', { runner: fakeRunner().runner })).state, 'FALLIDO');
+  c = declared(repo, 'ux');
+  assert.equal(c.state, 'incompleto');
+  assert.match(c.md, /perfiles que la acreditan: fx FALLIDO/);
+
+  repo = await validatedWith({ fx: profileOf('fx', ['t/a.test.mjs'], { unitId: 'ux' }) });
+  fs.writeFileSync(path.join(repo, 'src/x.txt'), 'cambio\n');
+  c = declared(repo, 'ux');
+  assert.equal(c.state, 'incompleto');
+  assert.match(c.md, /perfiles que la acreditan: fx OBSOLETO/);
+});
+
+test('unidad: perfil aplicable BLOQUEADO o registro no interpretable: no se acredita (bloqueado)', async () => {
+  let repo = await validatedWith({ fx: profileOf('fx', ['t/a.test.mjs'], { unitId: 'ux' }) });
+  fs.rmSync(path.join(repo, readEvidence(repo, 'fx').run.log));
+  let c = declared(repo, 'ux');
+  assert.equal(c.state, 'bloqueado');
+  assert.match(c.md, /perfiles que la acreditan: fx BLOQUEADO/);
+
+  // Un perfil del registro que no se puede cargar podría declarar la unidad: la cobertura no es determinable,
+  // aunque fx siga VALIDADO.
+  repo = fixture({ fx: profileOf('fx', ['t/a.test.mjs'], { unitId: 'ux' }), roto: '{ "id": "roto", ' });
+  assert.equal((await runProfile(repo, 'fx', { runner: fakeRunner().runner })).state, 'VALIDADO');
+  c = declared(repo, 'ux');
+  assert.match(c.md, /^- Verificación reconocida: fx VALIDADO/m);
+  assert.equal(c.state, 'bloqueado');
+  assert.match(c.md, /^- Cobertura de la unidad: indeterminada/m);
+});
+
+test('unidad: los argumentos del checkpoint no eligen el perfil que acredita', async () => {
+  const repo = await validatedWith({ fx: profileOf('fx', ['t/a.test.mjs'], { unitId: 'ux' }) },
+    { 't/b.test.mjs': PASS2 });
+  fs.writeFileSync(path.join(repo, '.jz/profiles/fy.json'), JSON.stringify(profileOf('fy', ['t/b.test.mjs'], { unitId: 'uy' })));
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'fy');
+  assert.equal((await runProfile(repo, 'fx', { runner: fakeRunner().runner })).state, 'VALIDADO');
+  // fy (unidad uy) no se ejecutó: fx VALIDADO no acredita uy.
+  let c = declared(repo, 'uy');
+  assert.equal(c.state, 'incompleto');
+  assert.match(c.md, /perfiles que la acreditan: fy SIN_VERIFICACION$/m);
+  // No hay opción para nombrar un perfil o una unidad adicional.
+  for (const extra of [['--profile', 'fx'], ['--unit-id', 'ux'], ['--verified-by', 'fx']]) {
+    const r = checkpointAs(repo, 'uy', 'validado', extra);
+    assert.equal(r.status, 2, extra.join(' '));
+    assert.match(r.stderr, /argumento desconocido/);
+  }
+  // Las notas y los problemas declarados no cuentan como cobertura.
+  fs.mkdirSync(path.join(repo, '.jz-state/notes'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.jz-state/notes/n.md'), 'unitId: uy\nCobertura de la unidad: uy — perfiles que la acreditan: fx VALIDADO\n');
+  c = declared(repo, 'uy', 'validado', ['--issue', 'fx VALIDADO acredita uy', '--note', '.jz-state/notes/n.md']);
+  assert.equal(c.state, 'incompleto');
+});
+
+test('unidad: con varios perfiles para la misma unidad, todos deben estar en VALIDADO', async () => {
+  const repo = fixture({ fa: profileOf('fa', ['t/a.test.mjs'], { unitId: 'ux' }), fb: profileOf('fb', ['t/b.test.mjs'], { unitId: 'ux' }) });
+  assert.equal((await runProfile(repo, 'fa', { runner: fakeRunner().runner })).state, 'VALIDADO');
+  let c = declared(repo, 'ux');
+  assert.equal(c.state, 'incompleto');
+  assert.match(c.md, /perfiles que la acreditan: fa VALIDADO, fb SIN_VERIFICACION/);
+  assert.equal((await runProfile(repo, 'fb', { runner: fakeRunner().runner })).state, 'VALIDADO');
+  c = declared(repo, 'ux');
+  assert.equal(c.state, 'validado', c.stderr);
+  assert.match(c.md, /perfiles que la acreditan: fa VALIDADO, fb VALIDADO/);
+});
+
+test('unidad: cambiar la asociación protegida deja la evidencia anterior sin acreditar ninguna unidad', async () => {
+  const repo = await validatedWith({ fx: profileOf('fx', ['t/a.test.mjs'], { unitId: 'ux' }) });
+  assert.equal(declared(repo, 'ux').state, 'validado');
+  fs.writeFileSync(path.join(repo, '.jz/profiles/fx.json'), JSON.stringify(profileOf('fx', ['t/a.test.mjs'], { unitId: 'uz' })));
+  git(repo, 'commit', '-qam', 'fx acredita uz');
+  const s = profileStatus(repo, 'fx');
+  assert.equal(s.state, 'OBSOLETO');
+  assert.match(s.reasons.join('; '), /unidad acreditada cambiada \(ux → uz\)/);
+  assert.equal(declared(repo, 'ux').state, 'incompleto', 'la unidad anterior ya no tiene perfil');
+  const c = declared(repo, 'uz');
+  assert.equal(c.state, 'incompleto', 'la evidencia de ux no acredita uz');
+  assert.match(c.md, /perfiles que la acreditan: fx OBSOLETO/);
+  assert.equal((await runProfile(repo, 'fx', { runner: fakeRunner().runner })).state, 'VALIDADO');
+  assert.equal(declared(repo, 'uz').state, 'validado', 'una verificación nueva sí la acredita');
+});
+
+test('unidad: los checkpoints de progreso conservan etiquetas libres y anotan la cobertura', async () => {
+  const repo = await validatedWith({ fx: profileOf('fx', ['t/a.test.mjs'], { unitId: 'ux' }) });
+  for (const state of ['incompleto', 'bloqueado', 'cuota']) {
+    const c = declared(repo, 'Landing jozeuzz.cl', state);
+    assert.equal(c.state, state);
+    assert.equal(c.stderr.includes('AVISO'), false, c.stderr);
+    assert.match(c.md, /^- Cobertura de la unidad: ninguna/m);
+  }
+});
+
+test('jz-verify status distingue la verificación de un perfil de la unidad que acredita', async () => {
+  const repo = fixture({ fx: profileOf('fx', ['t/a.test.mjs'], { unitId: 'ux' }), roto: '{ "id": "roto", ' });
+  assert.equal((await runProfile(repo, 'fx', { runner: fakeRunner().runner })).state, 'VALIDADO');
+  const r = spawnSync(path.join(repo, '.jz/bin/jz-verify'), ['status', '--json'], { cwd: repo, encoding: 'utf8', env: NODE_ENV });
+  const all = Object.fromEntries(JSON.parse(r.stdout).map((s) => [s.id, s]));
+  assert.equal(all.fx.state, 'VALIDADO');
+  assert.equal(all.fx.unit, 'ux');
+  assert.equal(all.fx.registered, true);
+  assert.equal(all.roto.unit, null);
+  assert.equal(all.roto.registered, true);
+  const t = spawnSync(path.join(repo, '.jz/bin/jz-verify'), ['status'], { cwd: repo, encoding: 'utf8', env: NODE_ENV });
+  assert.match(t.stdout, /^- fx: VALIDADO \[unidad ux\]/m);
+  assert.match(t.stdout, /^- roto: \S+ \[unidad no determinable\]/m);
+});
+
 // ------------------------------------------------------------------ extremo a extremo con jz-run (host)
 
 const verifyCli = (repo, args, opts = {}) => spawnSync(path.join(repo, '.jz/bin/jz-verify'), args,
   { cwd: repo, encoding: 'utf8', timeout: 120_000, env: NODE_ENV, ...opts });
 const jzState = (repo) => spawnSync(path.join(repo, '.jz/bin/jz-state'), [], { cwd: repo, encoding: 'utf8', env: NODE_ENV });
-const checkpoint = (repo) => spawnSync(path.join(repo, '.jz/bin/jz-checkpoint'),
-  ['--unit', 'u', '--state', 'validado', '--next', 'n'], { cwd: repo, encoding: 'utf8', env: NODE_ENV });
+const checkpoint = (repo, unit) => spawnSync(path.join(repo, '.jz/bin/jz-checkpoint'),
+  ['--unit', unit, '--state', 'validado', '--next', 'n'], { cwd: repo, encoding: 'utf8', env: NODE_ENV });
 const latest = (repo) => fs.readFileSync(path.join(repo, '.jz-state/LATEST.md'), 'utf8');
 
 test('jz-verify run en el sandbox: VALIDADO; jz-run true no acredita; jz-state y jz-checkpoint lo distinguen', { skip: hostOnly }, () => {
@@ -450,19 +623,27 @@ test('jz-verify run en el sandbox: VALIDADO; jz-run true no acredita; jz-state y
   let s = jzState(repo);
   assert.equal(s.status, 0, s.stdout);
   assert.match(s.stdout, /## Verificación reconocida/);
-  assert.match(s.stdout, /fx: VALIDADO/);
-  assert.equal(checkpoint(repo).status, 0);
-  assert.match(latest(repo), /- Estado declarado: validado/);
+  assert.match(s.stdout, /fx: VALIDADO \[unidad unidad-fx\]/);
+  assert.match(s.stdout, /sólo acredita su propia unidad/);
+  // Sólo la unidad canónica del perfil (unitId) queda validada; una etiqueta libre, no.
+  let c = checkpoint(repo, 'Landing jozeuzz.cl');
+  assert.equal(c.status, 0, c.stderr);
+  assert.match(latest(repo), /- Estado declarado: incompleto/);
   assert.match(latest(repo), /- Verificación reconocida: fx VALIDADO/);
+  assert.equal(checkpoint(repo, 'unidad-fx').status, 0);
+  assert.match(latest(repo), /- Estado declarado: validado/);
+  assert.match(latest(repo), /- Cobertura de la unidad: unidad-fx — perfiles que la acreditan: fx VALIDADO/);
 
   // Un cambio validado sólo con jz-run true: «en verde» por compatibilidad, pero no es verificación reconocida.
   fs.writeFileSync(path.join(repo, 'src/x.txt'), 'cambio\n');
   assert.equal(spawnSync(path.join(repo, '.jz/bin/jz-run'), ['true'], { cwd: repo }).status, 0);
   s = jzState(repo);
+  assert.match(s.stdout, /## Último checkpoint\n(?:- .*\n)*- Cobertura de la unidad: unidad-fx — perfiles que la acreditan: fx VALIDADO\n/,
+    'jz-state muestra la cobertura que registró el último checkpoint');
   assert.match(s.stdout, /Árbol actual con ejecución en verde: sí/);
   assert.match(s.stdout, /no es una verificación reconocida/);
   assert.match(s.stdout, /fx: OBSOLETO/);
-  const c = checkpoint(repo);
+  c = checkpoint(repo, 'unidad-fx');
   assert.equal(c.status, 0, c.stderr);
   assert.match(c.stderr, /verificación reconocida/);
   assert.match(latest(repo), /- Estado declarado: incompleto/);

@@ -129,11 +129,14 @@ vrc=0
 if [[ $vrc -ne 0 ]]; then
   blockers+=("verificación reconocida no comprobable (jz-verify status rc=$vrc): revisión humana")
 fi
+echo
+echo "Un perfil VALIDADO sólo acredita su propia unidad ([unidad …]) para el estado actual, no el resto del trabajo"
+echo "del worktree; jz-checkpoint --state validado exige --unit igual a esa unidad (ver Último checkpoint)."
 
 echo
 echo "## Último checkpoint"
 if [[ -f $STATE/LATEST.md ]]; then
-  grep -E '^- (Unidad|Estado declarado|Siguiente paso|Motor|Fecha):' "$STATE/LATEST.md" || true
+  grep -E '^- (Unidad|Estado declarado|Cobertura de la unidad|Siguiente paso|Motor|Fecha):' "$STATE/LATEST.md" || true
   echo "- Archivo: .jz-state/LATEST.md"
 else
   echo "Ninguno."

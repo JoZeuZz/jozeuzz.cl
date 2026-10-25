@@ -14,6 +14,8 @@
 //   5. escribe la evidencia en .jz-state/verify/<perfil>.json (temporal, fsync y rename). El proceso verificado
 //      no puede escribirla: .jz-state es de sólo lectura en el sandbox y plano de control para los agentes.
 // jz-verify status recalcula la vigencia: VALIDADO, FALLIDO, OBSOLETO, BLOQUEADO o SIN_VERIFICACION.
+// Cada perfil acredita una sola unidad funcional (unitId, en el propio perfil protegido). Un perfil VALIDADO sólo dice
+// que su unidad está verificada para el estado actual; jz-checkpoint decide con esa asociación qué unidad es validada.
 //
 // La evidencia es local y no es una atestación criptográfica: root o cualquier proceso del mismo usuario puede
 // reescribir .jz-state. El digest sólo detecta corrupción o ediciones descuidadas.
@@ -33,6 +35,8 @@ const SCHEMA = 'jz-verify-evidence-v1';
 const ORACLE_FORMAT = 'node-test-jz-v1';
 const REPORTER_ARG = '--test-reporter=./.jz/lib/verify-reporter.mjs';
 const PROFILE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+// Identificador canónico de unidad: misma forma que el de perfil, para que una etiqueta descriptiva no lo sea.
+const UNIT_ID = PROFILE_ID;
 const LOG_ID = /^\.jz-state\/runs\/\d{8}T\d{6}Z-(\d+)\.log$/;
 // PATH del proceso dentro de jz-run: el node y el git que se identifican son los que ejecuta el perfil.
 const SANDBOX_PATH = ['/usr/local/bin', '/usr/bin', '/bin'];
@@ -86,11 +90,12 @@ const count = (n, min) => Number.isInteger(n) && n >= min;
 
 function validateProfile(p, id) {
   const bad = (msg) => new VerifyError('JZ_VERIFY_PROFILE', `perfil ${id} no autorizado: ${msg}`);
-  if (!exactKeys(p, ['id', 'version', 'description', 'cwd', 'argv', 'oracle', 'ignoredInputs'])) {
-    throw bad('campos distintos de id, version, description, cwd, argv, oracle e ignoredInputs');
+  if (!exactKeys(p, ['id', 'version', 'unitId', 'description', 'cwd', 'argv', 'oracle', 'ignoredInputs'])) {
+    throw bad('campos distintos de id, version, unitId, description, cwd, argv, oracle e ignoredInputs');
   }
   if (p.id !== id) throw bad(`su id (${JSON.stringify(p.id)}) no coincide con el nombre del archivo`);
   if (!count(p.version, 1)) throw bad('version debe ser un entero positivo');
+  if (typeof p.unitId !== 'string' || !UNIT_ID.test(p.unitId)) throw bad(`unitId debe ser un identificador canónico (${UNIT_ID})`);
   if (typeof p.description !== 'string') throw bad('description debe ser texto');
   // v1: el reporter y los archivos se resuelven desde la raíz del worktree.
   if (p.cwd !== '.') throw bad('cwd debe ser "." (raíz del worktree)');
@@ -458,7 +463,7 @@ export async function runProfile(wt, id, { runner = jzRun } = {}) {
     state,
     reasons,
     date: new Date().toISOString(),
-    profile: { id, version: profile.version, digest, oracle: profile.oracle },
+    profile: { id, version: profile.version, unitId: profile.unitId, digest, oracle: profile.oracle },
     command: { cwd: profile.cwd, argv: profile.argv, digest: sha256(canonical({ cwd: profile.cwd, argv: profile.argv })) },
     repo: before,
     repoAfter: after,
@@ -531,6 +536,7 @@ export function profileStatus(wt, id) {
   try {
     const { profile, digest: pd } = loadProfile(wt, id);
     if (pd !== ev.profile.digest) stale.push(`perfil cambiado (versión ${ev.profile.version} → ${profile.version})`);
+    if (profile.unitId !== ev.profile.unitId) stale.push(`unidad acreditada cambiada (${ev.profile.unitId ?? 'ninguna'} → ${profile.unitId})`);
   } catch (e) {
     if (!/no existe/.test(e.message)) return result('BLOQUEADO', [e.message], ev);
     stale.push('perfil retirado del registro');
@@ -549,17 +555,32 @@ export function profileStatus(wt, id) {
   return result(ev.state, ev.state === 'VALIDADO' ? [] : ev.reasons, ev);
 }
 
-// Perfiles del registro y evidencias de perfiles retirados.
+// Unidad que acredita un perfil del registro según su archivo actual; null si no se puede cargar.
+function unitOf(wt, id) {
+  try {
+    return loadProfile(wt, id).profile.unitId;
+  } catch {
+    return null;
+  }
+}
+
+// Perfiles del registro y evidencias de perfiles retirados. registered y unit dan la asociación protegida
+// unidad–perfil: un perfil retirado no acredita ninguna unidad, y uno del registro con unit null (no se puede
+// cargar) deja indeterminada la cobertura de cualquier unidad.
 export function statusAll(wt) {
   let ids;
+  let registered;
   try {
-    ids = new Set(profileIds(wt));
+    registered = new Set(profileIds(wt));
+    ids = new Set(registered);
     const dir = path.join(wt, EVIDENCE_DIR);
     if (fs.existsSync(dir)) for (const n of fs.readdirSync(dir)) if (n.endsWith('.json')) ids.add(n.slice(0, -5));
   } catch (e) {
-    return [{ id: '(registro)', state: 'BLOQUEADO', reasons: [`no se pudo leer el registro: ${e.message}`], evidence: null }];
+    return [{ id: '(registro)', state: 'BLOQUEADO', reasons: [`no se pudo leer el registro: ${e.message}`], evidence: null,
+      registered: true, unit: null }];
   }
-  return [...ids].sort().map((id) => profileStatus(wt, id));
+  return [...ids].sort().map((id) => ({ ...profileStatus(wt, id), registered: registered.has(id),
+    unit: registered.has(id) ? unitOf(wt, id) : null }));
 }
 
 // ------------------------------------------------------------------ CLI
@@ -572,7 +593,7 @@ function describeEvidence(ev) {
     const c = ev.oracle.counts;
     lines.push(`- pruebas: ${c.tests} (superadas ${c.pass}, fallidas ${c.fail}, canceladas ${c.cancelled}, omitidas ${c.skipped}, todo ${c.todo})`);
   }
-  lines.push(`- perfil: ${ev.profile.id} v${ev.profile.version} (${ev.profile.digest.slice(0, 12)})`);
+  lines.push(`- perfil: ${ev.profile.id} v${ev.profile.version} (${ev.profile.digest.slice(0, 12)}), unidad ${ev.profile.unitId}`);
   lines.push(`- HEAD ${ev.repo.head ?? 'none'}, huella ${ev.repo.tree}`);
   if (ev.run) lines.push(`- jz-run: rc=${ev.run.rc}, log ${ev.run.log}`);
   lines.push(`- fecha: ${ev.date}`);
@@ -597,15 +618,16 @@ async function main(args) {
   if (cmd === 'status' && (rest.length === 0 || (rest.length === 1 && rest[0] === '--json'))) {
     const all = statusAll(wt);
     if (rest[0] === '--json') {
-      process.stdout.write(`${JSON.stringify(all.map(({ id, state, reasons, evidence }) => ({ id, state, reasons,
-        version: evidence?.profile?.version ?? null, date: evidence?.date ?? null, log: evidence?.run?.log ?? null })))}\n`);
+      process.stdout.write(`${JSON.stringify(all.map(({ id, state, reasons, evidence, registered, unit }) => ({ id, state, reasons,
+        registered, unit, version: evidence?.profile?.version ?? null, date: evidence?.date ?? null, log: evidence?.run?.log ?? null })))}\n`);
     } else if (all.length === 0) {
       process.stdout.write(`Ningún perfil en ${PROFILE_DIR}.\n`);
     } else {
       for (const s of all) {
         const ev = s.evidence;
         const when = ev ? ` (v${ev.profile.version}, ${ev.date}${ev.run ? `, log ${ev.run.log}` : ''})` : '';
-        process.stdout.write(`- ${s.id}: ${s.state}${when}${s.reasons.length ? ` — ${s.reasons.join('; ')}` : ''}\n`);
+        const unit = !s.registered ? ' [retirado: no acredita ninguna unidad]' : s.unit ? ` [unidad ${s.unit}]` : ' [unidad no determinable]';
+        process.stdout.write(`- ${s.id}: ${s.state}${unit}${when}${s.reasons.length ? ` — ${s.reasons.join('; ')}` : ''}\n`);
       }
     }
     return all.some((s) => s.state === 'BLOQUEADO') ? 3 : 0;
