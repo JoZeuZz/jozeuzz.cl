@@ -1,0 +1,28 @@
+{
+  "schema": "jz-autonomy-objective-v1",
+  "unit": "JZ-PRODUCTO-CONTRATO-LISTAR",
+  "objective": "Añadir a la CLI de la batería de contrato (contrato/run.mjs) la opción --listar, que imprime el inventario de casos sin cargar ningún driver: una línea por caso `<ID>\\t<alcance>\\t<título>` en el orden de CASOS y una línea final `casos N · poc-1a N · poc-1b N · poc-3 N`. Con --alcance X sólo lista los casos de ese alcance y el total. Sirve para planificar POC-1b y POC-3 con --solo.",
+  "criteria": [
+    "node contrato/run.mjs --listar termina con código 0 sin --driver y no importa ningún driver",
+    "una línea por caso con ID, alcance y título separados por tabulador, en el orden de CASOS, y la línea final de totales por alcance",
+    "--listar --alcance poc-1b lista sólo los casos de poc-1b; un --alcance desconocido mantiene el código 2 actual",
+    "--listar combinado con --driver, --solo o --json termina con código 2 y un mensaje claro",
+    "el comportamiento actual sin --listar no cambia (contrato/test/ sigue en verde)",
+    "README de contrato documenta la opción en la sección Ejecutar"
+  ],
+  "workspace": ".",
+  "branch": "feat/contrato-listar",
+  "agent": "jz-implementer",
+  "workflow": "split-tdd",
+  "engines": ["claude", "opencode"],
+  "push": true,
+  "timeoutMinutes": 20,
+  "testPaths": ["contrato/test/listar.test.mjs"],
+  "allowedPaths": ["contrato/run.mjs", "contrato/test/listar.test.mjs", "contrato/README.md"],
+  "checks": [
+    { "id": "listar-focal", "argv": ["node", "--test", "contrato/test/listar.test.mjs"] },
+    { "id": "contrato-suite", "argv": ["node", "--test", "contrato/test/"] }
+  ],
+  "maxCorrections": 2,
+  "commit": { "message": "feat(contrato): list cases by scope without a driver (--listar)" }
+}
