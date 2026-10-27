@@ -2,6 +2,7 @@ const nextConfig = {
   output: 'standalone',
   poweredByHeader: false,
   productionBrowserSourceMaps: false,
+  serverExternalPackages: ['@payloadcms/db-postgres', 'drizzle-kit'],
   async headers() {
     return [
       {
