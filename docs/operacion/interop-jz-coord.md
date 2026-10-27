@@ -69,8 +69,8 @@ Lanza el CLI real (`bin/jz-coord.js`) y luego verifica con git, no con lo que di
 
 ### Motores sintéticos (`demo/fake-engine.mjs`, sin modelo)
 
-`synthetic-20261027T163820Z`: los 7 escenarios OK, 78 comprobaciones
-([informe](evidencia/jz-coord/synthetic-20261027T163820Z.md)). El motor sintético ejercita los procesos
+`synthetic-20261027T170021Z` (código 4be5b71): los 7 escenarios OK, 78 comprobaciones
+([informe](evidencia/jz-coord/synthetic-20261027T170021Z.md)). El motor sintético ejercita los procesos
 reales, los grupos de procesos, los logs, el bloqueo de escritor, `jz-run`, `jz-git` y los snapshots git.
 **No demuestra el razonamiento de un motor real.**
 
