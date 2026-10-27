@@ -200,4 +200,6 @@ export function main(argv, out = process.stdout) {
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) process.exitCode = main(process.argv.slice(2));
+// Se compara la ruta real: la release se invoca a través del enlace current -> releases/<sha>.
+const invoked = (() => { try { return pathToFileURL(realpathSync(process.argv[1] ?? '')).href; } catch { return null; } })();
+if (import.meta.url === invoked) process.exitCode = main(process.argv.slice(2));

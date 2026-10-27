@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -138,4 +138,12 @@ test('SEC-8: errors never echo credentials embedded in remote URLs', () => {
   let text = '';
   main(['push', '--repo', repo, '--branch', 'chore/demo', '--policy', policyFile], { write: (s) => { text += s; } });
   assert.equal(text.includes('ghp_CANARY'), false);
+});
+
+test('CLI runs when invoked through a symlinked install path (current -> releases/<sha>)', () => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'jz-git-link-')));
+  symlinkSync(join(import.meta.dirname, '..'), join(base, 'current'));
+  const r = spawnSync(process.execPath, [join(base, 'current', 'jz-git.mjs'), 'bogus'], { encoding: 'utf8' });
+  assert.equal(r.status, EXIT.usage);
+  assert.equal(JSON.parse(r.stdout).ok, false);
 });

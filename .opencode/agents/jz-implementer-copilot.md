@@ -1,6 +1,6 @@
 ---
 description: Implementación e integración con TDD a partir de un plan aprobado (Copilot Sonnet 4.6). Es el único escritor de su worktree mientras trabaja.
-mode: subagent
+mode: all
 model: github-copilot/claude-sonnet-4.6
 permission:
   # La configuración global concede "*": allow y external_directory: allow. Aquí se parte de
