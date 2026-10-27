@@ -46,9 +46,11 @@ test('no ve credenciales, otros proyectos ni el socket de Docker', { skip }, () 
   const r = run('ls /root 2>&1; ls /home/proyectos; ls /var/run/docker.sock /run/docker.sock 2>&1; '
     + 'wc -c < /etc/shadow; ls -A /etc/ssh | wc -l');
   assert.match(r.out, /'\/root': No such file or directory/);
-  // Sólo el propio worktree es visible; el nombre del worktree (p. ej. jozeuzz-poc-…) no cuenta como ajeno.
-  assert.deepEqual(r.out.split('\n').filter((l) => l.startsWith('jozeuzz')), [path.basename(WT)]);
-  assert.doesNotMatch(r.out.replaceAll(path.basename(WT), ''), /wealthfolio|jozeuzz|MoneyPrinter/i);
+  // Sólo el propio worktree es visible; bajo /home/proyectos aparece únicamente la primera componente de su
+  // ruta (jozeuzz-poc-… o, en la estructura anidada, jozeuzz con sólo el esqueleto hasta worktrees/<nombre>).
+  const own = path.relative('/home/proyectos', WT).split(path.sep)[0];
+  assert.deepEqual(r.out.split('\n').filter((l) => l.startsWith('jozeuzz')), [own]);
+  assert.doesNotMatch(r.out.replaceAll(own, ''), /wealthfolio|jozeuzz|MoneyPrinter/i);
   assert.match(r.out, /'\/run\/docker\.sock': No such file or directory/);
   assert.match(r.out, /^0$/m, '/etc/shadow vacío');
 });
