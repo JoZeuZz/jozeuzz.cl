@@ -21,7 +21,7 @@ El supervisor corre en el host con los permisos de quien lo lanza; no lo lanza u
 ```sh
 # Instala la release de un commit revisado. Se ejecuta desde el commit, nunca desde el árbol (lo escriben workers):
 sha=$(git -C <worktree> rev-parse <ref-revisada>)
-git -C <worktree> show $sha:tools/jz-autonomy/bin/jz-install | bash -s -- <worktree> $sha
+git -C <worktree> show "${sha}:tools/jz-autonomy/bin/jz-install" | bash -s -- <worktree> "$sha"
 node ~/.local/share/jz-ai/current/tools/jz-autonomy/bin/jz-autonomy.js run \
   --root <worktree> --objective <ruta-relativa.json> --state-dir <nombre> [--engines claude,opencode]
 node ~/.local/share/jz-ai/current/tools/jz-autonomy/bin/jz-autonomy.js resume --root <worktree> --state-dir <nombre>
