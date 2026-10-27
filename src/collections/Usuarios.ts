@@ -18,8 +18,8 @@ export const Usuarios: CollectionConfig = {
   },
   hooks: {
     beforeChange: [
-      ({ data, originalDoc }) => {
-        rechazarCambioIdentidad({ data, originalDoc })
+      ({ data, originalDoc, operation }) => {
+        rechazarCambioIdentidad({ data, originalDoc, operation })
         return data
       },
     ],
