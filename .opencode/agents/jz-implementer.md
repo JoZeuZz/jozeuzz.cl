@@ -1,6 +1,6 @@
 ---
 description: Implementación e integración con TDD a partir de un plan aprobado (Terra). Es el único escritor de su worktree mientras trabaja.
-mode: subagent
+mode: all
 model: openai/gpt-5.6-terra
 permission:
   # La configuración global concede "*": allow y external_directory: allow. Aquí se parte de
