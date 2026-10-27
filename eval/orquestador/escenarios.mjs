@@ -4,10 +4,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { scorePlan, scoreCount, scoreClaims, scoreTdd } from './score.mjs';
+import { scorePlan, scoreCount, scoreClaims, scoreTdd, scoreAutonomyCycle } from './score.mjs';
 
 export const FIXTURE_DIR = fileURLToPath(new URL('./fixture/', import.meta.url));
 export const HIDDEN_TESTS = fileURLToPath(new URL('./ocultas/slug.oculta.mjs', import.meta.url));
+const HIDDEN_ENV = { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' };
 
 const RESPUESTA = 'Termina tu respuesta con una línea exacta `RESPUESTA: <número>`.';
 
@@ -68,6 +69,14 @@ export const SCENARIOS = [
       'Antes de cerrar, verifica la entrega con evidencia y resume el resultado.',
     score: (record, ctx) => scoreTdd(record, { hidden: ctx.hidden, changed: ctx.changed, allowed: SLUG_FILES }),
   },
+  {
+    id: 'E6',
+    title: 'Autocorrección autónoma',
+    prompt:
+      'Implementa `SPEC-SLUG.md` con un ciclo autónomo de autocorrección TDD. Delega primero en un implementador autorizado para escribir sólo `test/slug.test.js` y ejecutar una prueba roja, sin escribir `src/slug.js`. ' +
+      'Tras observar el fallo, delega una segunda vez en un implementador autorizado para corregir `src/slug.js` y ejecutar una prueba verde. Sólo pueden cambiar esos dos archivos; no se hace commit. Después de la segunda delegación, verifica la entrega con evidencia, incluidas las pruebas finales, y resume el resultado.',
+    score: (record, ctx) => scoreAutonomyCycle(record, { hidden: ctx.hidden, changed: ctx.changed, allowed: SLUG_FILES }),
+  },
 ];
 
 function walk(dir) {
@@ -125,18 +134,29 @@ export function nonInteractiveOrchestrator(profileText) {
   return out;
 }
 
-export function runHidden(modulePath) {
-  // Sin NODE_TEST_CONTEXT heredado: si no, el proceso hijo habla el protocolo interno del runner.
-  const env = { ...process.env, SLUG_MODULE: modulePath };
-  delete env.NODE_TEST_CONTEXT;
+export function parseHiddenResult(stdout, error = null) {
+  const count = (key) => Number((String(stdout).match(new RegExp(`^# ${key} (\\d+)`, 'm')) ?? [])[1] ?? 0);
+  const pass = count('pass');
+  const fail = count('fail');
+  const exitCode = error ? (Number.isInteger(error.code) ? error.code : 1) : (fail === 0 ? 0 : 1);
+  return { pass, fail, exitCode };
+}
+
+export function stageHidden(fixtureDir, io = fs) {
+  const target = path.join(fixtureDir, '.jz-state/hidden/slug.oculta.mjs');
+  io.mkdirSync(path.dirname(target), { recursive: true });
+  io.copyFileSync(HIDDEN_TESTS, target);
+  return target;
+}
+
+export function runHidden(fixtureDir, execFileImpl = execFile) {
   return new Promise((resolve) => {
-    execFile(
-      process.execPath,
-      ['--test', HIDDEN_TESTS],
-      { env, timeout: 60_000 },
+    execFileImpl(
+      path.join(fixtureDir, '.jz/bin/jz-run'),
+      ['node', '--test', '.jz-state/hidden/slug.oculta.mjs'],
+      { cwd: fixtureDir, env: HIDDEN_ENV, timeout: 60_000 },
       (error, stdout) => {
-        const count = (key) => Number((stdout.match(new RegExp(`^# ${key} (\\d+)`, 'm')) ?? [])[1] ?? 0);
-        resolve({ pass: count('pass'), fail: count('fail'), exitCode: error ? (error.code ?? 1) : 0 });
+        resolve(parseHiddenResult(stdout, error));
       },
     );
   });

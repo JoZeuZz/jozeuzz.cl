@@ -1,13 +1,34 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { SCENARIOS, FIXTURE_DIR, truthFor, runHidden, sabotageProfile, nonInteractiveOrchestrator } from './escenarios.mjs';
+import {
+  SCENARIOS,
+  FIXTURE_DIR,
+  HIDDEN_TESTS,
+  truthFor,
+  runHidden,
+  parseHiddenResult,
+  stageHidden,
+  sabotageProfile,
+  nonInteractiveOrchestrator,
+} from './escenarios.mjs';
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 
-test('los cinco escenarios exigidos existen con id único', () => {
-  assert.deepEqual(SCENARIOS.map((s) => s.id), ['E1', 'E2', 'E3', 'E4', 'E5']);
+test('los seis escenarios exigidos existen con id único', () => {
+  assert.deepEqual(SCENARIOS.map((s) => s.id), ['E1', 'E2', 'E3', 'E4', 'E5', 'E6']);
   for (const s of SCENARIOS) assert.ok(s.prompt.length > 80, s.id);
+});
+
+test('E6 declara autocorrección tras fallo TDD', () => {
+  const e6 = SCENARIOS.find((scenario) => scenario.id === 'E6');
+  assert.ok(e6, 'E6 debe declararse');
+  assert.equal(e6.title, 'Autocorrección autónoma');
+  assert.match(e6.prompt, /dos delegaciones|segunda delegación/i);
+  assert.match(e6.prompt, /roja|rojo/i);
+  assert.match(e6.prompt, /verde/i);
+  assert.match(e6.prompt, /verifica.*después|después.*verifica/i);
 });
 
 test('verdades calculadas sobre el fixture', () => {
@@ -23,17 +44,49 @@ test('sólo E3 usa el explorador saboteado', () => {
   assert.match(perfil, /uno más/);
 });
 
-test('las pruebas ocultas aceptan la referencia y rechazan una implementación sin R-2', async () => {
-  assert.deepEqual(await runHidden(here('./referencia/slug.mjs')), { pass: 6, fail: 0, exitCode: 0 });
-  const roto = await runHidden(here('./referencia/slug-sin-diacriticos.mjs'));
-  assert.equal(roto.fail, 1);
-  assert.notEqual(roto.exitCode, 0);
+test('hidden se ejecuta con jz-run aislado, cwd fixture y entorno mínimo', async () => {
+  const calls = [];
+  const result = await runHidden('/fixture', (executable, args, options, callback) => {
+    calls.push({ executable, args, options });
+    callback(null, '# pass 6\n# fail 0\n');
+  });
+  assert.deepEqual(result, { pass: 6, fail: 0, exitCode: 0 });
+  assert.deepEqual(calls, [{
+    executable: '/fixture/.jz/bin/jz-run',
+    args: ['node', '--test', '.jz-state/hidden/slug.oculta.mjs'],
+    options: {
+      cwd: '/fixture',
+      env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
+      timeout: 60_000,
+    },
+  }]);
 });
 
-test('pruebas ocultas sin módulo: fallo, nunca aprobado', async () => {
-  const r = await runHidden(here('./referencia/no-existe.mjs'));
-  assert.notEqual(r.exitCode, 0);
-  assert.equal(r.pass, 0);
+test('hidden resuelve siempre src/slug.js desde cwd, sin SLUG_MODULE', () => {
+  const hidden = fs.readFileSync(here('./ocultas/slug.oculta.mjs'), 'utf8');
+  assert.doesNotMatch(hidden, /SLUG_MODULE/);
+  assert.match(hidden, /path\.join\(process\.cwd\(\), 'src\/slug\.js'\)/);
+});
+
+test('parser hidden rechaza fallo, timeout y rc no cero', async () => {
+  assert.deepEqual(parseHiddenResult('# pass 6\n# fail 1\n'), { pass: 6, fail: 1, exitCode: 1 });
+  assert.deepEqual(parseHiddenResult('', { code: 124 }), { pass: 0, fail: 0, exitCode: 124 });
+  assert.deepEqual(parseHiddenResult('', { signal: 'SIGTERM' }), { pass: 0, fail: 0, exitCode: 1 });
+});
+
+test('hidden se stagea en .jz-state sólo después de calcular changedFiles', () => {
+  const calls = [];
+  const destination = stageHidden('/fixture', {
+    mkdirSync: (...args) => calls.push(['mkdirSync', ...args]),
+    copyFileSync: (...args) => calls.push(['copyFileSync', ...args]),
+  });
+  assert.equal(destination, '/fixture/.jz-state/hidden/slug.oculta.mjs');
+  assert.deepEqual(calls, [
+    ['mkdirSync', '/fixture/.jz-state/hidden', { recursive: true }],
+    ['copyFileSync', HIDDEN_TESTS, destination],
+  ]);
+  const runner = fs.readFileSync(here('./run.mjs'), 'utf8');
+  assert.ok(runner.indexOf('const changed = changedFiles(dir);') < runner.lastIndexOf('stageHidden(dir);'));
 });
 
 test('orquestador no interactivo: ask pasa a deny sólo en edit y bash, sin tocar task', () => {

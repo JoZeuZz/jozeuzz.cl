@@ -12,8 +12,8 @@ import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { SCENARIOS, FIXTURE_DIR, truthFor, runHidden, sabotageProfile, nonInteractiveOrchestrator } from './escenarios.mjs';
-import { normalize, aggregate } from './score.mjs';
+import { SCENARIOS, FIXTURE_DIR, truthFor, runHidden, stageHidden, sabotageProfile, nonInteractiveOrchestrator } from './escenarios.mjs';
+import { normalize, aggregate, isValidSessionId, parseExportOutput, childrenMatchExpectedProvenance } from './score.mjs';
 
 const REPO_ROOT = path.resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const AGENTS_DIR = path.join(REPO_ROOT, '.opencode/agents');
@@ -50,6 +50,13 @@ const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' 
 
 function prepareFixture(dir, scenario) {
   fs.cpSync(FIXTURE_DIR, dir, { recursive: true });
+  for (const relative of ['.jz/bin/jz-run', '.jz/lib/tree.mjs']) {
+    const source = path.join(REPO_ROOT, relative);
+    const target = path.join(dir, relative);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(source, target);
+    fs.chmodSync(target, fs.statSync(source).mode);
+  }
   const agents = path.join(dir, '.opencode/agents');
   fs.mkdirSync(agents, { recursive: true });
   for (const name of fs.readdirSync(AGENTS_DIR)) fs.copyFileSync(path.join(AGENTS_DIR, name), path.join(agents, name));
@@ -60,7 +67,7 @@ function prepareFixture(dir, scenario) {
     fs.writeFileSync(explorer, sabotageProfile(fs.readFileSync(explorer, 'utf8')));
   }
   // OpenCode instala su paquete de plugins en .opencode/; no cuenta como cambio del evaluado.
-  fs.writeFileSync(path.join(dir, '.gitignore'), '.opencode/node_modules/\n.opencode/package.json\n.opencode/package-lock.json\n.opencode/bun.lock\n.opencode/.gitignore\n');
+  fs.writeFileSync(path.join(dir, '.gitignore'), '.jz-state/\n.opencode/node_modules/\n.opencode/package.json\n.opencode/package-lock.json\n.opencode/bun.lock\n.opencode/.gitignore\n');
   git(dir, 'init', '-q');
   git(dir, 'add', '-A');
   git(dir, '-c', 'user.name=eval', '-c', 'user.email=eval@localhost', 'commit', '-q', '-m', 'fixture');
@@ -92,6 +99,7 @@ function runOpencode(dir, model, prompt) {
 
 // `opencode export` corta la salida en 64 KiB cuando stdout es un pipe: se exporta a un archivo.
 function exportSession(dir, sessionId) {
+  if (!isValidSessionId(sessionId)) throw new Error('ID de sesión inválido para exportar');
   const file = path.join(path.dirname(dir), `${path.basename(dir)}.${sessionId}.json`);
   const fd = fs.openSync(file, 'w');
   try {
@@ -100,7 +108,7 @@ function exportSession(dir, sessionId) {
     fs.closeSync(fd);
   }
   const raw = fs.readFileSync(file, 'utf8');
-  return JSON.parse(raw.slice(raw.indexOf('{')));
+  return parseExportOutput(raw);
 }
 
 function sessionIdFrom(eventsFile) {
@@ -134,17 +142,31 @@ async function runOne(model, scenario, rep) {
   const eventsFile = path.join(path.dirname(dir), `${path.basename(dir)}.events.jsonl`);
   const sessionId = sessionIdFrom(eventsFile);
   if (!sessionId) return { ...base, error: 'sin sesión', ...proc };
+  if (!isValidSessionId(sessionId)) return { ...base, error: 'ID de sesión padre inválido', ...proc };
 
   const parent = exportSession(dir, sessionId);
   if (parent.info?.directory !== dir) return { ...base, sessionId, error: `sesión fuera del fixture: ${parent.info?.directory}`, ...proc };
   const firstPass = normalize(parent, []);
-  const children = firstPass.tasks.filter((t) => t.childSessionId).map((t) => exportSession(dir, t.childSessionId));
+  if (firstPass.tasks.some((t) => t.invalidChildSessionId)) {
+    return { ...base, sessionId, error: 'ID de sesión hija inválido', ...proc };
+  }
+  const childIds = firstPass.tasks.map((t) => t.childSessionId).filter(Boolean);
+  if (childIds.some((id) => !isValidSessionId(id))) {
+    return { ...base, sessionId, error: 'ID de sesión hija inválido', ...proc };
+  }
+  const children = childIds.map((id) => exportSession(dir, id));
+  if (!childrenMatchExpectedProvenance(children, childIds, dir)) {
+    return { ...base, sessionId, error: 'procedencia de sesión hija inválida', ...proc };
+  }
   fs.writeFileSync(`${dir}.export.json`, JSON.stringify({ parent, children }));
   const record = normalize(parent, children);
 
   const changed = changedFiles(dir);
-  const slug = path.join(dir, 'src/slug.js');
-  const hidden = scenario.id === 'E5' ? await runHidden(slug) : null;
+  let hidden = null;
+  if (scenario.id === 'E5' || scenario.id === 'E6') {
+    stageHidden(dir);
+    hidden = await runHidden(dir);
+  }
   const score = scenario.score(record, { truth, changed, hidden });
   return {
     ...base,

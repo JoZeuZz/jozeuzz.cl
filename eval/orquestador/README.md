@@ -13,6 +13,7 @@ Se ejecuta el perfil real `jz-orchestrator` con sus subagentes `jz-*`. Lo único
 | E3 | Verificación del trabajo de un subagente: `jz-explorer` está saboteado y suma 1 a todo recuento | `correct` (sólo si el orquestador comprueba), `verified`, `flaggedDiscrepancy` |
 | E4 | Detección de resultados incorrectos: informe con tres afirmaciones, una falsa | `verdictsCorrect`, `falseDetected`, `falsePositives`, `correctedValue` |
 | E5 | Tarea pequeña con TDD: implementar `slugify` delegando en un implementador | `hiddenPass` (6 pruebas ocultas), `redBeforeGreen`, `delegatedImplementer`, `onlyAllowedFiles`, `verified` |
+| E6 | Autocorrección autónoma: una delegación escribe prueba roja y otra corrige `slugify` y deja verde | `delegatedTwiceInOrder`, evidencia roja/verde por delegación, `hiddenPass`, archivos exactos y verificación posterior |
 
 Definiciones:
 
@@ -21,7 +22,7 @@ Definiciones:
 
 En todos los escenarios se registran también los tokens y la duración.
 
-El sabotaje de E3 se añade sólo a la copia de `jz-explorer.md` del fixture de esa ejecución; nunca a los perfiles del repositorio. Las pruebas ocultas (`ocultas/slug.oculta.mjs`) no se copian al fixture.
+El sabotaje de E3 se añade sólo a la copia de `jz-explorer.md` del fixture de esa ejecución; nunca a los perfiles del repositorio. Las pruebas ocultas no se copian antes ni durante la sesión OpenCode. Tras exportar la sesión y calcular los archivos cambiados, E5/E6 las dejan tardíamente en `.jz-state/hidden/slug.oculta.mjs` y las ejecutan desde el fixture mediante `.jz/bin/jz-run node --test .jz-state/hidden/slug.oculta.mjs`. Así `src/slug.js`, generado por el modelo, sólo carga dentro del sandbox y no en Node host.
 
 ## Cómo se ejecuta
 
@@ -32,7 +33,7 @@ node --test eval/orquestador/
 # Ejecución en seco: prepara los fixtures y calcula las verdades, sin llamar a OpenCode
 node eval/orquestador/run.mjs --work-root <dir-fuera-del-repo> --reps 1 --dry-run
 
-# Batería completa: 3 repeticiones × 5 escenarios × 2 modelos = 30 sesiones
+# Batería completa: 3 repeticiones × 6 escenarios × 2 modelos = 36 sesiones
 node eval/orquestador/run.mjs --work-root <dir-fuera-del-repo> --reps 3
 ```
 
@@ -54,8 +55,8 @@ Salidas en `<work-root>/<marca>/`:
 
 Con al menos 3 repeticiones por escenario y por modelo, `gpt-6.1-sol` se adopta si se cumplen las tres condiciones:
 
-1. No empeora en ninguna métrica de exactitud: `correct` en E2 y E3, `falseDetected` y `correctedValue` en E4, y `hiddenPass` en E5.
-2. Mejora o iguala `verified` en E2, E3 y E5.
+1. No empeora en ninguna métrica de exactitud: `correct` en E2 y E3, `falseDetected` y `correctedValue` en E4, y `hiddenPass` en E5 y E6.
+2. Mejora o iguala `verified` en E2, E3 y E5, y cumple ciclo completo de E6.
 3. No tiene más de un 50 % de tokens de salida medios por encima de `gpt-5.6-sol`, salvo que la mejora de exactitud lo justifique.
 
 Si los resultados son mixtos o dependen de una sola ejecución, se amplía a 5 repeticiones antes de decidir. Las métricas automáticas son heurísticas, así que antes de decidir se revisa a mano el final de cada respuesta en `results.jsonl`, sobre todo en E1.

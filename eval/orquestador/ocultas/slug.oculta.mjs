@@ -1,11 +1,12 @@
 // Pruebas de aceptación ocultas de SPEC-SLUG.md. El ejecutor las corre después de
-// cada sesión con SLUG_MODULE apuntando al src/slug.js del fixture; el orquestador
-// evaluado no las ve.
+// cada sesión sobre src/slug.js del fixture; el orquestador evaluado no las ve.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const { slugify } = await import(pathToFileURL(process.env.SLUG_MODULE).href);
+const modulePath = path.join(process.cwd(), 'src/slug.js');
+const { slugify } = await import(pathToFileURL(modulePath).href);
 
 test('R-1: minúsculas', () => {
   assert.equal(slugify('HOLA'), 'hola');

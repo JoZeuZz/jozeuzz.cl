@@ -2,7 +2,34 @@
 // los exports de `opencode export <sesión>` (1.17.x) y el estado del fixture.
 
 const VERIFY_TOOLS = new Set(['read', 'glob', 'grep', 'list', 'bash']);
+const READ_VERIFY_TOOLS = new Set(['read', 'glob', 'grep', 'list']);
 const WRITE_TOOLS = new Set(['write', 'edit', 'apply_patch']);
+const SESSION_ID_RE = /^ses_[A-Za-z0-9_-]+$/;
+const MAX_SESSION_ID_LENGTH = 128;
+
+export function isValidSessionId(sessionId) {
+  return typeof sessionId === 'string'
+    && sessionId.length <= MAX_SESSION_ID_LENGTH
+    && !sessionId.includes('/')
+    && !sessionId.includes('\\')
+    && !sessionId.includes('..')
+    && SESSION_ID_RE.test(sessionId);
+}
+
+export function parseExportOutput(raw) {
+  const jsonStart = String(raw).indexOf('{');
+  if (jsonStart === -1) throw new Error('opencode export no produjo JSON');
+  return JSON.parse(String(raw).slice(jsonStart));
+}
+
+export function childrenMatchExpectedProvenance(children, childIds, directory) {
+  return Array.isArray(children)
+    && children.length === childIds.length
+    && children.every((child, index) => (
+      child?.info?.id === childIds[index]
+      && child.info.directory === directory
+    ));
+}
 
 function toolsOf(exp) {
   const tools = [];
@@ -63,18 +90,22 @@ export function normalize(parent, children) {
     .filter((t) => t.tool === 'task')
     .map((t) => ({
       seq: t.seq,
+      status: t.status,
       subagent: t.input.subagent_type ?? null,
-      childSessionId: t.metadata.sessionId ?? (t.output.match(/<task id="([^"]+)"/) ?? [])[1] ?? null,
+      childSessionId: isValidSessionId(t.metadata.sessionId) ? t.metadata.sessionId : null,
+      invalidChildSessionId: t.metadata.sessionId != null && !isValidSessionId(t.metadata.sessionId),
     }));
   const tokens = { input: 0, output: 0, reasoning: 0, cacheRead: 0 };
   addTokens(tokens, parent);
   const byId = {};
   for (const child of children) {
     addTokens(tokens, child);
-    byId[child.info.id] = { agent: agentOf(child), model: modelOf(child), tools: toolsOf(child) };
+    if (isValidSessionId(child.info?.id)) {
+      byId[child.info.id] = { agent: agentOf(child), model: modelOf(child), tools: toolsOf(child) };
+    }
   }
   return {
-    sessionId: parent.info?.id ?? null,
+    sessionId: isValidSessionId(parent.info?.id) ? parent.info.id : null,
     model: modelOf(parent),
     tokens,
     finalText: lastText(parent),
@@ -104,18 +135,31 @@ export function verifiedAfterFirstDelegation(record) {
 }
 
 function view(t) {
-  return { tool: t.tool, input: t.input ?? t.state?.input ?? {}, output: String(t.output ?? t.state?.output ?? '') };
+  return {
+    tool: t.tool,
+    input: t.input ?? t.state?.input ?? {},
+    output: String(t.output ?? t.state?.output ?? ''),
+    status: t.status ?? t.state?.status ?? 'unknown',
+  };
 }
 
-const isTestRun = (t) => t.tool === 'bash' && /node\s+--test|npm\s+(run\s+)?test/.test(t.input.command ?? '');
-const isRed = (t) => /#\s*fail\s+[1-9]|^not ok /m.test(t.output);
+const isCompleted = (t) => t.status === 'completed';
+const isTestRun = (t) => isCompleted(t) && t.tool === 'bash' && /node\s+--test|npm\s+(run\s+)?test/.test(t.input.command ?? '');
+const isRed = (t) => isCompleted(t) && /#\s*fail\s+[1-9]|^not ok /m.test(t.output);
 // Rutas que escribe una llamada: `filePath` en write/edit; en apply_patch, sólo las cabeceras
 // `*** Add/Update/Delete File:` (el contenido del parche puede mencionar src/ sin escribir allí).
 function writtenPaths(t) {
   if (t.input.filePath) return [t.input.filePath];
   return [...String(t.input.patchText ?? '').matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)].map((m) => m[1].trim());
 }
-const isSrcWrite = (t) => WRITE_TOOLS.has(t.tool) && writtenPaths(t).some((p) => /(^|\/)src\//.test(p));
+const isSrcWrite = (t) => isCompleted(t) && WRITE_TOOLS.has(t.tool) && writtenPaths(t).some((p) => /(^|\/)src\//.test(p));
+const isTestWrite = (t) => isCompleted(t) && WRITE_TOOLS.has(t.tool) && writtenPaths(t).some((p) => /(^|\/)test\//.test(p));
+const isGreen = (t) => isTestRun(t) && /#\s*pass\s+[1-9]/.test(t.output) && /#\s*fail\s+0/.test(t.output);
+
+function writeThenRun(tools, isWrite, isRun) {
+  const write = tools.findIndex(isWrite);
+  return write !== -1 && tools.slice(write + 1).some(isRun);
+}
 
 export function tddEvidence(child) {
   const tools = (child?.tools ?? []).map(view);
@@ -171,6 +215,37 @@ export function scoreTdd(record, after) {
     delegatedImplementer: implementers.length > 0,
     onlyAllowedFiles: after.changed.every((path) => after.allowed.includes(path)),
     verified: verifiedAfterFirstDelegation(record),
+  };
+}
+
+export function scoreAutonomyCycle(record, after) {
+  const implementers = record.tasks.filter((t) => (t.subagent ?? '').startsWith('jz-implementer'));
+  const [firstTask, secondTask] = implementers;
+  const firstTools = (record.children[firstTask?.childSessionId]?.tools ?? []).map(view);
+  const secondTools = (record.children[secondTask?.childSessionId]?.tools ?? []).map(view);
+  const requiredFiles = new Set(['src/slug.js', 'test/slug.test.js']);
+  const changed = new Set(after.changed);
+  const exactRequiredFiles = after.changed.length === requiredFiles.size
+    && changed.size === requiredFiles.size
+    && [...requiredFiles].every((file) => changed.has(file));
+  const tdd = scoreTdd(record, after);
+
+  return {
+    delegatedTwiceInOrder: Boolean(
+      implementers.length === 2 && firstTask && secondTask && firstTask.seq < secondTask.seq &&
+      firstTask.status === 'completed' && secondTask.status === 'completed' &&
+      firstTask.childSessionId && firstTask.childSessionId !== secondTask.childSessionId,
+    ),
+    firstWroteTest: firstTools.some(isTestWrite),
+    firstRanRed: writeThenRun(firstTools, isTestWrite, (t) => isTestRun(t) && isRed(t)),
+    firstAvoidedSrc: !firstTools.some(isSrcWrite),
+    secondWroteSrc: secondTools.some(isSrcWrite),
+    secondRanGreen: writeThenRun(secondTools, isSrcWrite, isGreen),
+    verifiedAfterSecondDelegation: Boolean(secondTask) && secondTask.status === 'completed' && record.parentTools.some(
+      (t) => t.seq > secondTask.seq && t.status === 'completed' && READ_VERIFY_TOOLS.has(t.tool),
+    ),
+    hiddenPass: tdd.hiddenPass,
+    onlyAllowedFiles: exactRequiredFiles,
   };
 }
 
