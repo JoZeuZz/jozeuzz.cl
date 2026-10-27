@@ -8,9 +8,11 @@ import sharp from 'sharp'
 import { Servicios } from '@/collections/Servicios'
 import { Solicitudes } from '@/collections/Solicitudes'
 import { Usuarios } from '@/collections/Usuarios'
+import { configuracionPayload } from '@/modules/config/entorno'
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const serverURL = process.env.NEXT_PUBLIC_SERVER_URL ?? 'http://127.0.0.1:3000'
+const entorno = configuracionPayload(process.env)
 
 export default buildConfig({
   admin: {
@@ -20,12 +22,12 @@ export default buildConfig({
   collections: [Usuarios, Servicios, Solicitudes],
   csrf: [serverURL],
   db: postgresAdapter({
-    pool: { connectionString: process.env.DATABASE_URL ?? '' },
+    pool: { connectionString: entorno.databaseURL },
     push: false,
   }),
   editor: lexicalEditor(),
   graphQL: { disable: true },
-  secret: process.env.PAYLOAD_SECRET ?? '',
+  secret: entorno.payloadSecret,
   serverURL,
   sharp,
   telemetry: false,
