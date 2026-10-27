@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import { buildAgentPrompt, buildOpenCodeEnv, createOpenCodeAdapters, parseJzState, resolveWorkspace } from '../src/opencode.js';
@@ -14,6 +17,35 @@ const objective = {
   checks: [{ id: 'unit', argv: ['node', '--test', 'test/'] }],
   commit: { message: 'feat(autonomy): add adapters' }
 };
+
+const primary = '---\ndescription: x\nmode: all\nmodel: m\n---\nbody\n';
+
+test('OpenCode runner refuses subagent-only profiles before spawning (default-agent fallback has no jz policy)', async () => {
+  for (const text of ['---\nmode: subagent\n---\n', null]) {
+    const adapters = createOpenCodeAdapters({
+      root: '/repo', stateDir: '/state', realpath: async (path) => path,
+      readFile: async () => { if (text === null) throw new Error('ENOENT'); return text; },
+      spawn: () => { throw new Error('must not spawn'); }
+    });
+    const out = await adapters.runAgent({ objective: { ...objective, workspace: '.' }, phase: 'implementation', failures: [] });
+    assert.equal(out.unavailable, true);
+  }
+});
+
+test('OpenCode runner kills the process when it falls back to the default agent', async () => {
+  const kills = [];
+  const child = new EventEmitter();
+  child.kill = (signal) => { kills.push(signal); queueMicrotask(() => child.emit('close', null)); };
+  child.stderr = new EventEmitter();
+  child.stderr.pipe = () => {};
+  const adapters = createOpenCodeAdapters({
+    root: '/repo', stateDir: mkdtempSync(join(tmpdir(), 'jz-oc-')), realpath: async (path) => path, readFile: async () => primary,
+    spawn: () => { queueMicrotask(() => child.stderr.emit('data', Buffer.from('! agent "jz-implementer" is a subagent, not a primary agent. Falling back to default agent\n'))); return child; }
+  });
+  const out = await adapters.runAgent({ objective: { ...objective, workspace: '.' }, phase: 'implementation', failures: [] });
+  assert.deepEqual(kills, ['SIGKILL']);
+  assert.equal(out.unavailable, true);
+});
 
 test('resolves workspace only inside real root', async () => {
   assert.equal(await resolveWorkspace({ root: '/root', workspace: '.', realpath: async (path) => path }), '/root');
@@ -98,10 +130,11 @@ test('runAgent terminates then kills on injected timeout', async () => {
   child.kill = (signal) => kills.push(signal);
   const adapters = createOpenCodeAdapters({
     root: '/repo', stateDir: '/state', realpath: async (path) => path,
-    spawn: () => child, setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, timeoutMs: 1, killGraceMs: 1
+    spawn: () => child, setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, timeoutMs: 1, killGraceMs: 1,
+    readFile: async () => primary
   });
   const pending = adapters.runAgent({ objective: { ...objective, workspace: 'tools/app' }, phase: 'implementation', failures: [] });
-  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  while (timers.length === 0) await new Promise((r) => setImmediate(r));
   timers[0]();
   timers[1]();
   assert.equal((await pending).rc, 124);
@@ -181,7 +214,7 @@ test('runAgent uses workspace cwd and resolves spawn error exactly once', async 
   const child = new EventEmitter();
   child.on('error', () => {});
   const adapters = createOpenCodeAdapters({
-    root: '/repo', stateDir: '/state', realpath: async (path) => path,
+    root: '/repo', stateDir: '/state', realpath: async (path) => path, readFile: async () => primary,
     spawn: (file, argv, options) => {
       calls.push({ file, argv, options });
       queueMicrotask(() => {

@@ -34,7 +34,7 @@ export function buildClaudeEnv(source = {}) {
 }
 
 // Lanza un proceso del motor con timeout y guarda stdout/stderr en el state-dir; nunca devuelve la salida cruda.
-export function runEngineProcess({ spawn = nativeSpawn, bin, args, cwd, env, stdoutPath, stderrPath, timeoutMs, killGraceMs = 5000, setTimer = setTimeout, clearTimer = clearTimeout }) {
+export function runEngineProcess({ spawn = nativeSpawn, bin, args, cwd, env, stdoutPath, stderrPath, timeoutMs, killGraceMs = 5000, setTimer = setTimeout, clearTimer = clearTimeout, abortOn = null }) {
   return new Promise((resolve) => {
     let child;
     try {
@@ -44,7 +44,14 @@ export function runEngineProcess({ spawn = nativeSpawn, bin, args, cwd, env, std
       return;
     }
     let tail = '';
-    const keep = (chunk) => { tail = (tail + chunk.toString()).slice(-8192); };
+    let aborted = false;
+    const keep = (chunk) => {
+      tail = (tail + chunk.toString()).slice(-8192);
+      if (!aborted && abortOn?.test(tail)) {
+        aborted = true;
+        child.kill('SIGKILL');
+      }
+    };
     if (child.stdout) { child.stdout.on('data', keep); child.stdout.pipe(createWriteStream(stdoutPath, { mode: 0o600 })); }
     if (child.stderr) { child.stderr.on('data', keep); child.stderr.pipe(createWriteStream(stderrPath, { mode: 0o600 })); }
     let closed = false;
@@ -55,7 +62,7 @@ export function runEngineProcess({ spawn = nativeSpawn, bin, args, cwd, env, std
       closed = true;
       clearTimer(timeout);
       clearTimer(grace);
-      resolve({ rc: Number.isInteger(rc) ? rc : 1, tail, timedOut });
+      resolve({ rc: aborted ? 1 : Number.isInteger(rc) ? rc : 1, tail, timedOut, aborted });
     };
     const timeout = setTimer(() => {
       timedOut = true;

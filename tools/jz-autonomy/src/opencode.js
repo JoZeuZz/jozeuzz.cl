@@ -1,4 +1,4 @@
-import { access, realpath } from 'node:fs/promises';
+import { access, readFile as nativeReadFile, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { relative, resolve, sep, join } from 'node:path';
 import { execFile as nativeExecFile, spawn as nativeSpawn } from 'node:child_process';
@@ -64,17 +64,39 @@ export function buildAgentPrompt({ objective, phase, failures = [] }) {
   return JSON.stringify({ supervision, objective: objective.objective, criteria: objective.criteria, workflow: objective.workflow ?? 'standard', phase, instructions, allowedPaths: objective.allowedPaths, checks: objective.checks, failures: phase === 'correction' ? structured : [] });
 }
 
+// OpenCode ejecuta el agente por defecto, sin la política jz, si el perfil pedido es sólo subagente
+// ("Falling back to default agent"). Se exige un perfil primario antes de lanzar y se mata el proceso si aun
+// así aparece el aviso.
+const FALLBACK = /Falling back to default agent/;
+
+export async function openCodeAgentMode(workspace, agent, readFile = nativeReadFile) {
+  if (!/^jz-[a-z-]+$/.test(agent)) return null;
+  try {
+    const text = String(await readFile(join(workspace, '.opencode/agents', `${agent}.md`), 'utf8'));
+    const front = text.match(/^---\n([\s\S]*?)\n---/);
+    return front?.[1].match(/^mode:\s*([a-z]+)\s*$/m)?.[1] ?? 'all';
+  } catch {
+    return null;
+  }
+}
+
 export function createOpenCodeRunner(options) {
   const bin = options.bin ?? findBinary('opencode', process.env.PATH, [join(process.env.HOME ?? '/root', '.opencode/bin')]) ?? 'opencode';
   return async ({ objective, phase, failures, workspace, stateDir, attempt = 0 }) => {
+    const mode = await openCodeAgentMode(workspace, objective.agent, options.readFile);
+    if (mode !== 'primary' && mode !== 'all') {
+      return { rc: ENGINE_UNAVAILABLE, unavailable: true, engine: 'opencode', reason: `opencode agent ${objective.agent} mode ${mode ?? 'missing'}` };
+    }
     const prompt = buildAgentPrompt({ objective, phase, failures });
     const args = ['run', '--dir', workspace, '--agent', objective.agent, '--format', 'json', prompt];
     const out = await runEngineProcess({
       spawn: options.spawn ?? nativeSpawn, bin, args, cwd: workspace, env: buildOpenCodeEnv(options.env ?? process.env),
       stdoutPath: join(stateDir, `agent-${attempt}-opencode-${phase}.stdout.log`),
       stderrPath: join(stateDir, `agent-${attempt}-opencode-${phase}.stderr.log`),
-      timeoutMs: options.timeoutMs ?? 120000, killGraceMs: options.killGraceMs, setTimer: options.setTimer, clearTimer: options.clearTimer
+      timeoutMs: options.timeoutMs ?? 120000, killGraceMs: options.killGraceMs, setTimer: options.setTimer, clearTimer: options.clearTimer,
+      abortOn: FALLBACK
     });
+    if (out.aborted) return { rc: ENGINE_UNAVAILABLE, unavailable: true, engine: 'opencode', reason: 'opencode fell back to the default agent' };
     // OpenCode reintenta sin fin con la cuota agotada: un timeout con el error de cuota en la salida descarta el motor.
     if (out.rc !== 0 && quotaExhausted(out.tail)) return { rc: ENGINE_UNAVAILABLE, unavailable: true, engine: 'opencode' };
     return { rc: out.rc, engine: 'opencode' };
