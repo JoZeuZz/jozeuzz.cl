@@ -6,7 +6,7 @@
 #
 # Uso:
 #   ./scripts/integration-harness            # migración + integración
-#   ./scripts/integration-harness --smoke    # + build + probes HTTP
+#   ./scripts/integration-harness --smoke    # + build + probes HTTP con fixture
 #
 # Variables:
 #   JZ_PG_PORT    fuerza puerto PG (default: efímero desde PID)
@@ -69,15 +69,14 @@ run_node() {
 
 # ── Migración x1 ────────────────────────────────────────────────────────────
 echo "── migrate run 1 ──"
-run_node npm exec -- payload migrate 2>&1 | tee /tmp/migrate1-$$.log
+run_node npm exec --offline -- payload migrate 2>&1 | tee /tmp/migrate1-$$.log
 grep -q "20261027_112804" /tmp/migrate1-$$.log || \
   { echo "ERROR: migración no aplicada"; cat /tmp/migrate1-$$.log; exit 1; }
 
 # ── Migración x2 (idempotente) ───────────────────────────────────────────────
 echo "── migrate run 2 ──"
-run_node npm exec -- payload migrate 2>&1 | tee /tmp/migrate2-$$.log
+run_node npm exec --offline -- payload migrate 2>&1 | tee /tmp/migrate2-$$.log
 grep -qE "Done\." /tmp/migrate2-$$.log || { echo "ERROR: segunda migración falló"; exit 1; }
-# Ninguna línea de log Payload debe decir "Migrated:" en la segunda ejecución
 if grep -E "^\[.*\] .*(INFO).*Migrated:" /tmp/migrate2-$$.log | grep -q .; then
   echo "ERROR: segunda migración aplicó algo inesperado"
   exit 1
@@ -96,7 +95,7 @@ docker exec "$CONTAINER" psql -U jozeuzz -d jozeuzz -c \
 # ── Test:integration ──────────────────────────────────────────────────────────
 echo "── test:integration ──"
 set +e
-run_node npm exec -- vitest run test/integration
+run_node npm exec --offline -- vitest run test/integration
 INTEGRATION_EXIT=$?
 set -e
 echo "── integration exit=${INTEGRATION_EXIT} ──"
@@ -107,12 +106,43 @@ if [[ $SMOKE -eq 0 ]]; then
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SMOKE: build + probes HTTP reales
+# SMOKE: fixture + build + probes HTTP reales
 # ══════════════════════════════════════════════════════════════════════════════
 
-echo "── next build ──"
-run_node npm exec -- next build
+# ── Fixture sintética en DB ───────────────────────────────────────────────────
+echo "── smoke fixture ──"
+# tsx puede quedarse colgado esperando que PG cierre la conexión; usamos timeout
+FIXTURE_JSON=$(timeout 30 bash -c \
+  "docker run --rm \
+    --user '$(id -u):$(id -g)' \
+    --volume '$PWD:/app' \
+    --workdir /app \
+    --network host \
+    --env DATABASE_URL='$DB_URL' \
+    --env PAYLOAD_SECRET='$PAYLOAD_SECRET' \
+    --env NEXT_PUBLIC_SERVER_URL='$SERVER_URL' \
+    '$NODE_IMAGE' npm exec --offline -- tsx scripts/smoke-fixture.ts 2>/dev/null" \
+  | grep -E '^\{' | head -1 || true)
 
+if [[ -z "$FIXTURE_JSON" ]]; then
+  echo "ERROR: smoke-fixture.ts no produjo JSON"
+  exit 1
+fi
+
+SOL_ID=$(echo "$FIXTURE_JSON" | grep -oE '"solicitudId":[0-9]+' | grep -oE '[0-9]+')
+SERV_ID=$(echo "$FIXTURE_JSON" | grep -oE '"servicioId":[0-9]+' | grep -oE '[0-9]+')
+echo "  fixture: servicioId=${SERV_ID} solicitudId=${SOL_ID}"
+
+if [[ -z "$SOL_ID" || -z "$SERV_ID" ]]; then
+  echo "ERROR: no se pudo extraer IDs de fixture (json=${FIXTURE_JSON})"
+  exit 1
+fi
+
+# ── Build Next.js ─────────────────────────────────────────────────────────────
+echo "── next build ──"
+run_node npm exec --offline -- next build
+
+# ── Arrancar Next en background ───────────────────────────────────────────────
 echo "── next start en puerto ${NEXT_PORT} ──"
 docker run -d --name "$NEXT_CONTAINER" \
   --user "$(id -u):$(id -g)" \
@@ -122,7 +152,7 @@ docker run -d --name "$NEXT_CONTAINER" \
   --env DATABASE_URL="$DB_URL" \
   --env PAYLOAD_SECRET="$PAYLOAD_SECRET" \
   --env NEXT_PUBLIC_SERVER_URL="$SERVER_URL" \
-  "$NODE_IMAGE" npm exec -- next start -p "${NEXT_PORT}"
+  "$NODE_IMAGE" npm exec --offline -- next start -p "${NEXT_PORT}"
 
 # ── Readiness: esperar / → 200 ───────────────────────────────────────────────
 echo "── readiness check / ──"
@@ -141,54 +171,48 @@ if [[ $READY -eq 0 ]]; then
   exit 1
 fi
 
-# ── Probes solicitudes: GET lista anónimo ────────────────────────────────────
-echo "── probe GET /api/solicitudes (anónimo) ──"
-S=$(curl -s -o /tmp/probe-sol-get-$$.json -w "%{http_code}" "http://127.0.0.1:${NEXT_PORT}/api/solicitudes")
-echo "  status=${S}"
-[[ "$S" == "401" || "$S" == "403" ]] || { echo "ERROR: esperado 401/403, got ${S}"; cat /tmp/probe-sol-get-$$.json; exit 1; }
-# Verificar que la respuesta no contiene centinelas
-if grep -qi "Centinela\|XK7Q" /tmp/probe-sol-get-$$.json 2>/dev/null; then
-  echo "ERROR: respuesta contiene datos centinela"
-  exit 1
-fi
+# ── Helper probe: verifica status, rechaza centinelas en body ─────────────────
+probe() {
+  local label="$1" method="$2" url="$3" expected_pattern="$4"
+  shift 4
+  local tmpfile="/tmp/probe-$$-${label//[^a-z0-9]/-}.json"
+  local S
+  S=$(curl -s -o "$tmpfile" -w "%{http_code}" -X "$method" "$url" "$@" 2>/dev/null || echo "000")
+  echo "── probe ${label} ──"
+  echo "  ${method} ${url} → ${S}"
+  if ! echo "$S" | grep -qE "$expected_pattern"; then
+    echo "  ERROR: esperado ${expected_pattern}, got ${S}"
+    cat "$tmpfile" 2>/dev/null || true
+    exit 1
+  fi
+  # Nunca debe contener datos centinela
+  if grep -qi "Centinela\|XK7Q\|smoke-centinela" "$tmpfile" 2>/dev/null; then
+    echo "  ERROR: body contiene datos centinela"
+    cat "$tmpfile"
+    exit 1
+  fi
+  echo "  OK"
+}
 
-echo "── probe GET /api/solicitudes?where[nombre][equals]=test (anónimo) ──"
-S=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${NEXT_PORT}/api/solicitudes?where%5Bnombre%5D%5Bequals%5D=test")
-echo "  status=${S}"
-[[ "$S" == "401" || "$S" == "403" ]] || { echo "ERROR: filter anónimo esperado 401/403, got ${S}"; exit 1; }
+BASE="http://127.0.0.1:${NEXT_PORT}"
 
-echo "── probe POST /api/solicitudes (anónimo) ──"
-S=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:${NEXT_PORT}/api/solicitudes" \
-  -H "Content-Type: application/json" -d '{"nombre":"x","contacto":"x@x.invalid","tipoEquipo":"x","descripcion":"x"}')
-echo "  status=${S}"
-[[ "$S" == "401" || "$S" == "403" ]] || { echo "ERROR: POST anónimo esperado 401/403, got ${S}"; exit 1; }
+# ── Solicitudes: todos los verbos anónimos → solo 401/403 ────────────────────
+probe "GET-solicitudes-lista"        GET  "${BASE}/api/solicitudes"                                   "401|403"
+probe "GET-solicitudes-count"        GET  "${BASE}/api/solicitudes/count"                            "401|403"
+probe "GET-solicitudes-id-real"      GET  "${BASE}/api/solicitudes/${SOL_ID}"                        "401|403"
+probe "GET-solicitudes-filter"       GET  "${BASE}/api/solicitudes?where%5Bnombre%5D%5Bequals%5D=Solicitud-Smoke-Centinela-XK7Q" "401|403"
+probe "POST-solicitudes"             POST "${BASE}/api/solicitudes"                                  "401|403" \
+  -H "Content-Type: application/json" -d '{"nombre":"x","contacto":"x@x.invalid","tipoEquipo":"x","descripcion":"x"}'
+probe "PATCH-solicitudes-id-real"    PATCH "${BASE}/api/solicitudes/${SOL_ID}"                       "401|403" \
+  -H "Content-Type: application/json" -d '{"nombre":"intento"}'
+probe "DELETE-solicitudes-id-real"   DELETE "${BASE}/api/solicitudes/${SOL_ID}"                      "401|403"
 
-echo "── probe PATCH /api/solicitudes/1 (anónimo) ──"
-S=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH "http://127.0.0.1:${NEXT_PORT}/api/solicitudes/1" \
-  -H "Content-Type: application/json" -d '{"nombre":"x"}')
-echo "  status=${S}"
-[[ "$S" == "401" || "$S" == "403" || "$S" == "404" ]] || { echo "ERROR: PATCH anónimo esperado 401/403/404, got ${S}"; exit 1; }
+# ── Servicios REST genérico anónimo ──────────────────────────────────────────
+probe "GET-servicios-REST"           GET  "${BASE}/api/servicios"                                    "401|403"
 
-echo "── probe DELETE /api/solicitudes/1 (anónimo) ──"
-S=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "http://127.0.0.1:${NEXT_PORT}/api/solicitudes/1")
-echo "  status=${S}"
-[[ "$S" == "401" || "$S" == "403" || "$S" == "404" ]] || { echo "ERROR: DELETE anónimo esperado 401/403/404, got ${S}"; exit 1; }
-
-# ── Probes servicios REST genérico ───────────────────────────────────────────
-echo "── probe GET /api/servicios (anónimo, REST genérico) ──"
-S=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${NEXT_PORT}/api/servicios")
-echo "  status=${S}"
-[[ "$S" == "401" || "$S" == "403" ]] || { echo "ERROR: servicios REST genérico anónimo esperado 401/403, got ${S}"; exit 1; }
-
-# ── Probe GraphQL ─────────────────────────────────────────────────────────────
-echo "── probe POST /api/graphql (cerrado) ──"
-GQL_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-  -X POST "http://127.0.0.1:${NEXT_PORT}/api/graphql" \
-  -H "Content-Type: application/json" \
-  -d '{"query":"{ __typename }"}')
-echo "  status=${GQL_STATUS}"
-[[ "$GQL_STATUS" == "404" || "$GQL_STATUS" == "400" || "$GQL_STATUS" == "403" ]] || \
-  { echo "ERROR: GraphQL esperado 404/400/403, got ${GQL_STATUS}"; exit 1; }
+# ── GraphQL cerrado ───────────────────────────────────────────────────────────
+probe "POST-graphql"                 POST "${BASE}/api/graphql"                                      "404|400|403" \
+  -H "Content-Type: application/json" -d '{"query":"{ __typename }"}'
 
 echo "── smoke probes passed ──"
 echo "── harness complete (smoke) exit=${INTEGRATION_EXIT} ──"
