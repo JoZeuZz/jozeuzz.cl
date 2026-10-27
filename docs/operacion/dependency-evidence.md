@@ -65,3 +65,18 @@ Resultado: **0 critical, 4 high, 10 moderate** (sin cambio respecto a registro a
 
 - Payload `3.90.2` generó imports ESM de `MigrateUpArgs` y `MigrateDownArgs` como valores. `@payloadcms/drizzle/dist/postgres/types.d.ts` los declara tipos; bajo `verbatimModuleSyntax` el binario no elimina esos imports y falla en runtime.
 - Se corrigió sólo el encabezado generado a `type` imports; SQL y JSON generados permanecen intactos. La prueba `test/unit/migraciones.test.ts` evita regresión. Reevaluar al actualizar Payload.
+
+## Task4: APIs verificadas 2026-10-27
+
+- **Node crypto (randomBytes, createHmac, timingSafeEqual)**: Node.js 24.x built-in, sin dependencia externa.
+  - https://nodejs.org/docs/latest-v24.x/api/crypto.html#cryptorandombytessize-callback
+  - https://nodejs.org/docs/latest-v24.x/api/crypto.html#cryptotimingsafeequala-b
+  - Verificado: `randomBytes(32)` → 32 bytes; `Buffer.toString('base64url')` disponible Node 24.
+- **Next.js 16.4.1 middleware / proxy**:
+  - `NextRequest` / `NextResponse` desde `'next/server'`.
+  - `NextResponse.next({ request: { headers } })` inyecta headers en request hacia Server Components.
+  - `response.cookies.set(name, value, opts)` — genera `Set-Cookie` con flags correctos verificado contra `next/dist/server/web/spec-extension/response`.
+  - `__Host-` prefix cookie: requiere `Secure`, `Path=/`, sin `Domain` — cumple SameSite=Strict, HttpOnly.
+  - Fuente: https://nextjs.org/docs/app/building-your-application/routing/middleware (Next.js 16 docs)
+  - Verificado localmente: `r.cookies.set('test','val',{httpOnly:true,secure:true,sameSite:'strict',path:'/'})` → `set-cookie: test=val; Path=/; Secure; HttpOnly; SameSite=strict`.
+  - `NextResponse.rewrite(url, { request: { headers } })` pasa headers al Server Component destino.
