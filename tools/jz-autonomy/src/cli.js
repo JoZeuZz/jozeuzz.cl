@@ -9,7 +9,7 @@ const usage = 'usage: jz-autonomy run --objective <file> --state-dir <dir> [--ro
   + '       jz-autonomy resume --state-dir <dir> [--root <absolute>]\n';
 const engineNames = new Set(['claude', 'opencode']);
 
-function inside(base, target) {
+export function inside(base, target) {
   const path = relative(base, target);
   return path === '' || (!path.startsWith('..') && !isAbsolute(path));
 }
@@ -46,10 +46,11 @@ function report(result, io) {
 }
 
 // Reanuda un state-dir existente: reutiliza el journal y no repite los pasos ya registrados.
-async function resume(command, root, io) {
-  if (isAbsolute(command.stateDir) || command.stateDir === '.') throw new Error('state');
-  const stateBase = join(root, '.jz-state', 'autonomy');
-  const stateDir = resolve(stateBase, command.stateDir);
+// Abre un state-dir existente de .jz-state/<kind>/ y devuelve su ruta real y el estado guardado.
+export async function openStateDir(root, name, io, kind = 'autonomy') {
+  if (isAbsolute(name) || name === '.') throw new Error('state');
+  const stateBase = join(root, '.jz-state', kind);
+  const stateDir = resolve(stateBase, name);
   if (!inside(stateBase, stateDir) || stateDir === stateBase) throw new Error('state');
   const realDir = await io.realpath(stateDir).catch(() => { throw new Error('state'); });
   if (!inside(await io.realpath(stateBase), realDir)) throw new Error('state');
@@ -57,6 +58,11 @@ async function resume(command, root, io) {
   await regular(statePath, io).catch(() => { throw new Error('state'); });
   let saved;
   try { saved = JSON.parse((await io.readFile(statePath)).toString('utf8')); } catch { throw new Error('state'); }
+  return { realDir, saved };
+}
+
+async function resume(command, root, io) {
+  const { realDir, saved } = await openStateDir(root, command.stateDir, io);
   if (saved?.result === 'completed') return report({ ...saved, paths: saved.paths }, io);
   const adapters = io.createOpenCodeAdapters({ root, stateDir: realDir, engines: saved?.objective?.engines, timeoutMs: timeoutOf(saved?.objective) });
   const result = await io.runObjective(saved.objective, adapters, { stateDir: realDir, resume: saved });
@@ -65,16 +71,77 @@ async function resume(command, root, io) {
 
 // SEC-2: el objetivo debe estar versionado y sin cambios respecto de HEAD, así un worker no puede reescribir
 // el que relanzará el humano.
-function objectiveCommitted(root, rel) {
+export function objectiveCommitted(root, rel) {
   const env = { PATH: '/usr/bin:/bin', LC_ALL: 'C', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_OPTIONAL_LOCKS: '0' };
   const git = (args) => new Promise((done) => execFile('git', ['-c', 'core.fsmonitor=false', '-C', root, ...args], { env }, (error, stdout) => done({ rc: error ? 1 : 0, stdout })));
   return Promise.all([git(['ls-files', '--error-unmatch', '--', rel]), git(['status', '--porcelain', '--', rel])])
     .then(([tracked, status]) => tracked.rc === 0 && status.rc === 0 && status.stdout.trim() === '');
 }
 
-async function regular(path, io) {
+export async function regular(path, io) {
   const info = await io.lstat(path);
   if (info.isSymbolicLink() || !info.isFile()) throw new Error('invalid file');
+}
+
+// Lee un JSON versionado y sin cambios respecto de HEAD dentro de root (objetivos y metas).
+export async function loadCommittedJson(root, rel, io) {
+  if (isAbsolute(rel)) throw new Error('objective');
+  const objectivePath = resolve(root, rel);
+  if (!inside(root, objectivePath)) throw new Error('objective');
+  await regular(objectivePath, io);
+  const objectiveReal = await io.realpath(objectivePath);
+  if (!inside(root, objectiveReal)) throw new Error('objective');
+  if (!await io.objectiveCommitted(root, relative(root, objectiveReal))) throw new Error('objective');
+  const raw = await io.readFile(objectiveReal);
+  if (raw.byteLength > maxObjectiveBytes) throw new Error('objective');
+  let objective;
+  try { objective = JSON.parse(raw.toString('utf8')); } catch { throw new Error('objective'); }
+  if (!objective || typeof objective !== 'object' || Array.isArray(objective)) throw new Error('objective');
+  return objective;
+}
+
+// Crea un state-dir nuevo en .jz-state/<kind>/ sin seguir enlaces fuera de él.
+export async function createStateDir(root, name, io, kind = 'autonomy') {
+  if (isAbsolute(name) || name === '.') throw new Error('state');
+  const stateRoot = join(root, '.jz-state');
+  const stateBase = join(stateRoot, kind);
+  const stateDir = resolve(stateBase, name);
+  if (!inside(stateBase, stateDir) || stateDir === stateBase) throw new Error('state');
+  const realStateRoot = await io.realpath(stateRoot);
+  await io.mkdir(stateBase, { recursive: true, mode: 0o700 }).catch((error) => { if (error?.code !== 'EEXIST') throw error; });
+  let realBase;
+  try { realBase = await io.realpath(stateBase); } catch (error) {
+    if (error?.code === 'ENOENT') realBase = stateBase;
+    else throw error;
+  }
+  if (!inside(realStateRoot, realBase)) throw new Error('state');
+  const stateDirParent = dirname(stateDir);
+  if (stateDirParent !== stateBase) {
+    let realParent;
+    try { realParent = await io.realpath(stateDirParent); } catch (error) {
+      if (error?.code === 'ENOENT') throw new Error('state');
+      throw error;
+    }
+    if (!inside(realBase, realParent)) throw new Error('state');
+  }
+  try { await io.mkdir(stateDir, { recursive: false, mode: 0o700 }); } catch (error) {
+    if (error?.code === 'EEXIST') throw new Error('state');
+    throw error;
+  }
+  try {
+    const target = await io.lstat(stateDir);
+    if (!target.isDirectory() || target.isSymbolicLink()) throw new Error('state');
+  } catch (error) {
+    if (error?.message === 'state') throw error;
+    if (error?.code !== 'ENOENT') throw error;
+  }
+  let realDir;
+  try { realDir = await io.realpath(stateDir); } catch (error) {
+    if (error?.code === 'ENOENT') throw new Error('state');
+    throw error;
+  }
+  if (!inside(realBase, realDir)) throw new Error('state');
+  return stateDir;
 }
 
 export async function runCli(argv, injected = {}) {
@@ -109,59 +176,8 @@ export async function runCli(argv, injected = {}) {
     if (!isAbsolute(requestedRoot)) throw new Error('root');
     const root = await io.realpath(requestedRoot);
     if (command.resume) return await resume(command, root, io);
-    if (isAbsolute(command.objective)) throw new Error('objective');
-    const objectivePath = resolve(root, command.objective);
-    if (!inside(root, objectivePath)) throw new Error('objective');
-    await regular(objectivePath, io);
-    const objectiveReal = await io.realpath(objectivePath);
-    if (!inside(root, objectiveReal)) throw new Error('objective');
-    if (!await io.objectiveCommitted(root, relative(root, objectiveReal))) throw new Error('objective');
-    const raw = await io.readFile(objectiveReal);
-    if (raw.byteLength > maxObjectiveBytes) throw new Error('objective');
-    let objective;
-    try { objective = JSON.parse(raw.toString('utf8')); } catch { throw new Error('objective'); }
-    if (!objective || typeof objective !== 'object' || Array.isArray(objective)) throw new Error('objective');
-
-    if (isAbsolute(command.stateDir) || command.stateDir === '.') throw new Error('state');
-    const stateRoot = join(root, '.jz-state');
-    const stateBase = join(stateRoot, 'autonomy');
-    const stateDir = resolve(stateBase, command.stateDir);
-    if (!inside(stateBase, stateDir) || stateDir === stateBase) throw new Error('state');
-    const realStateRoot = await io.realpath(stateRoot);
-    await io.mkdir(stateBase, { recursive: true, mode: 0o700 }).catch((error) => { if (error?.code !== 'EEXIST') throw error; });
-    let realBase;
-    try { realBase = await io.realpath(stateBase); } catch (error) {
-      if (error?.code === 'ENOENT') realBase = stateBase;
-      else throw error;
-    }
-    if (!inside(realStateRoot, realBase)) throw new Error('state');
-    const stateDirParent = dirname(stateDir);
-    if (stateDirParent !== stateBase) {
-      let realParent;
-      try { realParent = await io.realpath(stateDirParent); } catch (error) {
-        if (error?.code === 'ENOENT') throw new Error('state');
-        throw error;
-      }
-      if (!inside(realBase, realParent)) throw new Error('state');
-    }
-    try { await io.mkdir(stateDir, { recursive: false, mode: 0o700 }); } catch (error) {
-      if (error?.code === 'EEXIST') throw new Error('state');
-      throw error;
-    }
-    try {
-      const target = await io.lstat(stateDir);
-      if (!target.isDirectory() || target.isSymbolicLink()) throw new Error('state');
-    } catch (error) {
-      if (error?.message === 'state') throw error;
-      if (error?.code !== 'ENOENT') throw error;
-    }
-    let realDir;
-    try { realDir = await io.realpath(stateDir); } catch (error) {
-      if (error?.code === 'ENOENT') throw new Error('state');
-      throw error;
-    }
-    if (!inside(realBase, realDir)) throw new Error('state');
-
+    const objective = await loadCommittedJson(root, command.objective, io);
+    const stateDir = await createStateDir(root, command.stateDir, io);
     const adapters = io.createOpenCodeAdapters({ root, stateDir, engines: command.engines, timeoutMs: timeoutOf(objective) });
     const result = await io.runObjective(objective, adapters, { stateDir });
     return report(result, io);
