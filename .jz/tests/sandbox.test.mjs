@@ -6,6 +6,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const WT = path.resolve(import.meta.dirname, '../..');
@@ -45,9 +46,11 @@ test('no ve credenciales, otros proyectos ni el socket de Docker', { skip }, () 
   const r = run('ls /root 2>&1; ls /home/proyectos; ls /var/run/docker.sock /run/docker.sock 2>&1; '
     + 'wc -c < /etc/shadow; ls -A /etc/ssh | wc -l');
   assert.match(r.out, /'\/root': No such file or directory/);
-  // Sólo el propio worktree es visible; el nombre del worktree (p. ej. jozeuzz-poc-…) no cuenta como ajeno.
-  assert.deepEqual(r.out.split('\n').filter((l) => l.startsWith('jozeuzz')), [path.basename(WT)]);
-  assert.doesNotMatch(r.out.replaceAll(path.basename(WT), ''), /wealthfolio|jozeuzz|MoneyPrinter/i);
+  // Sólo el propio worktree es visible; bajo /home/proyectos aparece únicamente la primera componente de su
+  // ruta (jozeuzz-poc-… o, en la estructura anidada, jozeuzz con sólo el esqueleto hasta worktrees/<nombre>).
+  const own = path.relative('/home/proyectos', WT).split(path.sep)[0];
+  assert.deepEqual(r.out.split('\n').filter((l) => l.startsWith('jozeuzz')), [own]);
+  assert.doesNotMatch(r.out.replaceAll(own, ''), /wealthfolio|jozeuzz|MoneyPrinter/i);
   assert.match(r.out, /'\/run\/docker\.sock': No such file or directory/);
   assert.match(r.out, /^0$/m, '/etc/shadow vacío');
 });
@@ -107,6 +110,46 @@ test('pone en cuarentena el plano de control creado y los enlaces hacia fuera', 
   for (const p of created) assert.ok(fs.existsSync(path.join(qdir, p)), `${p} en cuarentena`);
   const last = JSON.parse(fs.readFileSync(path.join(WT, '.jz-state/runs.jsonl'), 'utf8').trim().split('\n').at(-1));
   assert.equal(last.rc, 86);
+});
+
+// Revisión de seguridad: un enlace interno hacia el plano de control sobrevivía a jz-run y una edición
+// posterior a través de él (fuera del sandbox) escribiría en .jz/.
+test('pone en cuarentena los enlaces nuevos que apuntan al plano de control', { skip }, () => {
+  fs.mkdirSync(path.join(WT, PROBE), { recursive: true });
+  const r = run(`ln -s ../.jz/policy/policy.mjs ${PROBE}/interno && ln -s ../AGENTS.md ${PROBE}/agentes && ln -s ../docs ${PROBE}/docs`);
+  assert.equal(r.rc, 86, r.out);
+  for (const p of ['interno', 'agentes']) assert.equal(fs.existsSync(path.join(WT, PROBE, p)), false, p);
+  assert.ok(fs.lstatSync(path.join(WT, PROBE, 'docs')).isSymbolicLink(), 'un enlace interno ordinario se conserva');
+  quarantined.push(path.join(WT, r.out.match(/se movieron a (\.jz-state\/quarantine\/\S+):/)[1]));
+});
+
+// QA F12: con un árbol no verificable, jz-run no ejecuta el comando ni registra una ejecución.
+test('jz-run no ejecuta ni registra nada si la huella falla', { skip }, () => {
+  fs.mkdirSync(path.join(WT, PROBE, 'anidado/.git'), { recursive: true });
+  const runs = path.join(WT, '.jz-state/runs.jsonl');
+  const before = fs.existsSync(runs) ? fs.readFileSync(runs, 'utf8') : '';
+  const r = run(`touch ${PROBE}/ejecutado`);
+  assert.notEqual(r.rc, 0, r.out);
+  assert.match(r.out, /JZ_TREE_NESTED_REPO/);
+  assert.equal(fs.existsSync(path.join(WT, PROBE, 'ejecutado')), false, 'el comando no se ejecutó');
+  assert.equal(fs.existsSync(runs) ? fs.readFileSync(runs, 'utf8') : '', before, 'runs.jsonl sin cambios');
+  fs.rmSync(path.join(WT, PROBE, 'anidado'), { recursive: true, force: true });
+});
+
+// QA R7: el head registrado es el de este worktree aunque el entorno del motor apunte a otro repositorio.
+test('jz-run registra su propio HEAD aunque el entorno apunte a otro repositorio', { skip }, () => {
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'jz-otro-'));
+  try {
+    execFileSync('git', ['init', '-q', other], { env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null' } });
+    const r = run('true', { GIT_DIR: path.join(other, '.git'), GIT_WORK_TREE: other });
+    assert.equal(r.rc, 0, r.out);
+    const last = JSON.parse(fs.readFileSync(path.join(WT, '.jz-state/runs.jsonl'), 'utf8').trim().split('\n').at(-1));
+    const head = execFileSync('git', ['-C', WT, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8',
+      env: Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))) }).trim();
+    assert.equal(last.head, head);
+  } finally {
+    fs.rmSync(other, { recursive: true, force: true });
+  }
 });
 
 test('--cwd sólo admite subdirectorios del worktree', { skip }, () => {

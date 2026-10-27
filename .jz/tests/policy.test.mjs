@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  checkBash, checkWrite, checkRead, checkDelegate, acquireWriter, releaseWriter, readLock, tokenize,
+  checkBash, checkWrite, checkRead, checkDelegate, acquireWriter, releaseWriter, readLock, tokenize, lockPath,
+  recoverPath, bindWriterSession,
 } from '../policy/policy.mjs';
 
 const wt = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'jz-policy-')));
@@ -44,14 +45,11 @@ test('implementer: inyección de shell rechazada', () => {
   }
 });
 
-test('implementer: git local permitido, historial y árbol protegidos', () => {
-  for (const cmd of ['git status --short', 'git diff --stat', 'git log --oneline -5', 'git add src/a.ts',
-    'git add -A', 'git commit -m "feat: algo"', 'git restore --staged src/a.ts', 'git mv src/a src/b',
-    'git rm src/viejo.ts', 'git branch --show-current', 'git worktree list', 'git --no-pager diff', 'git remote -v']) {
+test('implementer: git de lectura permitido, historial y árbol protegidos', () => {
+  for (const cmd of ['git status --short', 'git diff --stat', 'git log --oneline -5', 'git branch --show-current',
+    'git worktree list', 'git --no-pager diff', 'git remote -v']) {
     ok(checkBash(cmd, 'jz-implementer', ctx), cmd);
   }
-  ok(checkBash("git add src && git commit -m \"$(cat <<'EOF'\nfeat: algo\n\nCuerpo con $(no) y `nada`.\nEOF\n)\"",
-    'jz-implementer', ctx), 'commit con heredoc');
   for (const cmd of ['git push', 'git push origin HEAD', 'git merge main', 'git reset --hard', 'git reset HEAD~1',
     'git checkout -- src', 'git restore src/a.ts', 'git clean -fdx', 'git stash', 'git rebase main',
     'git commit --amend -m x', 'git commit -F /etc/shadow', 'git rm -f src/a', 'git branch -D x',
@@ -66,6 +64,93 @@ test('implementer: git local permitido, historial y árbol protegidos', () => {
   no(checkBash("git log \"$(cat <<'EOF'\nx\nEOF\n)\"", 'jz-implementer', ctx), 'heredoc fuera de commit');
 });
 
+// I1-FIX (revisión de seguridad): git de lectura no lee archivos fuera del worktree ni secretos por otras vías
+// que la opción exacta: dos rutas con una externa (diff sin índice implícito), abreviaturas de opciones largas
+// (parse-options acepta prefijos únicos) y opciones cortas que leen archivos.
+test('git de lectura: sin rutas externas ni secretos, sin abreviaturas ni opciones cortas que lean archivos', () => {
+  fs.writeFileSync(path.join(wt, 'src', 'a.ts'), 'x\n');
+  for (const role of ['jz-orchestrator', 'jz-implementer']) {
+    for (const cmd of ['git diff /etc/hostname /dev/null', 'git diff src/a.ts /etc/hostname', 'git diff ../otro src/a.ts',
+      'git diff -- /etc/hostname', 'git diff src/a.ts .env', 'git log -p -- src/fuera', 'git show HEAD -- /root/.ssh/id_rsa',
+      'git blame --cont=/etc/hostname src/a.ts', 'git blame --conte /etc/hostname src/a.ts',
+      'git blame --ignore-revs-f=/etc/hostname src/a.ts', 'git blame -S /etc/hostname src/a.ts', 'git blame -S/etc/hostname src/a.ts',
+      'git ls-files --exclude-fr=/etc/hostname', 'git ls-files -X /etc/hostname', 'git ls-files -X/etc/hostname',
+      'git diff -O/etc/hostname', 'git log -O /etc/hostname', 'git diff --no-inde /etc/hostname src/a.ts',
+      'git diff --outp=/tmp/x']) {
+      no(checkBash(cmd, role, ctx), `${role}: ${cmd}`);
+    }
+    for (const cmd of ['git diff src/a.ts', 'git diff HEAD~1 -- src', 'git log main..HEAD', 'git log -S needle',
+      'git show HEAD:src/a.ts', 'git blame src/a.ts', 'git ls-files -s', 'git log -1 --format=%h', 'git diff --stat',
+      'git log --oneline', 'git diff --color-words']) {
+      ok(checkBash(cmd, role, ctx), `${role}: ${cmd}`);
+    }
+  }
+});
+
+test('shell: cd sólo a directorios existentes del worktree; sin cd -, cd ±N ni comodines sin comillas', () => {
+  for (const cmd of ['cd - && ls', 'cd -- - && ls', 'cd +1 && ls', 'cd -1 && ls', 'cd no-existe && ls',
+    'cd src/a.ts && ls', 'echo /root/.ssh/*', 'ls /ro?t', 'ls src/*', 'git log -- src/[a]*']) {
+    no(checkBash(cmd, 'jz-implementer', ctx), cmd);
+  }
+  for (const cmd of ['cd src && ls', "git log -- 'src/*.ts'", 'echo "a*b"']) ok(checkBash(cmd, 'jz-implementer', ctx), cmd);
+});
+
+// I1 (JZ-IMPLEMENT-001): Git de escritura directo no es una vía para modificar el plano de control, añadir
+// secretos ni arrastrar cambios ajenos. Se deniega entero a los roles autónomos; los commits los hace el humano.
+test('git de escritura denegado a todos los roles autónomos, con cualquier ruta u opción', () => {
+  const cases = [
+    // add: rutas ordinarias, protegidas, secretos y modos que arrastran todo el árbol
+    'git add src/a.ts', 'git add -A', 'git add .', 'git add -u', 'git add --all', 'git add -f .env',
+    'git add --force src/.env.local', 'git add .claude/settings.json', 'git add -- .jz/policy/policy.mjs',
+    'git add AGENTS.md', 'git add src', 'git --no-pager add src/a.ts', 'git add -p src/a.ts',
+    // commit: mensajes simples, heredoc y opciones peligrosas
+    'git commit -m "feat: algo"', 'git commit -a -m x', 'git commit -am x', 'git commit --all -m x',
+    'git commit --no-verify -m x', 'git commit -n -m x', 'git commit --allow-empty -m x',
+    'git commit -m x -- .jz/bin/jz-run', 'git commit --include .claude -m x', 'git commit --only AGENTS.md -m x',
+    "git add src && git commit -m \"$(cat <<'EOF'\nfeat: algo\n\nCuerpo.\nEOF\n)\"",
+    // rm y mv: borrar, mover o reemplazar el plano de control
+    'git rm src/viejo.ts', 'git rm .jz/policy/policy.mjs', 'git rm -r .jz', 'git rm --cached .claude/settings.json',
+    'git rm -r --cached .', 'git mv src/a src/b', 'git mv AGENTS.md x.md', 'git mv .jz/bin/jz-run src/x',
+    'git mv src/x .jz/bin/jz-run', 'git mv -k .claude .claude-old',
+    // restore: incluso --staged modifica el índice
+    'git restore --staged src/a.ts', 'git restore -S .jz/policy/policy.mjs', 'git restore --staged .',
+    'git restore --source=HEAD~1 --staged AGENTS.md',
+    // encadenados detrás de una lectura permitida
+    'git status && git add -A', 'git status; git commit -m x', 'git log -1 || git rm AGENTS.md',
+    // otras escrituras del índice o del historial
+    'git apply x.patch', 'git am x.mbox', 'git cherry-pick HEAD', 'git revert HEAD', 'git update-index --add x',
+    'git read-tree HEAD', 'git checkout-index -a -f', 'git notes add -m x', 'git commit-tree HEAD^{tree} -m x',
+    'git hash-object -w src/a.ts', 'git replace HEAD HEAD~1', 'git switch -c x', 'git submodule update',
+  ];
+  for (const role of ['jz-implementer', 'jz-implementer-copilot', 'jz-orchestrator']) {
+    for (const cmd of cases) no(checkBash(cmd, role, ctx), `${role}: ${cmd}`);
+  }
+  for (const role of ['jz-architect', 'jz-explorer', 'jz-security', 'jz-qa']) {
+    no(checkBash('git add -A', role, ctx), `${role}: git add -A`);
+  }
+  const r = checkBash('git commit -m x', 'jz-implementer', ctx);
+  assert.match(r.reason, /humano/, 'el motivo indica que los commits los hace el humano');
+});
+
+// I1-FIX B1: el directorio de trabajo de la shell se valida antes que el comando (OpenCode admite workdir).
+test('shell: el directorio de trabajo debe resolver dentro del worktree', () => {
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'jz-fuera-')));
+  fs.symlinkSync(outside, path.join(wt, 'src', 'enlace-fuera'));
+  try {
+    for (const role of ['jz-orchestrator', 'jz-implementer']) {
+      for (const cwd of [outside, path.join(wt, '..'), path.join(wt, 'src', '..', '..'), path.join(wt, 'src', 'enlace-fuera')]) {
+        const r = checkBash('git status', role, { wt, cwd });
+        no(r, `${role} con cwd ${cwd}`);
+        assert.match(r.reason, /directorio de trabajo fuera del worktree/);
+      }
+      ok(checkBash('git status', role, { wt, cwd: path.join(wt, 'src') }), `${role} en un subdirectorio`);
+    }
+  } finally {
+    fs.unlinkSync(path.join(wt, 'src', 'enlace-fuera'));
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test('orquestador: sólo lectura de git y estado; nunca ejecuta ni escribe', () => {
   ok(checkBash('git status', 'jz-orchestrator', ctx), 'git status');
   ok(checkBash('.jz/bin/jz-state', 'jz-orchestrator', ctx), 'jz-state');
@@ -74,6 +159,31 @@ test('orquestador: sólo lectura de git y estado; nunca ejecuta ni escribe', () 
     no(checkBash(cmd, 'jz-orchestrator', ctx), cmd);
   }
   no(checkWrite('src/a.ts', 'jz-orchestrator', ctx), 'escritura');
+});
+
+// I2: la verificación reconocida sólo admite perfiles por identificador; nunca argv libre ni otro ejecutor.
+test('jz-verify: el implementador ejecuta perfiles por id y el orquestador sólo consulta', () => {
+  ok(checkBash('.jz/bin/jz-verify run jz-core-tests', 'jz-implementer', ctx), 'run de un perfil');
+  ok(checkBash('.jz/bin/jz-verify status', 'jz-implementer', ctx), 'status (implementer)');
+  ok(checkBash('.jz/bin/jz-verify status 2>&1 | tail -n 20', 'jz-implementer', ctx), 'status con filtro');
+  ok(checkBash('.jz/bin/jz-verify status', 'jz-orchestrator', ctx), 'status (orquestador)');
+  for (const cmd of ['.jz/bin/jz-verify', '.jz/bin/jz-verify run', '.jz/bin/jz-verify run a b',
+    '.jz/bin/jz-verify run ../policy', '.jz/bin/jz-verify run .jz/profiles/x.json', '.jz/bin/jz-verify run Jz',
+    '.jz/bin/jz-verify run jz-core-tests -- sh -c id', '.jz/bin/jz-verify run jz-core-tests true',
+    '.jz/bin/jz-verify status x', '.jz/bin/jz-verify bogus', '.jz/bin/jz-verify run "jz core"',
+    '.jz/bin/jz-verify run jz-core-tests > .jz-state/verify/x.json', 'node .jz/lib/verify.mjs run jz-core-tests',
+    'node --test --test-reporter=./.jz/lib/verify-reporter.mjs .jz/tests/policy.test.mjs']) {
+    no(checkBash(cmd, 'jz-implementer', ctx), cmd);
+  }
+  no(checkBash('.jz/bin/jz-verify run jz-core-tests', 'jz-orchestrator', ctx), 'el orquestador no ejecuta código');
+  for (const role of ['jz-architect', 'jz-explorer', 'jz-security', 'jz-qa']) {
+    no(checkBash('.jz/bin/jz-verify status', role, ctx), `${role} sin shell`);
+  }
+  for (const p of ['.jz/profiles/jz-core-tests.json', '.jz/profiles/nuevo.json', '.jz/lib/verify.mjs',
+    '.jz/lib/verify-reporter.mjs', '.jz/bin/jz-verify', '.jz-state/verify/jz-core-tests.json']) {
+    no(checkWrite(p, 'jz-implementer', ctx), p);
+    no(checkWrite(p, 'jz-architect', ctx), `architect ${p}`);
+  }
 });
 
 test('explorer, security y qa: sin shell ni escritura', () => {
@@ -131,6 +241,119 @@ test('escritor único: bloqueo exclusivo con recuperación de huérfanos', () =>
   ok(acquireWriter(wt, { ...a, pid: 2 ** 22 + 7 }), 'titular con pid inexistente');
   ok(acquireWriter(wt, { ...a, call: 'c3' }), 'bloqueo huérfano recuperado');
   assert.equal(readLock(wt).call, 'c3');
+});
+
+// I1-FIX C: dos procesos leen el mismo bloqueo huérfano. El primero lo retira y adquiere el suyo; el segundo
+// no debe borrar ese bloqueo nuevo creyendo que retira el antiguo. La interposición sobre fs reproduce el
+// entrelazado de forma determinista: justo antes de que B borre el bloqueo, A intenta su adquisición completa
+// (con cc63e59 la completaba; ahora la deniega el mutex que B tiene tomado).
+test('escritor único: dos recuperaciones de un mismo huérfano no producen dos escritores', () => {
+  const w = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'jz-lock-race-')));
+  const base = { engine: 'claude-code', pid: process.pid, agent: 'jz-implementer' };
+  fs.mkdirSync(path.join(w, '.jz-state'));
+  fs.writeFileSync(lockPath(w), JSON.stringify({ ...base, pid: 2 ** 22 + 7, session: 'muerta', call: 'c0' }) + '\n');
+  const orig = { rmSync: fs.rmSync, unlinkSync: fs.unlinkSync, renameSync: fs.renameSync };
+  let fired = false;
+  let a = null;
+  for (const name of Object.keys(orig)) {
+    fs[name] = (p, ...rest) => {
+      if (!fired && path.resolve(String(p)) === lockPath(w)) {
+        fired = true;
+        a = acquireWriter(w, { ...base, session: 'sa', call: 'ca' });
+      }
+      return orig[name].call(fs, p, ...rest);
+    };
+  }
+  let b;
+  try {
+    b = acquireWriter(w, { ...base, session: 'sb', call: 'cb' });
+  } finally {
+    Object.assign(fs, orig);
+  }
+  assert.ok(fired, 'B intentó retirar el bloqueo huérfano');
+  const winners = [['sa', a], ['sb', b]].filter(([, r]) => r?.decision === 'allow').map(([s]) => s);
+  assert.equal(winners.length, 1, `escritores admitidos: ${winners.join(', ')} (A: ${a?.reason}; B: ${b?.reason})`);
+  assert.equal(readLock(w).session, winners[0], 'el bloqueo en disco es el del único escritor admitido');
+  fs.rmSync(w, { recursive: true, force: true });
+});
+
+test('escritor único: una recuperación interrumpida bloquea en vez de adivinar', () => {
+  const w = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'jz-lock-stale-')));
+  const dead = { engine: 'opencode', pid: 2 ** 22 + 7, session: 'muerta', agent: 'jz-implementer', call: 'c0' };
+  fs.mkdirSync(path.join(w, '.jz-state'));
+  fs.writeFileSync(lockPath(w), JSON.stringify(dead) + '\n');
+  fs.writeFileSync(`${lockPath(w)}.recover`, `${2 ** 22 + 9}\n`);
+  const r = acquireWriter(w, { ...dead, pid: process.pid, session: 's1', call: 'c1' });
+  no(r, 'con la recuperación a medias no se adquiere');
+  assert.match(r.reason, /jz-lock release/);
+  assert.equal(readLock(w).session, 'muerta', 'el bloqueo huérfano sigue intacto');
+  fs.rmSync(w, { recursive: true, force: true });
+});
+
+// Revisión de seguridad: con writeFileSync(wx) (cc63e59) el bloqueo existía vacío antes de escribirse y quien lo
+// leyera en ese intervalo lo tomaba por huérfano. Ahora se crea con link(2); un bloqueo ilegible reciente (de una
+// versión anterior o ajeno) se trata como activo, no como huérfano.
+test('escritor único: un bloqueo ilegible reciente no se retira; uno antiguo sí', () => {
+  const w = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'jz-lock-empty-')));
+  fs.mkdirSync(path.join(w, '.jz-state'));
+  fs.writeFileSync(lockPath(w), '');
+  const h = { engine: 'claude-code', pid: process.pid, session: 's1', agent: 'jz-implementer', call: 'c1' };
+  no(acquireWriter(w, h), 'bloqueo vacío recién creado: otro escritor a medio crear');
+  assert.equal(fs.readFileSync(lockPath(w), 'utf8'), '', 'no se tocó');
+  const old = new Date(Date.now() - 3600_000);
+  fs.utimesSync(lockPath(w), old, old);
+  ok(acquireWriter(w, h), 'bloqueo ilegible antiguo: huérfano');
+  assert.equal(readLock(w).session, 's1');
+  fs.rmSync(w, { recursive: true, force: true });
+});
+
+// Rama «el bloqueo cambió antes de tomar el mutex»: A recupera y adquiere entero justo antes de que B cree el
+// mutex; B relee, ve otro bloqueo vivo y no lo borra.
+test('escritor único: si otro recupera antes de tomar el mutex, no se borra su bloqueo', () => {
+  const w = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'jz-lock-race2-')));
+  const base = { engine: 'claude-code', pid: process.pid, agent: 'jz-implementer' };
+  fs.mkdirSync(path.join(w, '.jz-state'));
+  fs.writeFileSync(lockPath(w), JSON.stringify({ ...base, pid: 2 ** 22 + 7, session: 'muerta', call: 'c0' }) + '\n');
+  const orig = fs.writeFileSync;
+  let fired = false;
+  let a = null;
+  fs.writeFileSync = (p, ...rest) => {
+    if (!fired && path.resolve(String(p)) === recoverPath(w)) {
+      fired = true;
+      a = acquireWriter(w, { ...base, session: 'sa', call: 'ca' });
+    }
+    return orig.call(fs, p, ...rest);
+  };
+  let b;
+  try {
+    b = acquireWriter(w, { ...base, session: 'sb', call: 'cb' });
+  } finally {
+    fs.writeFileSync = orig;
+  }
+  assert.ok(fired, 'B intentó tomar el mutex');
+  assert.equal(a?.decision, 'allow', `A: ${a?.reason}`);
+  no(b, 'B ve el bloqueo vivo de A');
+  assert.equal(readLock(w).session, 'sa');
+  assert.equal(fs.existsSync(recoverPath(w)), false, 'mutex liberado');
+  fs.rmSync(w, { recursive: true, force: true });
+});
+
+// Liberar y vincular también modifican el bloqueo: lo hacen bajo el mutex, y con una recuperación interrumpida
+// no lo tocan (fallo cerrado hasta jz-lock release).
+test('escritor único: liberar y vincular la sesión respetan el mutex de recuperación', () => {
+  const w = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'jz-lock-mutex-')));
+  const h = { engine: 'opencode', pid: process.pid, session: 's1', agent: 'jz-implementer', call: 'c1' };
+  ok(acquireWriter(w, h), 'adquirido');
+  fs.writeFileSync(recoverPath(w), `${2 ** 22 + 9}\n`);
+  assert.equal(bindWriterSession(w, { engine: 'opencode', pid: process.pid }, 'imp'), false, 'no vincula');
+  assert.equal(releaseWriter(w, { call: 'c1' }), false, 'no libera');
+  assert.equal(readLock(w).call, 'c1');
+  assert.equal(readLock(w).writer_session, undefined);
+  fs.rmSync(recoverPath(w));
+  assert.equal(bindWriterSession(w, { engine: 'opencode', pid: process.pid }, 'imp'), true);
+  assert.equal(releaseWriter(w, { call: 'c1' }), true);
+  assert.equal(fs.existsSync(lockPath(w)), false);
+  fs.rmSync(w, { recursive: true, force: true });
 });
 
 test('tokenize conserva argumentos con comillas', () => {

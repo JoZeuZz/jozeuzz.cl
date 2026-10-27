@@ -3,7 +3,12 @@
 // .jz-state/writer.lock, compartido con Claude Code. No importa el SDK de plugins.
 // También corta los reintentos cuando se agota la cuota del proveedor: OpenCode reintenta
 // indefinidamente con espera exponencial; el plugin aborta la sesión, libera el bloqueo y deja un
-// checkpoint para que otro motor reanude. Se desactiva con `opencode --pure`: no usar --pure en modo autónomo.
+// checkpoint para que otro motor reanude.
+//
+// Fallo cerrado: los perfiles de .opencode/agents son de sólo lectura (sin edit ni bash, sin delegar en
+// escritores). Al cargarse, el plugin aplica los permisos operativos de .opencode/jz-permissions.json (hook
+// config). Si el plugin no carga (--pure, archivo ausente, error al importar la política o al inicializarse),
+// OpenCode 1.17.18 sigue sin él (comprobado con .jz/tests/opencode-native.mjs) y los agentes quedan en lectura.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,9 +22,27 @@ const PATCH_PATH = /^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$/
 const QUOTA = /usage limit|quota|insufficient_quota|billing|credit balance|exceeded your current/i;
 const RATE = /rate.?limit|too many requests|\b429\b/i;
 const MAX_RATE_RETRIES = 3;
+// Lectura síncrona al importar: si falta o no es JSON válido, el plugin no carga y rige la base de sólo lectura.
+const PERMISSIONS = JSON.parse(fs.readFileSync(new URL('../jz-permissions.json', import.meta.url), 'utf8'));
+// Git de consulta de los agentes en el host (git status, diff, log): sin locks opcionales ni fsmonitor.
+// CDPATH vacío: cd no salta a directorios fuera del worktree con un nombre relativo.
+const GIT_READ_ENV = {
+  GIT_OPTIONAL_LOCKS: '0', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.fsmonitor', GIT_CONFIG_VALUE_0: 'false',
+  CDPATH: '',
+};
+// Herramientas sin efectos fuera de la sesión; cualquier otra que no se reconozca se deniega a los jz-*.
+const INERT_TOOLS = new Set(['skill', 'todowrite', 'todoread', 'invalid']);
 
 export const JzGuard = async ({ client, directory, worktree }) => {
   const wt = fs.realpathSync(worktree || directory);
+  // Base de las rutas relativas y del workdir de Bash, como en OpenCode.
+  const dir = fs.realpathSync(directory || wt);
+  // Fuera de un repositorio git OpenCode pasa worktree "/": con él, todo quedaría «dentro» y el plano de control
+  // no coincidiría. Sin un worktree verificable el plugin no carga y rige la base de sólo lectura.
+  if (wt === path.parse(wt).root || !fs.existsSync(path.join(wt, '.git'))
+    || !(dir === wt || dir.startsWith(`${wt}/`))) {
+    throw new Error(`jz-guard: worktree no verificable (${wt}, directorio ${dir})`);
+  }
   const agentBySession = new Map();
   const activeWriterCalls = new Set();
   const stopped = new Set();
@@ -52,6 +75,16 @@ export const JzGuard = async ({ client, directory, worktree }) => {
   };
 
   return {
+    // Cada clave de jz-permissions.json reemplaza la del perfil (conserva su posición entre las reglas).
+    config: async (cfg) => {
+      for (const [name, value] of Object.entries(PERMISSIONS)) {
+        if (name.startsWith('$')) continue;
+        const rules = typeof value === 'string' ? PERMISSIONS[value] : value;
+        const agent = cfg.agent?.[name];
+        if (!agent?.permission || typeof rules !== 'object') continue;
+        for (const [k, r] of Object.entries(rules)) agent.permission[k] = structuredClone(r);
+      }
+    },
     event: async ({ event }) => {
       if (event.type !== 'session.status' || event.properties?.status?.type !== 'retry') return;
       const { sessionID, status } = event.properties;
@@ -67,6 +100,7 @@ export const JzGuard = async ({ client, directory, worktree }) => {
     },
     // jz-state usa la sesión, no sólo el proceso, para decidir si un bloqueo vivo es propio.
     'shell.env': async (input, output) => {
+      Object.assign(output.env, GIT_READ_ENV);
       output.env.JZ_ENGINE = 'opencode';
       if (input?.sessionID) {
         output.env.JZ_SESSION = input.sessionID;
@@ -76,7 +110,7 @@ export const JzGuard = async ({ client, directory, worktree }) => {
     'tool.execute.before': async (input, output) => {
       const role = roleOf(agentBySession.get(input.sessionID));
       const a = output.args ?? {};
-      const ctx = { wt, cwd: wt };
+      const ctx = { wt, cwd: dir };
 
       if (input.tool === 'task') {
         const target = a.subagent_type;
@@ -111,12 +145,16 @@ export const JzGuard = async ({ client, directory, worktree }) => {
           return;
         }
         case 'bash':
-          return enforce(checkBash(a.command, role, { wt, cwd: a.workdir ? path.resolve(wt, a.workdir) : wt }));
+          // checkBash rechaza un workdir que resuelva fuera del worktree antes de mirar el comando.
+          return enforce(checkBash(a.command, role, { wt, cwd: a.workdir ? path.resolve(dir, String(a.workdir)) : dir }));
         case 'webfetch':
         case 'websearch':
         case 'codesearch':
           return enforce({ decision: 'deny', reason: `${input.tool} no está permitido para ${role}` });
         default:
+          if (!INERT_TOOLS.has(input.tool)) {
+            enforce({ decision: 'deny', reason: `herramienta no reconocida por la política: ${input.tool} no está permitido para ${role}` });
+          }
       }
     },
     'tool.execute.after': async (input) => {

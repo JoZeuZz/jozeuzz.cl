@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# jz-install — instala el supervisor jz-autonomy y jz-git desde un commit revisado.
+# La copia queda fuera de todo worktree y sin permisos de escritura: los workers no pueden modificar el
+# código que los supervisa ni el GitOps que confirma su trabajo.
+# Uso: jz-install <worktree> [<ref>]   (imprime la ruta instalada)
+set -euo pipefail
+repo=${1:?uso: jz-install <worktree> [<ref>]}
+ref=${2:-HEAD}
+base=${JZ_AI_HOME:-$HOME/.local/share/jz-ai}
+sha=$(git -C "$repo" rev-parse --verify "$ref^{commit}")
+dest=$base/releases/$sha
+if [[ ! -d $dest ]]; then
+  mkdir -p "$base/releases"
+  tmp=$(mktemp -d "$base/releases/.tmp-$sha-XXXXXX")
+  git -C "$repo" archive "$sha" tools/jz-autonomy tools/jz-gitops | tar -x -C "$tmp"
+  printf '%s\n' "$sha" > "$tmp/REVISION"
+  chmod -R a-w "$tmp"
+  mv "$tmp" "$dest"
+fi
+ln -sfn "releases/$sha" "$base/current"
+echo "$dest"

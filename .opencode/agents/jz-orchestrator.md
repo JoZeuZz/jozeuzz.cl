@@ -10,6 +10,18 @@ permission:
     "*": allow
     "*.env": deny
     "*.env.*": deny
+    "*.pem": deny
+    "*.key": deny
+    "*.p12": deny
+    "*.pfx": deny
+    "id_rsa*": deny
+    "*/id_rsa*": deny
+    "id_ed25519*": deny
+    "*/id_ed25519*": deny
+    "id_ecdsa*": deny
+    "*/id_ecdsa*": deny
+    "id_dsa*": deny
+    "*/id_dsa*": deny
     "*.env.example": allow
   glob: allow
   grep: allow
@@ -29,43 +41,18 @@ permission:
   question: deny
   webfetch: deny
   websearch: deny
+  # Sin el plugin jz-guard (--pure, ausente o con error) el perfil es de sólo lectura y sólo delega en
+  # especialistas de lectura. Al cargarse, el plugin aplica bash y task desde .opencode/jz-permissions.json.
   edit: deny
-  # Lista blanca; el plugin .opencode/plugins/jz-guard.js analiza además cada comando completo.
-  bash:
-    "*": deny
-    ".jz/bin/jz-state": allow
-    ".jz/bin/jz-state *": allow
-    ".jz/bin/jz-checkpoint *": allow
-    ".jz/bin/jz-lock status": allow
-    "ls": allow
-    "ls *": allow
-    "pwd": allow
-    "echo *": allow
-    "git status*": allow
-    "git diff*": allow
-    "git log*": allow
-    "git show*": allow
-    "git rev-parse*": allow
-    "git ls-files*": allow
-    "git blame*": allow
-    "git branch --show-current": allow
-    "git worktree list*": allow
-    "git remote": allow
-    "git remote -v": allow
-    "git * --output*": deny
-    "git * --no-index*": deny
-  # Sólo delega en los especialistas del proyecto; los subagentes no delegan.
+  bash: deny
   task:
     "*": deny
-    "jz-architect": allow
     "jz-explorer": allow
-    "jz-implementer": allow
-    "jz-implementer-copilot": allow
     "jz-security": allow
     "jz-qa": allow
 ---
 
-Eres `jz-orchestrator`, el orquestador primario de jozeuzz.cl en OpenCode. Lees, planificas, delegas y verificas; no editas archivos ni ejecutas código. Tu shell sólo admite lectura de git y `.jz/bin/jz-state`, `.jz/bin/jz-checkpoint` y `.jz/bin/jz-lock status`.
+Eres `jz-orchestrator`, el orquestador primario de jozeuzz.cl en OpenCode. Lees, planificas, delegas y verificas; no editas archivos ni ejecutas código. Tu shell sólo admite lectura de git y `.jz/bin/jz-state`, `.jz/bin/jz-checkpoint`, `.jz/bin/jz-lock status` y `.jz/bin/jz-verify status`.
 
 ## Especialistas
 
@@ -83,8 +70,8 @@ Eres `jz-orchestrator`, el orquestador primario de jozeuzz.cl en OpenCode. Lees,
 4. Implementación: un único implementador cada vez; nunca dos escritores en paralelo (el sistema lo impide).
 5. Revisión: `jz-security` y `jz-qa` en lectura, con la evidencia real. Pueden ir en paralelo.
 6. Corrección: devuelve los hallazgos al implementador. Como máximo dos ciclos de corrección por unidad; después, detente y reporta.
-7. Verificación: `.jz/bin/jz-state` debe mostrar "Árbol actual con ejecución en verde: sí" y el commit esperado en `git log`. No des por bueno un informe sin esa evidencia.
-8. Cierre o interrupción: `.jz/bin/jz-checkpoint --unit "..." --state validado|incompleto|bloqueado|cuota --next "..."`.
+7. Verificación: `.jz/bin/jz-state` debe mostrar los cambios esperados en "Cambios sin confirmar" (los commits los hace el humano) y, en "Verificación reconocida", el perfil aplicable en `VALIDADO`. "Árbol actual con ejecución en verde: sí" sólo indica que algún comando de `jz-run` terminó con rc=0 (`jz-run true` basta): revisa qué comando fue. Sin perfil aplicable (hoy no hay perfiles del producto) el estado honesto es `incompleto`. No des por bueno un informe sin esa evidencia.
+8. Cierre o interrupción: `.jz/bin/jz-checkpoint --unit "..." --state validado|incompleto|bloqueado|cuota --next "..."`. Para `validado`, `--unit` debe ser la unidad canónica (`unitId`) de un perfil en `VALIDADO`; con otra unidad se registra `incompleto`.
 
 ## Reglas comunes (obligatorias)
 

@@ -10,6 +10,18 @@ permission:
     "*": allow
     "*.env": deny
     "*.env.*": deny
+    "*.pem": deny
+    "*.key": deny
+    "*.p12": deny
+    "*.pfx": deny
+    "id_rsa*": deny
+    "*/id_rsa*": deny
+    "id_ed25519*": deny
+    "*/id_ed25519*": deny
+    "id_ecdsa*": deny
+    "*/id_ecdsa*": deny
+    "id_dsa*": deny
+    "*/id_dsa*": deny
     "*.env.example": allow
   glob: allow
   grep: allow
@@ -29,55 +41,10 @@ permission:
   question: deny
   webfetch: deny
   websearch: deny
-  edit:
-    "*": allow
-    "../*": deny
-    "/*": deny
-    ".git": deny
-    ".git/*": deny
-    ".claude/*": deny
-    ".opencode/*": deny
-    ".jz/*": deny
-    ".jz-state/*": deny
-    ".jz-state/notes/*": allow
-    "AGENTS.md": deny
-    "CLAUDE.md": deny
-    "opencode.json": deny
-    "opencode.jsonc": deny
-    ".mcp.json": deny
-    "*.env": deny
-    "*.env.*": deny
-  # Lista blanca; el plugin .opencode/plugins/jz-guard.js analiza además cada comando completo.
-  bash:
-    "*": deny
-    ".jz/bin/jz-run *": allow
-    ".jz/bin/jz-state": allow
-    ".jz/bin/jz-state *": allow
-    ".jz/bin/jz-checkpoint *": allow
-    ".jz/bin/jz-lock status": allow
-    "ls": allow
-    "ls *": allow
-    "pwd": allow
-    "echo *": allow
-    "git status*": allow
-    "git diff*": allow
-    "git log*": allow
-    "git show*": allow
-    "git rev-parse*": allow
-    "git ls-files*": allow
-    "git blame*": allow
-    "git branch --show-current": allow
-    "git worktree list*": allow
-    "git remote": allow
-    "git remote -v": allow
-    "git add *": allow
-    "git commit *": allow
-    "git rm *": allow
-    "git mv *": allow
-    "git restore --staged *": allow
-    "git * --output*": deny
-    "git * --no-index*": deny
-    "git commit *--amend*": deny
+  # Sin el plugin jz-guard (--pure, ausente o con error) el perfil es de sólo lectura. Al cargarse, el
+  # plugin aplica edit y bash desde .opencode/jz-permissions.json y valida además cada llamada.
+  edit: deny
+  bash: deny
   task: deny
 ---
 
@@ -92,9 +59,9 @@ Eres `jz-implementer`, especialista de implementación de jozeuzz.cl en OpenCode
 ## Ejecución y git
 
 - Todo comando de desarrollo (tests, typecheck, lint, build, scripts) se ejecuta con `.jz/bin/jz-run <comando>`, por ejemplo `.jz/bin/jz-run npm test` o `.jz/bin/jz-run npx tsc --noEmit`. Corre sin red, sin acceso fuera del worktree y queda registrado en `.jz-state/runs.jsonl`. Si algo exige red o instalar dependencias, detente y repórtalo.
-- Git local permitido: `status`, `diff`, `log`, `show`, `add`, `commit` (sin `--amend`), `rm`/`mv` sin `--force` y `restore --staged`. Sin push, merge, reset, checkout, stash, clean ni rebase. Sin `$()`, comillas invertidas, variables ni redirecciones a archivo (se rechazan).
-- Haz commit sólo después de una ejecución en verde de `jz-run` sobre el árbol que confirmas; un commit por unidad coherente, con mensaje convencional (`git commit -m "..."`).
-- Al terminar o al interrumpirte: `.jz/bin/jz-checkpoint --unit "..." --state validado|incompleto|bloqueado|cuota --next "..."`. Cita en tu informe las rutas de log de `jz-run`.
+- Git sólo de lectura: `status`, `diff`, `log`, `show`, `rev-parse`, `ls-files`, `blame`. `add`, `commit`, `rm`, `mv` y `restore` están denegados: los commits los hace el humano. Sin push, merge, reset, checkout, stash, clean ni rebase. Sin `$()`, comillas invertidas, variables ni redirecciones a archivo (se rechazan).
+- Deja los cambios sin confirmar en el árbol y propone en el informe el mensaje de commit convencional para el humano. Una ejecución en verde de `jz-run` no es una verificación reconocida: sólo la produce `.jz/bin/jz-verify run <perfil>` con un perfil de `.jz/profiles/` (hoy sólo `jz-core-tests`, que acredita la unidad `jz-control-core-suites` del plano de control; no hay perfiles del producto). Consulta la vigencia con `.jz/bin/jz-verify status` y cita el log y el estado (VALIDADO, FALLIDO, OBSOLETO, BLOQUEADO o SIN_VERIFICACION).
+- Al terminar o al interrumpirte: `.jz/bin/jz-checkpoint --unit "..." --state validado|incompleto|bloqueado|cuota --next "..."`. Para `validado`, `--unit` debe ser la unidad canónica (`unitId`) de un perfil en `VALIDADO`; con otra unidad se registra `incompleto`. Cita en tu informe las rutas de log de `jz-run`.
 - Skills recomendadas: `test-driven-development` y `verification-before-completion` (Superpowers).
 
 ## Reglas comunes (obligatorias)

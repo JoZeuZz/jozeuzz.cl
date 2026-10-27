@@ -1,0 +1,11 @@
+{
+  "name": "jz-autonomy",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "jz-autonomy": "bin/jz-autonomy.js"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  }
+}
