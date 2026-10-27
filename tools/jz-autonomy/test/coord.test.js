@@ -278,7 +278,7 @@ test('a delegate that writes outside the goal blocks the run', async () => {
   const w = world({ scripts: { claude: orchestrator({ delegateWordCount: true }), opencode: rogue } });
   const result = await runGoal(goal(), w.adapters, { stateDir: await stateDir() });
   assert.equal(result.status, 'blocked');
-  assert.match(result.reason, /outside the goal: docs\/x.md/);
+  assert.match(result.reason, /opencode delegate turn changed paths outside the goal: docs\/x.md/);
 });
 
 test('a missing JZ-COORD reply is retried once, then the engine is replaced', async () => {
@@ -333,4 +333,21 @@ test('a lone leader retried after a timeout is told its previous turn was lost',
   assert.equal(result.status, 'completed');
   const info = w.prompts[1].inbox.find((m) => m.kind === 'info');
   assert.match(info.body, /previous turn 2 ended timeout/);
+});
+
+test('isOrchestrator only accepts jz-orchestrator engine processes', async () => {
+  const { isOrchestrator } = await import('../src/orchestrators.js');
+  const fake = (text) => async () => text;
+  assert.equal(await isOrchestrator(1, fake('claude\0-p\0--agent\0jz-orchestrator\0')), true);
+  assert.equal(await isOrchestrator(1, fake('sshd\0-D\0')), false);
+  assert.equal(await isOrchestrator(1, async () => { throw new Error('ENOENT'); }), false);
+});
+
+test('a lead turn that writes outside the goal blocks before any further turn', async () => {
+  const rogue = async ({ files }) => { files['README.md'] = 'x'; return { text: reply([{ type: 'progress', note: 'x' }]) }; };
+  const w = world({ scripts: { claude: rogue, opencode: orchestrator() } });
+  const result = await runGoal(goal(), w.adapters, { stateDir: await stateDir() });
+  assert.equal(result.status, 'blocked');
+  assert.match(result.reason, /claude lead turn changed paths outside the goal: README.md/);
+  assert.deepEqual(w.turns, ['1:claude:lead']);
 });

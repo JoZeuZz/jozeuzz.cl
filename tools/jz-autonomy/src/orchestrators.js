@@ -60,6 +60,15 @@ export function groupTerminated(pid, kill = process.kill) {
   return true;
 }
 
+export async function isOrchestrator(pid, readFile = nativeReadFile) {
+  try {
+    const argv = String(await readFile(`/proc/${pid}/cmdline`, 'utf8')).split('\0');
+    return argv.includes(ORCHESTRATOR) && argv.includes('--agent');
+  } catch {
+    return false;
+  }
+}
+
 export function createCoordAdapters(options) {
   const root = options.root;
   const stateDir = options.stateDir;
@@ -163,6 +172,8 @@ export function createCoordAdapters(options) {
     terminated: async ({ pid }) => groupTerminated(pid),
     async kill({ pid }) {
       if (!Number.isInteger(pid) || pid <= 0) return;
+      // El pid sale del estado: sólo se mata si sigue siendo un orquestador lanzado por jz-coord (no un pid reciclado).
+      if (!(await isOrchestrator(pid, readFile))) return;
       try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch {} }
       await new Promise((resolve) => setTimeout(resolve, 200));
     },

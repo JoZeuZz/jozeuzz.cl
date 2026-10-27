@@ -365,6 +365,10 @@ export async function runGoal(input, adapters, options = {}) {
     await event('turn-end', { n, engine, role, outcome: record.outcome, error: record.error, terminated, simulated: record.simulated, actions: record.actions.map((a) => a.type) });
     if (!terminated) return { ...record, fatal: `engine ${engine} process ${pid} did not terminate` };
     await checkpoint(`after turn ${n} (${engine} ${role}: ${record.outcome})`);
+    // Cualquier turno, termine como termine, sólo puede dejar cambios dentro de la meta.
+    const changed = await adapters.inspectChanges({ goal });
+    const outside = (changed?.paths ?? []).filter((p) => !within(p, goal.allowedPaths) || protectedPath(p));
+    if (outside.length) return { ...record, fatal: `${engine} ${role} turn changed paths outside the goal: ${outside.join(', ')}` };
     return record;
   }
 
@@ -396,9 +400,6 @@ export async function runGoal(input, adapters, options = {}) {
       task.status = result.status;
       task.result = result;
     }
-    const changed = await adapters.inspectChanges({ goal });
-    const outside = (changed?.paths ?? []).filter((p) => !within(p, goal.allowedPaths) || protectedPath(p));
-    if (outside.length) return `delegate changed paths outside the goal: ${outside.join(', ')}`;
     post(task.from, { from: to, kind: 'result', task: t.id, status: task.status, summary: task.result.summary, paths: task.result.paths, evidence: task.result.evidence });
     await event('result', { task: t.id, from: to, status: task.status });
     return null;
