@@ -50,12 +50,17 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+      # El plano de control corre en el host, como en local: necesita git en /usr/bin, que la
+      # imagen de Node del producto no trae. Misma versión de Node que tooling/node-image.txt.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.22.0
       # sandbox.test.mjs, verify.test.mjs, opencode-native.mjs e integration.mjs necesitan
       # el host (namespaces, motores reales): se ejecutan fuera de CI.
       - name: jz-autonomy y jz-gitops
-        run: sudo scripts/run-node node --test tools/jz-autonomy/test/*.test.js tools/jz-gitops/test/*.test.mjs
+        run: node --test tools/jz-autonomy/test/*.test.js tools/jz-gitops/test/*.test.mjs
       - name: .jz (política, árbol, recuperación, hook, OpenCode)
         run: >-
-          sudo scripts/run-node node --test
+          node --test
           .jz/tests/policy.test.mjs .jz/tests/tree.test.mjs .jz/tests/recovery.test.mjs
           .jz/tests/hook.test.mjs .jz/tests/opencode.test.mjs
