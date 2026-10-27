@@ -98,7 +98,7 @@ export function createOpenCodeRunner(options) {
     });
     if (out.aborted) return { rc: ENGINE_UNAVAILABLE, unavailable: true, engine: 'opencode', reason: 'opencode fell back to the default agent' };
     // OpenCode reintenta sin fin con la cuota agotada: un timeout con el error de cuota en la salida descarta el motor.
-    if (out.rc !== 0 && quotaExhausted(out.tail)) return { rc: ENGINE_UNAVAILABLE, unavailable: true, engine: 'opencode' };
+    if (out.rc !== 0 && quotaExhausted(out.tail)) return { rc: ENGINE_UNAVAILABLE, unavailable: true, engine: 'opencode', reason: 'quota or usage limit' };
     return { rc: out.rc, engine: 'opencode' };
   };
 }

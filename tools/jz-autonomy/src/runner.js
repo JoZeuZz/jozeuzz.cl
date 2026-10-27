@@ -174,13 +174,14 @@ export async function runObjective(input, adapters, options = {}) {
     const output = await step('agent', async () => {
       try {
         const out = await adapters.runAgent({ phase, objective, failures, runId: state.runId });
-        return { rc: Number.isInteger(out?.rc) ? out.rc : 1, engine: typeof out?.engine === 'string' ? out.engine : null, unavailable: Boolean(out?.unavailable) };
+        const skipped = Array.isArray(out?.skipped) ? out.skipped.map((s) => ({ engine: String(s?.engine), reason: redact(String(s?.reason ?? '')) })) : [];
+        return { rc: Number.isInteger(out?.rc) ? out.rc : 1, engine: typeof out?.engine === 'string' ? out.engine : null, unavailable: Boolean(out?.unavailable), skipped };
       } catch (error) {
         return { rc: 1, engine: null, unavailable: false, error: error instanceof Error ? error.message : 'agent adapter failed' };
       }
     });
     const failure = { kind: 'agent', phase, rc: output.rc };
-    await transition('agent', { ...failure, engine: output.engine, unavailable: output.unavailable });
+    await transition('agent', { ...failure, engine: output.engine, unavailable: output.unavailable, ...(output.skipped?.length ? { skipped: output.skipped } : {}) });
     if (output.unavailable) return { ...failure, unavailable: true };
     return failure.rc === 0 ? null : failure;
   }

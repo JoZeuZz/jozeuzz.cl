@@ -99,7 +99,7 @@ export function createClaudeRunner(options) {
       timeoutMs: options.timeoutMs, setTimer: options.setTimer, clearTimer: options.clearTimer
     });
     const failed = out.rc !== 0 || claudeResultFailed(out.tail);
-    if (failed && quotaExhausted(out.tail)) return { rc: ENGINE_UNAVAILABLE, unavailable: true, engine: 'claude' };
+    if (failed && quotaExhausted(out.tail)) return { rc: ENGINE_UNAVAILABLE, unavailable: true, engine: 'claude', reason: 'quota or usage limit' };
     return { rc: failed ? (out.rc || 1) : 0, engine: 'claude' };
   };
 }
@@ -107,16 +107,18 @@ export function createClaudeRunner(options) {
 // Recorre los motores en orden. Uno sin cuota queda descartado para el resto de la ejecución.
 export function createFailover(runners, order) {
   const down = new Set();
+  const skipped = [];
   return async (request) => {
     for (const name of order) {
       if (down.has(name) || typeof runners[name] !== 'function') continue;
       const out = await runners[name](request);
       if (out?.unavailable) {
         down.add(name);
+        skipped.push({ engine: name, reason: typeof out.reason === 'string' ? out.reason : 'quota or limit' });
         continue;
       }
-      return { ...out, engine: name };
+      return { ...out, engine: name, skipped: [...skipped] };
     }
-    return { rc: ENGINE_UNAVAILABLE, unavailable: true, engine: null };
+    return { rc: ENGINE_UNAVAILABLE, unavailable: true, engine: null, skipped: [...skipped] };
   };
 }

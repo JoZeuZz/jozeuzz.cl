@@ -63,8 +63,9 @@ test('failover moves to the next engine on quota and keeps it for later phases',
     opencode: async ({ phase }) => { calls.push(`opencode:${phase}`); return { rc: 0 }; }
   };
   const run = createFailover(runners, ['claude', 'opencode']);
-  assert.deepEqual(await run({ phase: 'implementation' }), { rc: 0, engine: 'opencode' });
-  assert.deepEqual(await run({ phase: 'correction' }), { rc: 0, engine: 'opencode' });
+  const skipped = [{ engine: 'claude', reason: 'quota or limit' }];
+  assert.deepEqual(await run({ phase: 'implementation' }), { rc: 0, engine: 'opencode', skipped });
+  assert.deepEqual(await run({ phase: 'correction' }), { rc: 0, engine: 'opencode', skipped });
   assert.deepEqual(calls, ['claude:implementation', 'opencode:implementation', 'opencode:correction']);
   const none = createFailover({ claude: runners.claude }, ['claude']);
   assert.equal((await none({ phase: 'implementation' })).unavailable, true);

@@ -374,3 +374,11 @@ test('validateObjective checks engines, push and timeout', () => {
   assert.throws(() => validateObjective(objective({ timeoutMinutes: 0 })), /timeoutMinutes/);
   assert.equal(validateObjective(objective({ engines: ['opencode', 'claude'], push: true, timeoutMinutes: 30 })).push, true);
 });
+
+test('agent event records engines skipped by failover', async () => {
+  const dir = await stateDir();
+  const adapters = { ...greenAdapters([]), runAgent: async () => ({ rc: 0, engine: 'claude', skipped: [{ engine: 'opencode', reason: 'opencode agent jz-implementer mode subagent' }] }) };
+  await runObjective(objective(), adapters, { stateDir: dir });
+  const events = (await readFile(join(dir, 'events.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(events.find((e) => e.event === 'agent').skipped, [{ engine: 'opencode', reason: 'opencode agent jz-implementer mode subagent' }]);
+});

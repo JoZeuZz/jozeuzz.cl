@@ -1,23 +1,14 @@
 # jz-autonomy
 
-Supervisor de un motor para objetivos JSON `jz-autonomy-objective-v1`.
-
-## Interfaz
-
-```sh
-node tools/jz-autonomy/bin/jz-autonomy.js run --objective <archivo-json-relativo> --state-dir <ruta-relativa> [--root <ruta-absoluta>]
-```
-
-El JSON declara unidad, objetivo, criterios, workspace, rama, agente, workflow, rutas permitidas, checks, correcciones y mensaje de commit. Estados finales: `completed`, `failed` o `blocked`. El stdout final es JSON compacto; logs y estado quedan bajo el state-dir supervisor.
-
-## Operación
-
-Comando host exacto:
+Supervisor de JZ-AI V2: ejecuta objetivos `jz-autonomy-objective-v1` con workers de Claude Code u OpenCode,
+corrige automáticamente, confirma y publica mediante `tools/jz-gitops/jz-git.mjs` y se reanuda sin repetir
+pasos. Operación, responsabilidades y límites: [`docs/OPERACION-JZ-AI.md`](../../docs/OPERACION-JZ-AI.md).
 
 ```sh
-node tools/jz-autonomy/bin/jz-autonomy.js run --objective tools/jz-autonomy/objectives/i2-real-task.json --state-dir i2-demo --root /ruta/absoluta/al/worktree
+tools/jz-autonomy/bin/jz-install <worktree> HEAD
+node ~/.local/share/jz-ai/current/tools/jz-autonomy/bin/jz-autonomy.js run --root <worktree> \
+  --objective tools/jz-autonomy/objectives/handoff-contract.json --state-dir <nombre> [--engines claude,opencode]
+node ~/.local/share/jz-ai/current/tools/jz-autonomy/bin/jz-autonomy.js resume --root <worktree> --state-dir <nombre>
 ```
 
-Antes de usarlo, worktree debe estar limpio y debe existir `.jz/bin/jz-git` para completar commit. Conservar evidencia de `state.json`, `events.jsonl`, logs de checks y checkpoint.
-
-Límites: un motor, sin failover. Agentes actuales no pueden lanzar supervisor host; requieren integración operativa humana autorizada.
+Tests: `node --test tools/jz-autonomy/test/ tools/jz-gitops/test/`.
