@@ -280,8 +280,11 @@ export async function runObjective(input, adapters, options = {}) {
     const correctionInspection = await inspect('correction');
     if (correctionInspection) return close('blocked', correctionInspection);
     const affected = objective.checks.filter((check) => failures.some((failure) => failure.kind !== 'agent' && failure.id === check.id));
+    // Primero las verificaciones que fallaron; si siguen en rojo, el resto no aporta nada nuevo. En verde, sólo
+    // se ejecutan una vez las que no se acaban de repetir sobre el mismo árbol.
     const affectedFailures = await runChecks(affected);
-    const suiteFailures = await runChecks(objective.checks);
+    const rest = affectedFailures.length > 0 ? [] : objective.checks.filter((check) => !affected.includes(check));
+    const suiteFailures = await runChecks(rest);
     failures = [correctionFailure, ...affectedFailures, ...suiteFailures].filter(Boolean);
   }
   if (failures.length > 0) return close('failed', 'checks failed');

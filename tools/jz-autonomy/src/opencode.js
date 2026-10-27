@@ -139,7 +139,7 @@ export function createOpenCodeAdapters(options) {
     async runCheck({ objective, check }) {
       const workspace = await workspaceFor(objective);
       const output = await exec(join(workspace, '.jz/bin/jz-run'), check.argv, workspace, checkEnv);
-      const log = `${output.stdout ?? ''}\n${output.stderr ?? ''}`.match(/(?:^|\n)log=([^\s]+)/)?.[1] ?? '';
+      const log = `${output.stdout ?? ''}\n${output.stderr ?? ''}`.match(/(?:^|\s)log=([^\s]+)/)?.[1] ?? '';
       return { rc: output.rc, log, evidence: check.id };
     },
     async commit({ objective, op }) {

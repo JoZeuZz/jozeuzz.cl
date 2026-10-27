@@ -170,6 +170,9 @@ test('runCheck extracts stderr log path without persisting raw output', async ()
   });
   const result = await adapters.runCheck({ objective: { ...objective, workspace: 'tools/app' }, check: objective.checks[0] });
   assert.deepEqual(result, { rc: 1, log: '/state/run.log', evidence: 'unit' });
+  const real = createOpenCodeAdapters({ root: '/repo', stateDir: '/state', realpath: async (path) => path,
+    execFile: async () => ({ rc: 0, stdout: '', stderr: 'jz-run: rc=0 head=abc tree=f00 log=.jz-state/runs/x.log\n' }) });
+  assert.equal((await real.runCheck({ objective: { ...objective, workspace: 'tools/app' }, check: objective.checks[0] })).log, '.jz-state/runs/x.log');
   assert.equal(JSON.stringify(result).includes('RAW_CHECK_CANARY'), false);
 });
 

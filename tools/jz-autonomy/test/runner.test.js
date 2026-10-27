@@ -112,7 +112,7 @@ test('canonical state includes transitions before JSONL projection', async () =>
   assert.ok(state.events.some((event) => event.event === 'checkpoint'));
 });
 
-test('correction always runs full suite after affected red check', async () => {
+test('correction skips the rest of the suite while an affected check stays red', async () => {
   const calls = [];
   let unitRuns = 0;
   const result = await runObjective(
@@ -121,7 +121,7 @@ test('correction always runs full suite after affected red check', async () => {
     { stateDir: await stateDir() }
   );
   assert.equal(result.result, 'failed');
-  assert.equal(calls.filter((call) => call === 'check:suite').length, 2);
+  assert.equal(calls.filter((call) => call === 'check:suite').length, 1);
 });
 
 test('checkpoint failure blocks completed result and preserves commit evidence', async () => {
@@ -170,7 +170,7 @@ test('runs fail correction green commit in exact adapter order and redacts raw a
   assert.equal(result.corrections, 1);
   assert.deepEqual(calls, [
     'preflight', 'agent:implementation', 'inspect', 'check:unit', 'check:suite',
-    'agent:correction', 'inspect', 'check:unit', 'check:unit', 'check:suite',
+    'agent:correction', 'inspect', 'check:unit', 'check:suite',
     'commit', 'checkpoint:completed'
   ]);
   const persisted = await readFile(join(dir, 'state.json'), 'utf8');
@@ -269,7 +269,7 @@ test('state.json contains initialized event before events.jsonl append fails', a
   assert.ok(state.events.some((ev) => ev.event === 'initialized'));
 });
 
-test('result.checks preserves rc and order; correction runs affected then full suite once', async () => {
+test('result.checks preserves rc and order; correction runs affected then only the remaining checks', async () => {
   const dir = await stateDir();
   let unitRuns = 0;
   const result = await runObjective(
@@ -285,14 +285,14 @@ test('result.checks preserves rc and order; correction runs affected then full s
   const [r0, r1, r2, r3, r4] = result.checks;
   assert.equal(r0.id, 'unit'); assert.equal(r0.rc, 1);
   assert.equal(r1.id, 'suite'); assert.equal(r1.rc, 0);
-  // correction phase: affected(unit rc=0) + full suite(unit rc=0, suite rc=0)
+  // correction phase: affected(unit rc=0) + remaining checks once (suite rc=0); unit is not rerun on the same tree
   assert.equal(r2.id, 'unit'); assert.equal(r2.rc, 0);
-  assert.equal(r3.id, 'unit'); assert.equal(r3.rc, 0);
-  assert.equal(r4.id, 'suite'); assert.equal(r4.rc, 0);
-  assert.equal(result.checks.length, 5);
+  assert.equal(r3.id, 'suite'); assert.equal(r3.rc, 0);
+  assert.equal(r4, undefined);
+  assert.equal(result.checks.length, 4);
   // verify same data persisted in state.json
   const state = JSON.parse(await readFile(join(dir, 'state.json'), 'utf8'));
-  assert.equal(state.checks.length, 5);
+  assert.equal(state.checks.length, 4);
   assert.equal(state.checks[0].id, 'unit'); assert.equal(state.checks[0].rc, 1);
 });
 
