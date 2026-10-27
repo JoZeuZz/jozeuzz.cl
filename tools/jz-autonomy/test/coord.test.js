@@ -324,3 +324,13 @@ test('validateGoal reuses the objective guards for control-plane and supervisor 
   assert.equal(validateGoal(goal()).lead, 'claude');
   assert.throws(() => parseSimulate('quota:gpt@1'), /Invalid simulate/);
 });
+
+test('a lone leader retried after a timeout is told its previous turn was lost', async () => {
+  const w = world({ scripts: { claude: orchestrator() } });
+  const runTurn = w.adapters.runTurn;
+  w.adapters.runTurn = async (args) => (args.n === 2 ? { rc: 124, timedOut: true, text: '', pid: null } : runTurn(args));
+  const result = await runGoal(goal({ engines: ['claude'] }), w.adapters, { stateDir: await stateDir() });
+  assert.equal(result.status, 'completed');
+  const info = w.prompts[1].inbox.find((m) => m.kind === 'info');
+  assert.match(info.body, /previous turn 2 ended timeout/);
+});

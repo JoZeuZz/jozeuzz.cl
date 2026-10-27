@@ -143,6 +143,8 @@ function rules(role) {
     'You are one of two peer orchestrators (Claude Code and OpenCode) coordinated by jz-coord. Decide with your own native jz-* subagents: jz-implementer writes (one writer at a time), jz-explorer/jz-qa/jz-security read.',
     'jz-coord keeps the shared state, runs the goal checks, commits through GitOps and pushes. Never commit, push or run jz-checkpoint yourself.',
     'Change files only inside allowedPaths. Never repeat finished work blindly: inspect git status and git diff first, especially after a transfer.',
+    'The turn has a hard time budget (budgetMinutes); when it runs out your process is killed and the turn is lost. Reply well before it.',
+    'Keep reviews proportional to risk: run jz-security or jz-qa only for sensitive or non-trivial changes and say why you skipped them; jz-coord re-runs the goal checks before committing anyway.',
     'End your final message with exactly one line: JZ-COORD {"actions":[...]} (valid JSON, no code fence).'
   ];
   if (role === 'delegate') {
@@ -161,7 +163,7 @@ export function buildTurnPrompt({ state, engine, role, task = null, mail = [], n
     protocol, role, engine,
     peers: goal.engines.filter((name) => name !== engine).map((name) => ({ engine: name, status: available(state, name, now) ? 'available' : 'down' })),
     goal: { id: goal.id, objective: goal.objective, criteria: goal.criteria, branch: goal.branch, allowedPaths: goal.allowedPaths, checks: goal.checks },
-    turn: state.turns.length + 1, maxTurns: goal.maxTurns,
+    turn: state.turns.length + 1, maxTurns: goal.maxTurns, budgetMinutes: goal.timeoutMinutes,
     leadership: { leader: state.leader, history: state.leadership.slice(-5) },
     ...(task ? { task: { id: task.id, from: task.from, title: task.title, instructions: task.instructions, kind: task.kind, allowedPaths: task.allowedPaths } } : {}),
     inbox: mail.map(({ id, from, kind, body, task: t, status, summary, paths, evidence, reason, checkpoint, failures }) => ({ id, from, kind, body, task: t, status, summary, paths, evidence, reason, checkpoint, failures })),
@@ -385,8 +387,10 @@ export async function runGoal(input, adapters, options = {}) {
     if (record.fatal) return record.fatal;
     if (record.outcome !== 'ok') {
       if (record.outcome !== 'protocol') await markDown(to, record.outcome, record.error);
+      // El trabajo que el delegado dejó sin confirmar sigue en el árbol: el líder debe saberlo para no rehacerlo.
+      const left = state.checkpoints.at(-1)?.paths ?? [];
       task.status = 'failed';
-      task.result = { status: 'failed', summary: `delegate turn ended ${record.outcome}${record.error ? `: ${record.error}` : ''}`, paths: [], evidence: [] };
+      task.result = { status: 'failed', summary: `delegate turn ended ${record.outcome}${record.error ? `: ${record.error}` : ''}${left.length ? `; uncommitted changes now in the worktree: ${left.join(', ')} (inspect before redoing)` : ''}`, paths: left, evidence: [] };
     } else {
       const result = record.actions[0];
       task.status = result.status;
@@ -479,6 +483,10 @@ export async function runGoal(input, adapters, options = {}) {
         await setLeader(next, why, from);
         const last = state.checkpoints.at(-1);
         post('lead', { from: 'jz-coord', kind: 'transfer', reason: `${from} is ${state.engines[from]?.reason ?? 'unavailable'}; you now lead`, checkpoint: last ? { n: last.n, head: last.head, tree: last.tree, paths: last.paths } : null, body: 'Uncommitted changes from the previous leader are in the worktree and verified against the checkpoint tree. Inspect them, keep what is correct and finish the goal.' });
+        await persist();
+      } else if (failed) {
+        const lastTurn = state.turns.at(-1);
+        post('lead', { from: 'jz-coord', kind: 'info', body: `Your previous turn ${lastTurn?.n} ended ${lastTurn?.outcome}; no peer is available, so you continue. Its partial changes are in checkpoint ${state.checkpoints.at(-1)?.n}: inspect git status and diff and do not redo finished work. Stay within budgetMinutes.` });
         await persist();
       }
     }

@@ -38,7 +38,7 @@ const scenarios = {
   'delegate-c2o': { engines: ['claude', 'opencode'], objective: delegateText('opencode'), expect: { leaders: ['claude'], delegate: ['claude', 'opencode'] } },
   'delegate-o2c': { engines: ['opencode', 'claude'], objective: delegateText('claude'), expect: { leaders: ['opencode'], delegate: ['opencode', 'claude'] } },
   failover: { engines: ['claude', 'opencode'], objective: stepText, simulate: 'quota:claude@2', expect: { leaders: ['claude', 'opencode'], partial: true } },
-  'failover-midturn': { engines: ['claude', 'opencode'], objective: stepText, simulate: 'quota:claude@2+1s', pauseMs: 4000, expect: { leaders: ['claude', 'opencode'], partial: true, midturn: true } },
+  'failover-midturn': { engines: ['claude', 'opencode'], objective: stepText, simulate: mode === 'real' ? 'quota:claude@2+45s' : 'quota:claude@2+1s', pauseMs: 4000, expect: { leaders: ['claude', 'opencode'], partial: true, midturn: true } },
   reverse: { engines: ['claude', 'opencode'], objective: stepText, simulate: 'quota:claude@2,quota:opencode@4', resume: true, expect: { leaders: ['claude', 'opencode', 'claude'], partial: true } }
 };
 const selected = (args.scenarios ?? Object.keys(scenarios).join(',')).split(',');
