@@ -152,7 +152,9 @@ function verify(name, scenario, repo, base, runs) {
       const partialCp = state.checkpoints.find((c) => c.paths.includes('src/words.js'));
       const partialBlob = partialCp ? git(repo, ['rev-parse', `${partialCp.tree}:src/words.js`]).stdout.trim() : '';
       const finalBlob = git(repo, ['rev-parse', 'HEAD:src/words.js']).stdout.trim();
-      add('half-written file captured in a checkpoint, then repaired by the new leader', Boolean(partialCp) && partialBlob !== finalBlob, partialCp ? `checkpoint ${partialCp.n} (${partialCp.reason}) blob ${partialBlob.slice(0, 12)} -> HEAD ${finalBlob.slice(0, 12)}` : 'no checkpoint with src/words.js');
+      // El motor sintético deja el archivo a medias a propósito; uno real puede haberlo terminado antes de morir.
+      add(mode === 'synthetic' ? 'half-written file captured in a checkpoint, then repaired by the new leader' : 'work of the killed turn captured in a checkpoint and present in the commit',
+        Boolean(partialCp) && Boolean(finalBlob) && (mode === 'real' || partialBlob !== finalBlob), partialCp ? `checkpoint ${partialCp.n} (${partialCp.reason}) blob ${partialBlob.slice(0, 12)} -> HEAD ${finalBlob.slice(0, 12)}` : 'no checkpoint with src/words.js');
     }
     const down = state.events.filter((e) => e.event === 'engine-down').map((e) => `${e.engine}:${e.outcome}`);
     add('simulated quota recorded as engine-down', down.length >= 1, down.join(', '));
