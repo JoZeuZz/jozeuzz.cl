@@ -12,7 +12,15 @@ node --test contrato/test/                                   # autoverificación
 node contrato/run.mjs --driver <ruta/al/driver.mjs>          # batería contra un driver
 node contrato/run.mjs --driver ... --solo ES-05,MO-01 --json
 node contrato/run.mjs --driver ... --alcance poc-1a         # sólo exige el alcance indicado
+node contrato/run.mjs --listar                               # inventario de casos, sin driver
+node contrato/run.mjs --listar --alcance poc-1b              # inventario de un alcance
 ```
+
+`--listar` no carga ningún driver: imprime una línea `<ID>\t<alcance>\t<título>` por caso, en el
+orden de `CASOS`, y al final `casos N · poc-1a N · poc-1b N · poc-3 N`. Con `--alcance` sólo lista
+los casos de ese alcance (los totales de los demás alcances salen en 0). Sirve para planificar con
+`--solo`. Sale con 0; con `--driver`, `--solo` o `--json` sale con 2 y un mensaje, igual que un
+`--alcance` desconocido.
 
 Salida: una línea por caso, mediciones y `casos N · ok N · fail N`. Código 0 si todo pasa,
 1 si falla alguno, 2 si falta `--driver` o no se puede cargar. `CONTRATO_TIMEOUT_PROPAGACION_MS`

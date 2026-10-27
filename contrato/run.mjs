@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // CLI: node contrato/run.mjs --driver <ruta> [--solo ID,ID] [--alcance poc-1a|poc-1b|poc-3] [--json]
+//      node contrato/run.mjs --listar [--alcance poc-1a|poc-1b|poc-3]   (inventario, sin driver)
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -12,9 +13,26 @@ const { values } = parseArgs({
     solo: { type: 'string' },
     alcance: { type: 'string' },
     json: { type: 'boolean', default: false },
+    listar: { type: 'boolean', default: false },
   },
   strict: true,
 });
+
+if (values.listar) {
+  const incompatibles = ['driver', 'solo', 'json'].filter((o) => values[o]);
+  if (incompatibles.length) {
+    console.error(`--listar no se combina con ${incompatibles.map((o) => `--${o}`).join(', ')}`);
+    process.exit(2);
+  }
+  if (values.alcance && !ALCANCES.includes(values.alcance)) {
+    console.error(`--alcance desconocido «${values.alcance}» (${ALCANCES.join('|')})`);
+    process.exit(2);
+  }
+  const casos = values.alcance ? CASOS.filter((c) => c.alcance === values.alcance) : CASOS;
+  for (const c of casos) console.log(`${c.id}\t${c.alcance}\t${c.titulo}`);
+  console.log(`casos ${casos.length} · ${ALCANCES.map((a) => `${a} ${casos.filter((c) => c.alcance === a).length}`).join(' · ')}`);
+  process.exit(0);
+}
 
 if (!values.driver) {
   console.error('Sin implementación: indica --driver <ruta al módulo del driver>');
