@@ -38,7 +38,7 @@ jobs:
       - name: test:unit
         run: sudo scripts/run-node npm run test:unit
       - name: contrato (oráculo y mutantes)
-        run: sudo scripts/run-node node --test contrato/test/
+        run: sudo scripts/run-node node --test contrato/test/*.test.mjs
       - name: integración (PostgreSQL 18.6, migraciones)
         run: sudo scripts/integration-harness
 
@@ -53,7 +53,7 @@ jobs:
       # sandbox.test.mjs, verify.test.mjs, opencode-native.mjs e integration.mjs necesitan
       # el host (namespaces, motores reales): se ejecutan fuera de CI.
       - name: jz-autonomy y jz-gitops
-        run: sudo scripts/run-node node --test tools/jz-autonomy/test/ tools/jz-gitops/test/
+        run: sudo scripts/run-node node --test tools/jz-autonomy/test/*.test.js tools/jz-gitops/test/*.test.mjs
       - name: .jz (política, árbol, recuperación, hook, OpenCode)
         run: >-
           sudo scripts/run-node node --test
