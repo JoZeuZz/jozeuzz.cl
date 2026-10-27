@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # scripts/integration-harness
 #
-# Inicia PostgreSQL 18.6 en puerto efímero localhost, aplica migración,
-# ejecuta test:integration, opcionalmente build+probes REST/GraphQL, y limpia.
+# Inicia PostgreSQL 18.6 digest en puerto efímero localhost, aplica migración,
+# ejecuta test:integration, y (--smoke) arranca Next para probes HTTP reales.
 #
 # Uso:
 #   ./scripts/integration-harness            # migración + integración
-#   ./scripts/integration-harness --smoke    # + build Next + probes HTTP
+#   ./scripts/integration-harness --smoke    # + build + probes HTTP
 #
-# Variables de entorno respetadas:
-#   JZ_PG_PORT   fuerza un puerto concreto (por defecto efímero desde PID)
-#   PAYLOAD_SECRET  (por defecto: harness-secret)
+# Variables:
+#   JZ_PG_PORT    fuerza puerto PG (default: efímero desde PID)
+#   JZ_NEXT_PORT  fuerza puerto Next (default: efímero desde PID+1)
+#   PAYLOAD_SECRET (default: harness-secret)
 
 set -euo pipefail
 
@@ -19,25 +20,27 @@ for arg in "$@"; do
   [[ "$arg" == "--smoke" ]] && SMOKE=1
 done
 
-# ── Puerto efímero ──────────────────────────────────────────────────────────
-PG_PORT="${JZ_PG_PORT:-$(( 20000 + (BASHPID % 10000) ))}"
+# ── Puertos efímeros ────────────────────────────────────────────────────────
+PG_PORT="${JZ_PG_PORT:-$(( 20000 + (BASHPID % 9000) ))}"
+NEXT_PORT="${JZ_NEXT_PORT:-$(( 29000 + (BASHPID % 9000) ))}"
 CONTAINER="jz-harness-$$"
+NEXT_CONTAINER="${CONTAINER}-next"
 DB_URL="postgres://jozeuzz:jozeuzz@127.0.0.1:${PG_PORT}/jozeuzz"
 PAYLOAD_SECRET="${PAYLOAD_SECRET:-harness-secret}"
-SERVER_URL="http://127.0.0.1:3000"
+SERVER_URL="http://127.0.0.1:${NEXT_PORT}"
 NODE_IMAGE="$(tr -d '\r\n' < tooling/node-image.txt)"
 PG_IMAGE="postgres@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6"
-NEXT_PID=""
 
+# ── Cleanup garantizado en cualquier salida ─────────────────────────────────
 cleanup() {
   echo "── cleanup ──"
-  [[ -n "$NEXT_PID" ]] && kill "$NEXT_PID" 2>/dev/null || true
+  docker rm -f "$NEXT_CONTAINER" 2>/dev/null || true
   docker rm -f "$CONTAINER" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
 # ── Arrancar PostgreSQL 18.6 ────────────────────────────────────────────────
-echo "── PostgreSQL 18.6 en puerto ${PG_PORT} ──"
+echo "── PostgreSQL 18.6 digest en puerto ${PG_PORT} ──"
 docker run -d --name "$CONTAINER" \
   -e POSTGRES_USER=jozeuzz \
   -e POSTGRES_PASSWORD=jozeuzz \
@@ -45,14 +48,13 @@ docker run -d --name "$CONTAINER" \
   -p "127.0.0.1:${PG_PORT}:5432" \
   "$PG_IMAGE"
 
-# Esperar readiness (hasta 45s)
 for i in $(seq 1 45); do
   docker exec "$CONTAINER" pg_isready -q 2>/dev/null && break
   sleep 1
 done
-docker exec "$CONTAINER" pg_isready  # falla si no está listo
+docker exec "$CONTAINER" pg_isready
 
-# ── Función auxiliar run-node con red host ──────────────────────────────────
+# ── Helper run-node (npm exec --offline, sin descarga) ─────────────────────
 run_node() {
   docker run --rm \
     --user "$(id -u):$(id -g)" \
@@ -65,37 +67,36 @@ run_node() {
     "$NODE_IMAGE" "$@"
 }
 
-# ── Migración x1 (debe aplicar exactamente 1) ──────────────────────────────
+# ── Migración x1 ────────────────────────────────────────────────────────────
 echo "── migrate run 1 ──"
-run_node npx payload migrate 2>&1 | tee /tmp/migrate1.log
-grep -q "Migrating:.*20261027_112804\|Migrated:.*20261027" /tmp/migrate1.log || \
-  grep -q "20261027_112804" /tmp/migrate1.log || \
-  { echo "ERROR: migración no aplicada"; cat /tmp/migrate1.log; exit 1; }
+run_node npm exec -- payload migrate 2>&1 | tee /tmp/migrate1-$$.log
+grep -q "20261027_112804" /tmp/migrate1-$$.log || \
+  { echo "ERROR: migración no aplicada"; cat /tmp/migrate1-$$.log; exit 1; }
 
-# ── Migración x2 (debe reportar sin pendientes) ────────────────────────────
+# ── Migración x2 (idempotente) ───────────────────────────────────────────────
 echo "── migrate run 2 ──"
-run_node npx payload migrate 2>&1 | tee /tmp/migrate2.log
-grep -qE "Done\." /tmp/migrate2.log || { echo "ERROR: segunda migración falló"; exit 1; }
-# Verificar que NO aplicó ninguna migración nueva (solo líneas de log Payload, no bash trace)
-if grep -qE "^\[.*\] .*(INFO|WARN).*: .*Migrated:" /tmp/migrate2.log; then
+run_node npm exec -- payload migrate 2>&1 | tee /tmp/migrate2-$$.log
+grep -qE "Done\." /tmp/migrate2-$$.log || { echo "ERROR: segunda migración falló"; exit 1; }
+# Ninguna línea de log Payload debe decir "Migrated:" en la segunda ejecución
+if grep -E "^\[.*\] .*(INFO).*Migrated:" /tmp/migrate2-$$.log | grep -q .; then
   echo "ERROR: segunda migración aplicó algo inesperado"
   exit 1
 fi
 
-# ── Verificar schema: tablas, índices, FKs ──────────────────────────────────
+# ── Schema check ─────────────────────────────────────────────────────────────
 echo "── schema check ──"
-docker exec "$CONTAINER" psql -U jozeuzz -d jozeuzz -c "
-SELECT table_name FROM information_schema.tables
-WHERE table_schema='public' ORDER BY table_name;" | grep -E "solicitudes|servicios|usuarios|payload_migrations"
+docker exec "$CONTAINER" psql -U jozeuzz -d jozeuzz -c \
+  "SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name;" \
+  | grep -E "solicitudes|servicios|usuarios|payload_migrations"
 
-docker exec "$CONTAINER" psql -U jozeuzz -d jozeuzz -c "
-SELECT indexname FROM pg_indexes WHERE schemaname='public'
-ORDER BY indexname;" | grep -E "usuarios_email_idx|servicios_slug_idx|solicitudes_servicio_idx"
+docker exec "$CONTAINER" psql -U jozeuzz -d jozeuzz -c \
+  "SELECT indexname FROM pg_indexes WHERE schemaname='public' ORDER BY indexname;" \
+  | grep -E "usuarios_email_idx|servicios_slug_idx|solicitudes_servicio_idx"
 
-# ── Test:integration ────────────────────────────────────────────────────────
+# ── Test:integration ──────────────────────────────────────────────────────────
 echo "── test:integration ──"
 set +e
-run_node npx vitest run test/integration
+run_node npm exec -- vitest run test/integration
 INTEGRATION_EXIT=$?
 set -e
 echo "── integration exit=${INTEGRATION_EXIT} ──"
@@ -105,13 +106,15 @@ if [[ $SMOKE -eq 0 ]]; then
   exit $INTEGRATION_EXIT
 fi
 
-# ── Build Next.js sintético ──────────────────────────────────────────────────
-echo "── next build ──"
-run_node npx next build
+# ══════════════════════════════════════════════════════════════════════════════
+# SMOKE: build + probes HTTP reales
+# ══════════════════════════════════════════════════════════════════════════════
 
-# ── Arrancar servidor Next en background para probes ────────────────────────
-echo "── next start (smoke) ──"
-docker run -d --name "${CONTAINER}-next" \
+echo "── next build ──"
+run_node npm exec -- next build
+
+echo "── next start en puerto ${NEXT_PORT} ──"
+docker run -d --name "$NEXT_CONTAINER" \
   --user "$(id -u):$(id -g)" \
   --volume "$PWD:/app" \
   --workdir /app \
@@ -119,34 +122,74 @@ docker run -d --name "${CONTAINER}-next" \
   --env DATABASE_URL="$DB_URL" \
   --env PAYLOAD_SECRET="$PAYLOAD_SECRET" \
   --env NEXT_PUBLIC_SERVER_URL="$SERVER_URL" \
-  "$NODE_IMAGE" npx next start -p 3000
+  "$NODE_IMAGE" npm exec -- next start -p "${NEXT_PORT}"
 
-# Esperar servidor
-for i in $(seq 1 20); do
-  curl -sf http://127.0.0.1:3000/api/health 2>/dev/null && break || true
+# ── Readiness: esperar / → 200 ───────────────────────────────────────────────
+echo "── readiness check / ──"
+READY=0
+for i in $(seq 1 30); do
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${NEXT_PORT}/" 2>/dev/null || echo "000")
+  if [[ "$STATUS" == "200" || "$STATUS" == "308" || "$STATUS" == "307" ]]; then
+    echo "  / → ${STATUS} (ready)"
+    READY=1
+    break
+  fi
   sleep 2
 done
+if [[ $READY -eq 0 ]]; then
+  echo "ERROR: Next.js no respondió en 60s"
+  exit 1
+fi
 
-# ── Probes REST genérico anónimo ─────────────────────────────────────────────
-echo "── REST probe: anonymous /api/solicitudes ──"
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/solicitudes)
-[[ "$HTTP_STATUS" == "401" || "$HTTP_STATUS" == "403" ]] || \
-  { echo "ERROR: /api/solicitudes anónimo devolvió ${HTTP_STATUS}, esperado 401/403"; exit 1; }
+# ── Probes solicitudes: GET lista anónimo ────────────────────────────────────
+echo "── probe GET /api/solicitudes (anónimo) ──"
+S=$(curl -s -o /tmp/probe-sol-get-$$.json -w "%{http_code}" "http://127.0.0.1:${NEXT_PORT}/api/solicitudes")
+echo "  status=${S}"
+[[ "$S" == "401" || "$S" == "403" ]] || { echo "ERROR: esperado 401/403, got ${S}"; cat /tmp/probe-sol-get-$$.json; exit 1; }
+# Verificar que la respuesta no contiene centinelas
+if grep -qi "Centinela\|XK7Q" /tmp/probe-sol-get-$$.json 2>/dev/null; then
+  echo "ERROR: respuesta contiene datos centinela"
+  exit 1
+fi
 
-echo "── REST probe: anonymous /api/servicios (generic, not gateway) ──"
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/servicios)
-[[ "$HTTP_STATUS" == "401" || "$HTTP_STATUS" == "403" ]] || \
-  { echo "ERROR: /api/servicios anónimo devolvió ${HTTP_STATUS}, esperado 401/403"; exit 1; }
+echo "── probe GET /api/solicitudes?where[nombre][equals]=test (anónimo) ──"
+S=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${NEXT_PORT}/api/solicitudes?where%5Bnombre%5D%5Bequals%5D=test")
+echo "  status=${S}"
+[[ "$S" == "401" || "$S" == "403" ]] || { echo "ERROR: filter anónimo esperado 401/403, got ${S}"; exit 1; }
 
-echo "── GraphQL probe: HTTP closed ──"
+echo "── probe POST /api/solicitudes (anónimo) ──"
+S=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:${NEXT_PORT}/api/solicitudes" \
+  -H "Content-Type: application/json" -d '{"nombre":"x","contacto":"x@x.invalid","tipoEquipo":"x","descripcion":"x"}')
+echo "  status=${S}"
+[[ "$S" == "401" || "$S" == "403" ]] || { echo "ERROR: POST anónimo esperado 401/403, got ${S}"; exit 1; }
+
+echo "── probe PATCH /api/solicitudes/1 (anónimo) ──"
+S=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH "http://127.0.0.1:${NEXT_PORT}/api/solicitudes/1" \
+  -H "Content-Type: application/json" -d '{"nombre":"x"}')
+echo "  status=${S}"
+[[ "$S" == "401" || "$S" == "403" || "$S" == "404" ]] || { echo "ERROR: PATCH anónimo esperado 401/403/404, got ${S}"; exit 1; }
+
+echo "── probe DELETE /api/solicitudes/1 (anónimo) ──"
+S=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "http://127.0.0.1:${NEXT_PORT}/api/solicitudes/1")
+echo "  status=${S}"
+[[ "$S" == "401" || "$S" == "403" || "$S" == "404" ]] || { echo "ERROR: DELETE anónimo esperado 401/403/404, got ${S}"; exit 1; }
+
+# ── Probes servicios REST genérico ───────────────────────────────────────────
+echo "── probe GET /api/servicios (anónimo, REST genérico) ──"
+S=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${NEXT_PORT}/api/servicios")
+echo "  status=${S}"
+[[ "$S" == "401" || "$S" == "403" ]] || { echo "ERROR: servicios REST genérico anónimo esperado 401/403, got ${S}"; exit 1; }
+
+# ── Probe GraphQL ─────────────────────────────────────────────────────────────
+echo "── probe POST /api/graphql (cerrado) ──"
 GQL_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-  -X POST http://127.0.0.1:3000/api/graphql \
+  -X POST "http://127.0.0.1:${NEXT_PORT}/api/graphql" \
   -H "Content-Type: application/json" \
   -d '{"query":"{ __typename }"}')
+echo "  status=${GQL_STATUS}"
 [[ "$GQL_STATUS" == "404" || "$GQL_STATUS" == "400" || "$GQL_STATUS" == "403" ]] || \
-  { echo "ERROR: /api/graphql devolvió ${HTTP_STATUS}, esperado 404/400/403"; exit 1; }
+  { echo "ERROR: GraphQL esperado 404/400/403, got ${GQL_STATUS}"; exit 1; }
 
-docker rm -f "${CONTAINER}-next" 2>/dev/null || true
-
+echo "── smoke probes passed ──"
 echo "── harness complete (smoke) exit=${INTEGRATION_EXIT} ──"
 exit $INTEGRATION_EXIT
