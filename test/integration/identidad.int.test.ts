@@ -96,14 +96,15 @@ describe('Usuarios: identidad inmutable — wiring real', () => {
     expect((err as Error).message).toMatch(/inmutable|forbidden|not allowed/i)
   })
 
-  it('usuario puede cambiar nombre (nombre no es inmutable)', async () => {
-    const doc = await payload.update({
+  it('intento de cambiar nombre vía Local API → error inmutable', async () => {
+    const err = await payload.update({
       collection: 'usuarios',
       id: usuarioId,
-      data: { nombre: 'Nombre Actualizado Test' },
+      data: { nombre: 'NombreCambiado-XK7Q' },
       overrideAccess: false,
       user: usuarioUser,
-    })
-    expect((doc as { nombre: string }).nombre).toBe('Nombre Actualizado Test')
+    }).catch(e => e)
+    expect(err).toBeInstanceOf(Error)
+    expect((err as Error).message).toMatch(/nombre.*inmutable|inmutable/i)
   })
 })
