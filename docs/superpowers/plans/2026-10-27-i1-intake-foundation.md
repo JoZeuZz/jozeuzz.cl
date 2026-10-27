@@ -233,6 +233,8 @@ git commit -m "feat: establish MVP application foundation"
 - Create: `src/collections/Solicitudes.ts`
 - Create: `src/modules/identity/access.ts`
 - Create: `src/modules/catalog/publico.ts`
+- Create: `src/migrations/index.ts`
+- Create: `src/migrations/20261027_112804.ts`
 - Create: `src/app/(payload)/admin/[[...segments]]/page.tsx`
 - Create: `src/app/(payload)/admin/importMap.js`
 - Create: `src/app/(payload)/layout.tsx`
@@ -290,13 +292,13 @@ Implement gateway capability as a module-private `Symbol`; only `listarServicios
 
 Before creating collections, test with disposable database that anonymous REST/Local API cannot list, count, filter or read `solicitudes`; generic REST cannot read services; public gateway returns only active DTO fields; admin can read; direct request create/update/delete fails for anonymous and admin; GraphQL routes are closed. Run `./scripts/run-node npm run test:integration -- --run test/integration/colecciones.int.test.ts` and record expected failures from missing collections/config.
 
-- [ ] **Step 5: Implement collections, gateway and Payload wiring**
+- [ ] **Step 5: Implement collections, generated foundation migration, gateway and Payload wiring**
 
 Gateway returns only `id`, `nombre`, `slug` and `descripcion`.
 
 `Usuarios` uses `auth` with `maxLoginAttempts: 5`, `lockTime: 10 * 60 * 1000`, own-session read, and denies HTTP create/delete plus identity-field updates. `Servicios` exposes active data only through gateway and admin mutations. `Solicitudes` allows only admin reads; create/update/delete all use `nadie`; `estado` and administrative fields also deny field updates. Fields match I1 design and set `estado` server-side with no public write access.
 
-Configure `graphQL.disable: true`, Postgres adapter, Lexical editor, CSRF from `NEXT_PUBLIC_SERVER_URL`, secret from `PAYLOAD_SECRET`, generated TypeScript types and official import map. Expose only Payload admin and REST routes required by Next integration.
+Configure `graphQL.disable: true`, Postgres adapter, Lexical editor, CSRF from `NEXT_PUBLIC_SERVER_URL`, secret from `PAYLOAD_SECRET`, generated TypeScript types and official import map. Generate, inspect and apply the foundation migration to a disposable PostgreSQL database twice; first execution applies it and second has no pending migrations. Expose only Payload admin and REST routes required by Next integration.
 
 Run: `./scripts/run-node npm run test:integration -- --run test/integration/colecciones.int.test.ts`.
 
@@ -605,7 +607,7 @@ git commit -m "fix: close public admin lifecycle endpoints"
 ### Task 9: Add migrations and hardened local containers
 
 **Files:**
-- Create: `src/migrations/index.ts`
+- Modify: `src/migrations/index.ts`
 - Create: `src/migrations/20261027_000000_i1.ts`
 - Modify: `Dockerfile`
 - Create: `.dockerignore`

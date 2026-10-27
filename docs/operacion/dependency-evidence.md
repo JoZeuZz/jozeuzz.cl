@@ -25,3 +25,8 @@ Fecha de acceso: 2026-10-27.
 - Mitigación aprobada el 2026-10-27: override exacto `dompurify: 3.4.17`, sin `npm audit fix --force`. El lockfile fija `3.4.17` con integridad `sha512-B/pSlYVHQ58kqISD/yDjuJ1yfzI34m1gF4lAod2bwSRhiN4K5Cl3H8Af7hqB2PmTL911tdEudnnXn5FnhRoz0w==` desde https://registry.npmjs.org/dompurify/-/dompurify-3.4.17.tgz.
 - GREEN: `npm audit --omit=dev --json` informa 0 critical, 4 high, 10 moderate y 0 low (14 total); exit 1 por hallazgos restantes.
 - High diferidos: `happy-dom` vía `@lexical/headless` y `undici` vía `payload`; ambos exigen cambiar versiones directas I1 fijadas. Moderate diferidos: cadena `payload`/`@payloadcms/db-postgres`/`drizzle-kit` y `esbuild`; parche requiere `@payloadcms/db-postgres@3.92.0`. Se revisan antes de integrar o actualizar dependencias.
+
+## Workaround de migración
+
+- Payload `3.90.2` generó imports ESM de `MigrateUpArgs` y `MigrateDownArgs` como valores. `@payloadcms/drizzle/dist/postgres/types.d.ts` los declara tipos; bajo `verbatimModuleSyntax` el binario no elimina esos imports y falla en runtime.
+- Se corrigió sólo el encabezado generado a `type` imports; SQL y JSON generados permanecen intactos. La prueba `test/unit/migraciones.test.ts` evita regresión. Reevaluar al actualizar Payload.

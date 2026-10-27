@@ -9,6 +9,7 @@ import { Servicios } from '@/collections/Servicios'
 import { Solicitudes } from '@/collections/Solicitudes'
 import { Usuarios } from '@/collections/Usuarios'
 import { configuracionPayload } from '@/modules/config/entorno'
+import { migrations } from '@/migrations'
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const serverURL = process.env.NEXT_PUBLIC_SERVER_URL ?? 'http://127.0.0.1:3000'
@@ -27,6 +28,7 @@ export default buildConfig({
   }),
   editor: lexicalEditor(),
   graphQL: { disable: true },
+  migrations,
   secret: entorno.payloadSecret,
   serverURL,
   sharp,
