@@ -27,6 +27,7 @@ test('resolves workspace only inside real root', async () => {
 test('parses tree status paths including JSON quoted paths', () => {
   assert.deepEqual(parseJzState('## Cambios sin confirmar\n```\n M src/a.js\n?? "test/name with space.js"\n```\n\n## Veredicto: REANUDABLE\n').paths, ['src/a.js', 'test/name with space.js']);
   assert.throws(() => parseJzState('## Veredicto: MAYBE\n'), /state format/);
+  assert.deepEqual(parseJzState('## Cambios sin confirmar\nNinguno (árbol limpio).\n\n## Escritor\nNinguno.\n\n## Veredicto: REANUDABLE\n'), { verdict: 'REANUDABLE', paths: [] });
 });
 
 test('preflight uses exact argv cwd PWD and blocks branch, dirty and BLOQUEADO', async () => {

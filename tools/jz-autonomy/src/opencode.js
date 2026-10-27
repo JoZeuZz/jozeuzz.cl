@@ -40,8 +40,9 @@ function parseChangeLines(text) {
 export function parseJzState(text) {
   const verdicts = [...String(text).matchAll(/^## Veredicto: (REANUDABLE|BLOQUEADO)$/gm)];
   const changes = String(text).match(/^## Cambios sin confirmar\n```\n([\s\S]*?)\n```/m);
-  if (verdicts.length !== 1 || !changes) throw new Error('invalid state format');
-  return { verdict: verdicts[0][1], paths: parseChangeLines(changes[1]) };
+  const clean = /^## Cambios sin confirmar\nNinguno \(árbol limpio\)\.$/m.test(String(text));
+  if (verdicts.length !== 1 || (!changes && !clean)) throw new Error('invalid state format');
+  return { verdict: verdicts[0][1], paths: changes ? parseChangeLines(changes[1]) : [] };
 }
 
 export function buildOpenCodeEnv(source = {}) {
