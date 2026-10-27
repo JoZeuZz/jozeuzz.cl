@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
 const schema = 'jz-autonomy-objective-v1';
+// Cambia cuando cambia la secuencia de pasos: un journal de otra versión no se puede reproducir.
+const journalVersion = 2;
 const agents = new Set(['jz-implementer', 'jz-implementer-copilot']);
 const engines = new Set(['claude', 'opencode']);
 const supervisorPaths = ['tools/jz-autonomy/bin', 'tools/jz-autonomy/objectives', 'tools/jz-gitops'];
@@ -127,6 +129,8 @@ function memorable(name, output) {
   return true;
 }
 
+class JournalDiverged extends Error {}
+
 function plain(value) {
   return value === undefined ? null : JSON.parse(JSON.stringify(value));
 }
@@ -143,7 +147,7 @@ export async function runObjective(input, adapters, options = {}) {
   if (prior && (prior.schema !== schema || !Array.isArray(prior.steps) || typeof prior.runId !== 'string')) throw new TypeError('Invalid resume state');
   const journal = prior ? prior.steps : [];
   const state = {
-    schema, runId: prior?.runId ?? identify(), objective, result: 'running', corrections: 0, checks: [], commit: null, push: null,
+    schema, journalVersion, runId: prior?.runId ?? identify(), objective, result: 'running', corrections: 0, checks: [], commit: null, push: null,
     paths, steps: [], events: prior ? [...prior.events] : []
   };
   let writes = 0;
@@ -173,7 +177,8 @@ export async function runObjective(input, adapters, options = {}) {
         state.steps.push(recorded);
         return recorded.output;
       }
-      diverged = true;
+      // Ejecutar en vivo a partir de aquí re-decidiría fases ya cerradas (p. ej. RED) con otro árbol.
+      throw new JournalDiverged(`journal diverged at ${key} (recorded ${recorded.key})`);
     }
     const output = await fn();
     if (memorable(name, output)) {
@@ -270,88 +275,101 @@ export async function runObjective(input, adapters, options = {}) {
     return { result: state.result, runId: state.runId, corrections: state.corrections, checks: state.checks, commit: state.commit, push: state.push, reason: state.reason, paths };
   }
 
-  if (prior) await transition('resumed', { steps: journal.length }, true);
-  else await transition('initialized');
-  const preflight = await step('preflight', async () => {
-    try {
-      const out = await adapters.preflight({ objective });
-      return { status: out?.status, dirty: Boolean(out?.dirty), reason: out?.reason };
-    } catch (error) {
-      return { status: 'blocked', error: error instanceof Error ? error.message : 'preflight adapter failed' };
-    }
-  });
-  if (preflight.error) return close('blocked', preflight.error);
-  await transition('preflight', { status: preflight.status, dirty: preflight.dirty });
-  if (preflight.status === 'blocked' || preflight.status === 'BLOQUEADO' || preflight.dirty) return close('blocked', preflight.reason || 'preflight blocked');
-
-  if (typeof adapters.acquire === 'function') {
-    let lock;
-    try { lock = await adapters.acquire({ objective, runId: state.runId }); } catch (error) { lock = { rc: 1, reason: error?.message }; }
-    if (lock?.rc !== 0) return close('blocked', `writer lock: ${lock?.reason ?? 'busy'}`);
-    locked = true;
-    await transition('locked', {}, true);
+  if (prior && prior.journalVersion !== journalVersion) {
+    diverged = true;
+    return close('blocked', `incompatible journal version ${prior.journalVersion ?? 1}; rerun the objective`);
+  }
+  try {
+    return await execute();
+  } catch (error) {
+    if (error instanceof JournalDiverged) return close('blocked', error.message);
+    throw error;
   }
 
-  const initialAgentFailure = await callAgent('implementation');
-  if (initialAgentFailure?.unavailable) return close('blocked', 'engines unavailable');
-  const initialInspection = await inspect('implementation');
-  if (initialInspection) return close('blocked', initialInspection);
-  let failures = [initialAgentFailure, ...(await runChecks(objective.checks))].filter(Boolean);
-  if (objective.workflow === 'split-tdd' && !failures.some((failure) => failure.kind === 'check')) return close('failed', 'expected RED');
-  while (failures.length > 0 && state.corrections < objective.maxCorrections) {
-    state.corrections += 1;
-    const structuredFailures = failures.map(structuralFailure);
-    await transition('correction', { failures: structuredFailures });
-    const correctionFailure = await callAgent('correction', structuredFailures);
-    if (correctionFailure?.unavailable) return close('blocked', 'engines unavailable');
-    const correctionInspection = await inspect('correction');
-    if (correctionInspection) return close('blocked', correctionInspection);
-    const affected = objective.checks.filter((check) => failures.some((failure) => failure.kind !== 'agent' && failure.id === check.id));
-    // Primero las verificaciones que fallaron; si siguen en rojo, el resto no aporta nada nuevo. En verde, sólo
-    // se ejecutan una vez las que no se acaban de repetir sobre el mismo árbol.
-    const affectedFailures = await runChecks(affected);
-    const rest = affectedFailures.length > 0 ? [] : objective.checks.filter((check) => !affected.includes(check));
-    const suiteFailures = await runChecks(rest);
-    failures = [correctionFailure, ...affectedFailures, ...suiteFailures].filter(Boolean);
-  }
-  if (failures.length > 0) return close('failed', 'checks failed');
-
-  if (typeof adapters.commit !== 'function') return close('blocked', 'commit capability missing');
-  if (inspected !== null) {
-    let now;
-    try { now = await adapters.fingerprint({ objective }); } catch { now = null; }
-    if (now?.rc !== 0 || now.fingerprint !== inspected) return close('blocked', 'tree changed after inspection');
-  }
-  const commit = await step('commit', async () => {
-    try {
-      const out = await adapters.commit({ objective, state, paths, op: `${objective.unit}:${state.runId}:commit` });
-      return {
-        rc: Number.isInteger(out?.rc) ? out.rc : 1,
-        evidence: redact(typeof out?.evidence === 'string' ? out.evidence : ''),
-        head: redact(typeof out?.head === 'string' ? out.head : '')
-      };
-    } catch (error) {
-      return { rc: 1, evidence: '', head: '', error: error instanceof Error ? error.message : 'commit failed' };
-    }
-  });
-  state.commit = { rc: commit.rc, evidence: commit.evidence, head: commit.head };
-  await transition('commit', state.commit);
-  if (state.commit.rc !== 0) return close('blocked', commit.error ?? 'commit failed');
-
-  if (objective.push) {
-    if (typeof adapters.push !== 'function') return close('blocked', 'push capability missing');
-    const pushed = await step('push', async () => {
+  async function execute() {
+    if (prior) await transition('resumed', { steps: journal.length }, true);
+    else await transition('initialized');
+    const preflight = await step('preflight', async () => {
       try {
-        const out = await adapters.push({ objective, state });
-        return { rc: Number.isInteger(out?.rc) ? out.rc : 1, remoteSha: typeof out?.remoteSha === 'string' ? out.remoteSha : '', evidence: redact(typeof out?.evidence === 'string' ? out.evidence : '') };
+        const out = await adapters.preflight({ objective });
+        return { status: out?.status, dirty: Boolean(out?.dirty), reason: out?.reason };
       } catch (error) {
-        return { rc: 1, remoteSha: '', evidence: error instanceof Error ? redact(error.message) : 'push failed' };
+        return { status: 'blocked', error: error instanceof Error ? error.message : 'preflight adapter failed' };
       }
     });
-    state.push = pushed;
-    await transition('push', pushed);
-    if (pushed.rc !== 0) return close('blocked', pushed.rc === 77 ? 'push not authorized' : 'push failed');
-    if (state.commit.head && pushed.remoteSha !== state.commit.head) return close('blocked', 'remote SHA mismatch');
+    if (preflight.error) return close('blocked', preflight.error);
+    await transition('preflight', { status: preflight.status, dirty: preflight.dirty });
+    if (preflight.status === 'blocked' || preflight.status === 'BLOQUEADO' || preflight.dirty) return close('blocked', preflight.reason || 'preflight blocked');
+
+    if (typeof adapters.acquire === 'function') {
+      let lock;
+      try { lock = await adapters.acquire({ objective, runId: state.runId }); } catch (error) { lock = { rc: 1, reason: error?.message }; }
+      if (lock?.rc !== 0) return close('blocked', `writer lock: ${lock?.reason ?? 'busy'}`);
+      locked = true;
+      await transition('locked', {}, true);
+    }
+
+    const initialAgentFailure = await callAgent('implementation');
+    if (initialAgentFailure?.unavailable) return close('blocked', 'engines unavailable');
+    const initialInspection = await inspect('implementation');
+    if (initialInspection) return close('blocked', initialInspection);
+    let failures = [initialAgentFailure, ...(await runChecks(objective.checks))].filter(Boolean);
+    if (objective.workflow === 'split-tdd' && !failures.some((failure) => failure.kind === 'check')) return close('failed', 'expected RED');
+    while (failures.length > 0 && state.corrections < objective.maxCorrections) {
+      state.corrections += 1;
+      const structuredFailures = failures.map(structuralFailure);
+      await transition('correction', { failures: structuredFailures });
+      const correctionFailure = await callAgent('correction', structuredFailures);
+      if (correctionFailure?.unavailable) return close('blocked', 'engines unavailable');
+      const correctionInspection = await inspect('correction');
+      if (correctionInspection) return close('blocked', correctionInspection);
+      const affected = objective.checks.filter((check) => failures.some((failure) => failure.kind !== 'agent' && failure.id === check.id));
+      // Primero las verificaciones que fallaron; si siguen en rojo, el resto no aporta nada nuevo. En verde, sólo
+      // se ejecutan una vez las que no se acaban de repetir sobre el mismo árbol.
+      const affectedFailures = await runChecks(affected);
+      const rest = affectedFailures.length > 0 ? [] : objective.checks.filter((check) => !affected.includes(check));
+      const suiteFailures = await runChecks(rest);
+      failures = [correctionFailure, ...affectedFailures, ...suiteFailures].filter(Boolean);
+    }
+    if (failures.length > 0) return close('failed', 'checks failed');
+
+    if (typeof adapters.commit !== 'function') return close('blocked', 'commit capability missing');
+    if (inspected !== null) {
+      let now;
+      try { now = await adapters.fingerprint({ objective }); } catch { now = null; }
+      if (now?.rc !== 0 || now.fingerprint !== inspected) return close('blocked', 'tree changed after inspection');
+    }
+    const commit = await step('commit', async () => {
+      try {
+        const out = await adapters.commit({ objective, state, paths, op: `${objective.unit}:${state.runId}:commit` });
+        return {
+          rc: Number.isInteger(out?.rc) ? out.rc : 1,
+          evidence: redact(typeof out?.evidence === 'string' ? out.evidence : ''),
+          head: redact(typeof out?.head === 'string' ? out.head : '')
+        };
+      } catch (error) {
+        return { rc: 1, evidence: '', head: '', error: error instanceof Error ? error.message : 'commit failed' };
+      }
+    });
+    state.commit = { rc: commit.rc, evidence: commit.evidence, head: commit.head };
+    await transition('commit', state.commit);
+    if (state.commit.rc !== 0) return close('blocked', commit.error ?? 'commit failed');
+
+    if (objective.push) {
+      if (typeof adapters.push !== 'function') return close('blocked', 'push capability missing');
+      const pushed = await step('push', async () => {
+        try {
+          const out = await adapters.push({ objective, state });
+          return { rc: Number.isInteger(out?.rc) ? out.rc : 1, remoteSha: typeof out?.remoteSha === 'string' ? out.remoteSha : '', evidence: redact(typeof out?.evidence === 'string' ? out.evidence : '') };
+        } catch (error) {
+          return { rc: 1, remoteSha: '', evidence: error instanceof Error ? redact(error.message) : 'push failed' };
+        }
+      });
+      state.push = pushed;
+      await transition('push', pushed);
+      if (pushed.rc !== 0) return close('blocked', pushed.rc === 77 ? 'push not authorized' : 'push failed');
+      if (state.commit.head && pushed.remoteSha !== state.commit.head) return close('blocked', 'remote SHA mismatch');
+    }
+    return close('completed');
   }
-  return close('completed');
 }

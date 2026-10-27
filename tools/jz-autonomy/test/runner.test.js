@@ -425,3 +425,29 @@ test('SEC-2: objectives cannot write the installer, GitOps or objectives', () =>
   }
   assert.equal(validateObjective(objective({ allowedPaths: ['tools/jz-autonomy/src/x.js', 'contrato'] })).allowedPaths.length, 2);
 });
+
+test('resume refuses a journal from another journal version instead of re-deciding phases live', async () => {
+  const dir = await stateDir();
+  await runObjective(objective(), { ...greenAdapters([]), commit: async () => ({ rc: 1 }) }, { stateDir: dir });
+  const saved = JSON.parse(await readFile(join(dir, 'state.json'), 'utf8'));
+  assert.equal(saved.journalVersion, 2);
+  const calls = [];
+  const old = { ...saved };
+  delete old.journalVersion;
+  const result = await runObjective(old.objective, greenAdapters(calls), { stateDir: dir, resume: old });
+  assert.equal(result.result, 'blocked');
+  assert.match(result.reason, /journal version/);
+  assert.deepEqual(calls, ['checkpoint:blocked']);
+});
+
+test('a diverging journal blocks instead of running live steps', async () => {
+  const dir = await stateDir();
+  await runObjective(objective(), { ...greenAdapters([]), commit: async () => ({ rc: 1 }) }, { stateDir: dir });
+  const saved = JSON.parse(await readFile(join(dir, 'state.json'), 'utf8'));
+  saved.steps[1].key = '1:check';
+  const calls = [];
+  const result = await runObjective(saved.objective, greenAdapters(calls), { stateDir: dir, resume: saved });
+  assert.equal(result.result, 'blocked');
+  assert.match(result.reason, /journal diverged/);
+  assert.equal(calls.some((c) => c.startsWith('agent') || c.startsWith('check:')), false);
+});
