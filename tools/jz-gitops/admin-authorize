@@ -8,13 +8,14 @@
 #    por defecto sin política jz (verificado el 2026-10-27). La política y los permisos no cambian.
 # 3. Publica la rama JZ-AI con el jz-git instalado y verifica que el remoto tiene el SHA local.
 #
-# Uso: admin-authorize <worktree> [patrones separados por comas]
+# Uso (desde la release instalada, nunca desde el árbol que escriben los workers):
+#   ~/.local/share/jz-ai/current/tools/jz-gitops/admin-authorize <worktree> [patrones separados por comas]
 set -euo pipefail
 repo=$(cd "${1:?uso: admin-authorize <worktree> [patrones]}" && pwd -P)
 patterns=${2:-chore/jz-*,feat/*,fix/*,docs/*,work/*,integ/*}
 branch=$(git -C "$repo" branch --show-current)
 gitops=${JZ_AI_HOME:-$HOME/.local/share/jz-ai}/current/tools/jz-gitops/jz-git.mjs
-[[ -f $gitops ]] || { echo "falta $gitops: ejecuta tools/jz-autonomy/bin/jz-install $repo" >&2; exit 1; }
+[[ -f $gitops ]] || { echo "falta $gitops: instala la release (docs/OPERACION-JZ-AI.md)" >&2; exit 1; }
 
 # 1. Política GitOps.
 url=$(git -C "$repo" remote get-url origin)

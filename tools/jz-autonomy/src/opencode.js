@@ -72,9 +72,14 @@ const FALLBACK = /Falling back to default agent/;
 export async function openCodeAgentMode(workspace, agent, readFile = nativeReadFile) {
   if (!/^jz-[a-z-]+$/.test(agent)) return null;
   try {
-    const text = String(await readFile(join(workspace, '.opencode/agents', `${agent}.md`), 'utf8'));
+    const text = String(await readFile(join(workspace, '.opencode/agents', `${agent}.md`), 'utf8')).replace(/\r\n/g, '\n');
     const front = text.match(/^---\n([\s\S]*?)\n---/);
-    return front?.[1].match(/^mode:\s*([a-z]+)\s*$/m)?.[1] ?? 'all';
+    if (!front) return null;
+    // SEC-7: cualquier línea mode que no sea exactamente primary o all es fail-closed.
+    const lines = front[1].split('\n').filter((line) => /^mode\s*:/.test(line));
+    if (lines.length === 0) return 'all';
+    if (lines.length > 1) return null;
+    return lines[0].match(/^mode:\s*["']?(primary|all)["']?\s*(?:#.*)?$/)?.[1] ?? null;
   } catch {
     return null;
   }
@@ -111,7 +116,12 @@ export function createOpenCodeAdapters(options) {
   const node = options.node ?? process.execPath;
   const gitops = options.gitops ?? defaultGitops;
   const exists = options.exists ?? (async (path) => access(path, constants.R_OK).then(() => true, () => false));
-  const workspaceFor = (objective) => resolveWorkspace({ root, workspace: objective.workspace, realpath: real });
+  // SEC-1: sólo la raíz del worktree; el plano de control anidado de un subdirectorio no está protegido.
+  const workspaceFor = async (objective) => {
+    const workspace = await resolveWorkspace({ root, workspace: objective.workspace, realpath: real });
+    if (workspace !== await real(root)) throw new Error('workspace must be the worktree root');
+    return workspace;
+  };
   const exec = (file, argv, cwd, env = {}) => resultOf(execFile(file, argv, { cwd, env: { ...env, PWD: cwd } }));
   const runners = options.runners ?? {
     opencode: createOpenCodeRunner(options),
@@ -157,6 +167,12 @@ export function createOpenCodeAdapters(options) {
       failover ??= createFailover(runners, objective.engines ?? options.engines ?? ['opencode']);
       attempt += 1;
       return failover({ objective, phase, failures, workspace, stateDir, attempt });
+    },
+    async fingerprint({ objective }) {
+      const workspace = await workspaceFor(objective);
+      const out = await exec(join(workspace, '.jz/bin/jz-run'), ['--fingerprint'], workspace, checkEnv);
+      const fingerprint = String(out.stdout ?? '').trim();
+      return out.rc === 0 && /^[0-9a-f]{16,64}$/.test(fingerprint) ? { rc: 0, fingerprint } : { rc: 1 };
     },
     async runCheck({ objective, check }) {
       const workspace = await workspaceFor(objective);

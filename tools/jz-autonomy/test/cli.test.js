@@ -21,6 +21,7 @@ function harness(overrides = {}) {
     readFile: async () => Buffer.from(JSON.stringify({ objective: 'safe' })),
     mkdir: async () => {},
     createOpenCodeAdapters: (options) => { output.adapters.push(options); return { adapter: true }; },
+    objectiveCommitted: async () => true,
     runObjective: async (objective, adapters, options) => {
       output.runs.push({ objective, adapters, options });
       return { result: 'completed', corrections: 0, checks: [], commit: null, paths: { state: '/state', events: '/events' } };
@@ -176,4 +177,10 @@ test('maps runner completed, failed, blocked and internal errors to exit codes',
   const { io, output } = harness({ runObjective: async () => { throw new Error('INTERNAL_CANARY'); } });
   assert.equal(await runCli(args, io), 3);
   assert.equal(output.stderr.join('').includes('INTERNAL_CANARY'), false);
+});
+
+test('SEC-2: refuses an objective that is untracked or modified against HEAD', async () => {
+  const { io, output } = harness({ objectiveCommitted: async () => false });
+  assert.equal(await runCli(args, io), 2);
+  assert.equal(output.runs.length, 0);
 });

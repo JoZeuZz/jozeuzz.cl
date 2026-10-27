@@ -1,4 +1,5 @@
 import { lstat, mkdir, readFile, realpath } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { createOpenCodeAdapters } from './opencode.js';
 import { runObjective } from './runner.js';
@@ -62,6 +63,15 @@ async function resume(command, root, io) {
   return report(result, io);
 }
 
+// SEC-2: el objetivo debe estar versionado y sin cambios respecto de HEAD, así un worker no puede reescribir
+// el que relanzará el humano.
+function objectiveCommitted(root, rel) {
+  const env = { PATH: '/usr/bin:/bin', LC_ALL: 'C', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_OPTIONAL_LOCKS: '0' };
+  const git = (args) => new Promise((done) => execFile('git', ['-c', 'core.fsmonitor=false', '-C', root, ...args], { env }, (error, stdout) => done({ rc: error ? 1 : 0, stdout })));
+  return Promise.all([git(['ls-files', '--error-unmatch', '--', rel]), git(['status', '--porcelain', '--', rel])])
+    .then(([tracked, status]) => tracked.rc === 0 && status.rc === 0 && status.stdout.trim() === '');
+}
+
 async function regular(path, io) {
   const info = await io.lstat(path);
   if (info.isSymbolicLink() || !info.isFile()) throw new Error('invalid file');
@@ -78,6 +88,7 @@ export async function runCli(argv, injected = {}) {
     mkdir,
     createOpenCodeAdapters,
     runObjective,
+    objectiveCommitted,
     ...injected
   };
   const command = parse(argv);
@@ -104,6 +115,7 @@ export async function runCli(argv, injected = {}) {
     await regular(objectivePath, io);
     const objectiveReal = await io.realpath(objectivePath);
     if (!inside(root, objectiveReal)) throw new Error('objective');
+    if (!await io.objectiveCommitted(root, relative(root, objectiveReal))) throw new Error('objective');
     const raw = await io.readFile(objectiveReal);
     if (raw.byteLength > maxObjectiveBytes) throw new Error('objective');
     let objective;

@@ -38,19 +38,24 @@ export function runEngineProcess({ spawn = nativeSpawn, bin, args, cwd, env, std
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(bin, args, { cwd, env: { ...env, PWD: cwd }, stdio: ['ignore', 'pipe', 'pipe'] });
+      // SEC-6: grupo de procesos propio, para matar también lo que el worker deje en segundo plano.
+      child = spawn(bin, args, { cwd, env: { ...env, PWD: cwd }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     } catch {
       resolve({ rc: 1, tail: '' });
       return;
     }
+    const killGroup = (signal) => {
+      try { process.kill(-child.pid, signal); } catch { try { child.kill(signal); } catch {} }
+    };
     let tail = '';
     let aborted = false;
     const keep = (chunk) => {
-      tail = (tail + chunk.toString()).slice(-8192);
-      if (!aborted && abortOn?.test(tail)) {
+      const joined = tail + chunk.toString();
+      if (!aborted && abortOn?.test(joined)) {
         aborted = true;
-        child.kill('SIGKILL');
+        killGroup('SIGKILL');
       }
+      tail = joined.slice(-8192);
     };
     if (child.stdout) { child.stdout.on('data', keep); child.stdout.pipe(createWriteStream(stdoutPath, { mode: 0o600 })); }
     if (child.stderr) { child.stderr.on('data', keep); child.stderr.pipe(createWriteStream(stderrPath, { mode: 0o600 })); }
@@ -62,12 +67,14 @@ export function runEngineProcess({ spawn = nativeSpawn, bin, args, cwd, env, std
       closed = true;
       clearTimer(timeout);
       clearTimer(grace);
+      // Al terminar el motor no debe quedar ningún proceso suyo escribiendo en el worktree.
+      if (Number.isInteger(child.pid)) killGroup('SIGKILL');
       resolve({ rc: aborted ? 1 : Number.isInteger(rc) ? rc : 1, tail, timedOut, aborted });
     };
     const timeout = setTimer(() => {
       timedOut = true;
-      child.kill('SIGTERM');
-      grace = setTimer(() => { child.kill('SIGKILL'); finish(124); }, killGraceMs);
+      killGroup('SIGTERM');
+      grace = setTimer(() => { killGroup('SIGKILL'); finish(124); }, killGraceMs);
     }, timeoutMs);
     child.once('error', () => finish(1));
     child.once('close', (rc) => finish(timedOut ? 124 : rc));

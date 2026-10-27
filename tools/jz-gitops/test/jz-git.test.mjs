@@ -105,3 +105,37 @@ test('CLI returns JSON and exit codes without throwing', () => {
   assert.equal(run(['commit', '--repo', 'relative', '--branch', 'chore/x', '--message', 'm', '--path', 'a']).rc, EXIT.usage);
   assert.equal(run(['push', '--repo', '/tmp', '--branch', 'chore/x', '--path', 'a']).out.ok, false);
 });
+
+test('SEC-3: commit refuses secrets, control-plane names, symlinks and gitlinks found inside a manifest directory', () => {
+  for (const [name, make] of [
+    ['poc/.env.local', (repo) => { writeFileSync(join(repo, 'poc/.gitignore'), '!.env.local\n'); writeFileSync(join(repo, 'poc/.env.local'), 'TOKEN=x\n'); }],
+    ['poc/sub/.jz/bin/x', (repo) => { mkdirSync(join(repo, 'poc/sub/.jz/bin'), { recursive: true }); writeFileSync(join(repo, 'poc/sub/.jz/bin/x'), 'x\n'); }],
+    ['poc/link', (repo) => { symlinkSync('/etc/hostname', join(repo, 'poc/link')); }]
+  ]) {
+    const { repo } = fixture();
+    mkdirSync(join(repo, 'poc'), { recursive: true });
+    writeFileSync(join(repo, 'poc/ok.js'), 'ok\n');
+    make(repo);
+    assert.throws(() => commit({ repo, branch: 'chore/demo', message: 'm', paths: ['poc'] }, env), (e) => e.code === EXIT.unauthorized, name);
+    assert.equal(git(repo, 'diff', '--cached', '--name-only'), '', `${name}: index restored`);
+  }
+});
+
+test('SEC-4: push refuses a diverging push URL or a mirror remote', () => {
+  const { repo, policyFile, base } = fixture();
+  git(base, 'init', '-q', '--bare', join(base, 'other.git'));
+  git(repo, 'config', 'remote.origin.pushurl', join(base, 'other.git'));
+  assert.throws(() => push({ repo, branch: 'chore/demo', policyFile }, env), /URL de push no autorizada/);
+  assert.throws(() => git(base, '--git-dir', join(base, 'other.git'), 'rev-parse', 'refs/heads/chore/demo'));
+  git(repo, 'config', '--unset', 'remote.origin.pushurl');
+  git(repo, 'config', 'remote.origin.mirror', 'true');
+  assert.throws(() => push({ repo, branch: 'chore/demo', policyFile }, env), /mirror no autorizado/);
+});
+
+test('SEC-8: errors never echo credentials embedded in remote URLs', () => {
+  const { repo, policyFile } = fixture();
+  git(repo, 'remote', 'set-url', 'origin', 'https://jose:ghp_CANARY@example.invalid/x.git');
+  let text = '';
+  main(['push', '--repo', repo, '--branch', 'chore/demo', '--policy', policyFile], { write: (s) => { text += s; } });
+  assert.equal(text.includes('ghp_CANARY'), false);
+});

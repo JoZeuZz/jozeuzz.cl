@@ -13,11 +13,11 @@ function objective(overrides = {}) {
     schema: 'jz-autonomy-objective-v1',
     unit: 'JZ-AUTONOMY-V2-I2-CORE',
     objective: 'Run isolated autonomy state machine',
-    workspace: 'tools/jz-autonomy',
+    workspace: '.',
     agent: 'jz-implementer',
     branch: 'feat/autonomy-runner',
     criteria: ['State persists before adapters run'],
-    allowedPaths: ['tools/jz-autonomy'],
+    allowedPaths: ['tools/jz-autonomy/src', 'tools/jz-autonomy/test'],
     checks: [
       { id: 'unit', argv: ['node', '--test', 'test/runner.test.js'] },
       { id: 'suite', argv: ['node', '--test', 'test/'] }
@@ -76,7 +76,7 @@ test('validateObjective rejects malformed input and dangerous paths', () => {
   assert.throws(() => validateObjective(objective({ workflow: 'split-tdd', testPaths: ['src/../secret'] })), /testPaths/);
   assert.throws(() => validateObjective(objective({ workflow: 'split-tdd', testPaths: ['outside/test.js'] })), /testPaths/);
   assert.throws(() => validateObjective(objective({ maxCorrections: 3 })), /maxCorrections/);
-  assert.throws(() => validateObjective(objective({ workspace: '/tmp/workspace' })), /path/);
+  assert.throws(() => validateObjective(objective({ workspace: '/tmp/workspace' })), /workspace/);
   assert.throws(() => validateObjective(objective({ allowedPaths: ['src/../secret'] })), /path/);
   assert.throws(() => validateObjective(objective({ allowedPaths: ['.jz/policy'] })), /path/);
   assert.throws(() => validateObjective(objective({ allowedPaths: ['.env'] })), /secret/);
@@ -381,4 +381,47 @@ test('agent event records engines skipped by failover', async () => {
   await runObjective(objective(), adapters, { stateDir: dir });
   const events = (await readFile(join(dir, 'events.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(events.find((e) => e.event === 'agent').skipped, [{ engine: 'opencode', reason: 'opencode agent jz-implementer mode subagent' }]);
+});
+
+test('SEC-1: workspace must be the worktree root', () => {
+  assert.throws(() => validateObjective(objective({ workspace: 'tools/evil' })), /workspace/);
+  assert.equal(validateObjective(objective({ workspace: '.' })).workspace, '.');
+});
+
+test('SEC-1/3: inspection blocks control-plane or secret names at any depth even inside allowedPaths', async () => {
+  for (const bad of ['tools/jz-autonomy/evil/.jz/bin/jz-state', 'tools/jz-autonomy/.opencode/plugins/x.js', 'tools/jz-autonomy/.env.local', 'tools/jz-autonomy/k.pem', 'tools/jz-autonomy/sub/.git']) {
+    const calls = [];
+    const adapters = { ...greenAdapters(calls), inspectChanges: async () => ({ paths: [bad] }) };
+    const result = await runObjective(objective({ workspace: '.' }), adapters, { stateDir: await stateDir() });
+    assert.equal(result.result, 'blocked', bad);
+    assert.match(result.reason, /protected path/, bad);
+    assert.equal(calls.includes('commit'), false);
+  }
+});
+
+test('SEC-5: commit is blocked when the tree changed after the checks, also on resume', async () => {
+  const calls = [];
+  let fp = 'tree-a';
+  const adapters = { ...greenAdapters(calls), fingerprint: async () => { calls.push(`fp:${fp}`); return { rc: 0, fingerprint: fp }; } };
+  adapters.runCheck = async ({ check }) => { calls.push(`check:${check.id}`); if (check.id === 'suite') fp = 'tree-b'; return { rc: 0 }; };
+  const result = await runObjective(objective({ workspace: '.' }), adapters, { stateDir: await stateDir() });
+  // La huella se toma tras inspect y se compara antes del commit.
+  assert.equal(result.result, 'blocked');
+  assert.match(result.reason, /tree changed/);
+  assert.equal(calls.includes('commit'), false);
+});
+
+test('SEC-8: redaction strips credentials embedded in URLs', async () => {
+  const adapters = { ...greenAdapters([]), commit: async () => ({ rc: 1, evidence: 'remoto origin no autorizado (https://jose:ghp_SECRETCANARY@github.com/x.git)' }) };
+  const dir = await stateDir();
+  await runObjective(objective({ workspace: '.' }), adapters, { stateDir: dir });
+  const all = `${await readFile(join(dir, 'state.json'), 'utf8')}${await readFile(join(dir, 'events.jsonl'), 'utf8')}`;
+  assert.equal(all.includes('ghp_SECRETCANARY'), false);
+});
+
+test('SEC-2: objectives cannot write the installer, GitOps or objectives', () => {
+  for (const p of ['tools/jz-autonomy', 'tools', 'tools/jz-autonomy/bin/jz-install', 'tools/jz-gitops/jz-git.mjs', 'tools/jz-autonomy/objectives/', 'tools/jz-gitops']) {
+    assert.throws(() => validateObjective(objective({ allowedPaths: [p] })), /supervisor path/, p);
+  }
+  assert.equal(validateObjective(objective({ allowedPaths: ['tools/jz-autonomy/src/x.js', 'contrato'] })).allowedPaths.length, 2);
 });
