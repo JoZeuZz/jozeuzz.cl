@@ -22,7 +22,7 @@ url=$(git -C "$repo" remote get-url origin)
 dir=${XDG_CONFIG_HOME:-$HOME/.config}/jz-ai
 mkdir -p "$dir" && chmod 700 "$dir"
 tmp=$(mktemp "$dir/.gitops.XXXXXX")
-jq -n --arg url "$url" --arg patterns "$patterns" --arg by "$(git config --global user.name)" \
+jq -n --arg url "$url" --arg patterns "$patterns" --arg by "$(git -C "$repo" config user.name)" \
   --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   '{schema: "jz-gitops-policy-v1", authorizedBy: $by, authorizedAt: $at,
     push: {remotes: {origin: $url}, branches: ($patterns | split(","))}}' > "$tmp"
@@ -45,12 +45,17 @@ opencode run --agent with a subagent-only profile falls back to the default
 agent without the jz policy. mode: all keeps the same permissions and
 policy (node denied, jz-run allowed; verified 2026-10-27).
 
-Authorized-by: $(git config --global user.name)" -- "${changed[@]}"
+Authorized-by: $(git -C "$repo" config user.name)" -- "${changed[@]}"
   echo "2/3 perfiles OpenCode: $(git -C "$repo" rev-parse --short HEAD)"
 else
   echo "2/3 perfiles OpenCode: ya primarios"
 fi
 
 # 3. Publicación verificada.
-node "$gitops" push --repo "$repo" --branch "$branch"
+# Sólo cuenta como publicado si jz-git devuelve ok y el remoto tiene el SHA local.
+out=$(node "$gitops" push --repo "$repo" --branch "$branch")
+echo "$out"
+jq -e '.ok == true' >/dev/null <<<"$out" || { echo "3/3 push FALLIDO" >&2; exit 1; }
+[[ $(git -C "$repo" ls-remote origin "refs/heads/$branch" | cut -f1) == $(git -C "$repo" rev-parse HEAD) ]] \
+  || { echo "3/3 el remoto no tiene el SHA local" >&2; exit 1; }
 echo "3/3 publicado $branch"
