@@ -14,3 +14,11 @@ test('fija runtime, stack y gates obligatorios', async () => {
   }
   assert.equal(Object.hasOwn(pkg.dependencies, 'drizzle-orm'), false)
 })
+
+test('gitignore protege secretos y credenciales', async () => {
+  const gi = await readFile('.gitignore', 'utf8')
+  // Patrones obligatorios de secretos
+  assert.match(gi, /\.env\.\*/, 'debe ignorar .env.*')
+  assert.match(gi, /\*\.pem/, 'debe ignorar *.pem')
+  assert.match(gi, /\*\.key/, 'debe ignorar *.key')
+})
