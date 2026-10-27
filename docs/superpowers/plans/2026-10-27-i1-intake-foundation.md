@@ -607,7 +607,7 @@ git commit -m "fix: close public admin lifecycle endpoints"
 ### Task 9: Add migrations and hardened local containers
 
 **Files:**
-- Modify: `src/migrations/index.ts`
+- Modify: `src/migrations/index.ts` (**NOTA 2026-10-27**: `src/migrations/index.ts` fue eliminado. Payload 3.90.2 descubre migraciones automáticamente vía `migrationDir` en `postgresAdapter`. Task9 añade segunda migración como archivo `.ts` en `src/migrations/`; no hay barrel. La propiedad `Config.migrations` no existe en los tipos de Payload 3.x.)
 - Create: `src/migrations/20261027_000000_i1.ts`
 - Modify: `Dockerfile`
 - Create: `.dockerignore`
