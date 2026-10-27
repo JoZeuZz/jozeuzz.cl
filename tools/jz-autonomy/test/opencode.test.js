@@ -47,6 +47,28 @@ test('OpenCode runner kills the process when it falls back to the default agent'
   assert.equal(out.unavailable, true);
 });
 
+test('SEC-1: adapters refuse any workspace other than the root', async () => {
+  const adapters = createOpenCodeAdapters({ root: '/repo', stateDir: '/state', realpath: async (path) => path, execFile: async () => ({ rc: 0, stdout: '' }) });
+  await assert.rejects(adapters.preflight({ objective: { ...objective, workspace: 'tools/evil' } }), /root/);
+});
+
+test('SEC-7: only an exact primary/all mode line is accepted', async () => {
+  const { openCodeAgentMode } = await import('../src/opencode.js');
+  const mode = (text) => openCodeAgentMode('/wt', 'jz-implementer', async () => text);
+  assert.equal(await mode('---\nmode: all\n---\n'), 'all');
+  assert.equal(await mode('---\r\nmode: "primary"\r\n---\r\n'), 'primary');
+  assert.equal(await mode('---\nmodel: m\n---\n'), 'all');
+  for (const bad of ['---\nmode: "subagent"\n---\n', '---\nmode: subagent # nota\n---\n', '---\nmode: all\nmode: subagent\n---\n', 'sin front matter', '---\nmode : weird\n---\n']) {
+    assert.equal(await mode(bad), null, bad);
+  }
+});
+
+test('SEC-5: fingerprint comes from jz-run --fingerprint and is validated', async () => {
+  const adapters = createOpenCodeAdapters({ root: '/repo', stateDir: '/state', realpath: async (path) => path,
+    execFile: async (file, argv) => ({ rc: 0, stdout: argv[0] === '--fingerprint' ? 'ab'.repeat(32) + '\n' : 'junk' }) });
+  assert.deepEqual(await adapters.fingerprint({ objective: { ...objective, workspace: '.' } }), { rc: 0, fingerprint: 'ab'.repeat(32) });
+});
+
 test('resolves workspace only inside real root', async () => {
   assert.equal(await resolveWorkspace({ root: '/root', workspace: '.', realpath: async (path) => path }), '/root');
   assert.equal(await resolveWorkspace({ root: '/root', workspace: 'work', realpath: async (path) => path }), '/root/work');
@@ -78,12 +100,12 @@ test('preflight uses exact argv cwd PWD and blocks branch, dirty and BLOQUEADO',
         return { rc: 0, stdout: expected === 'blocked' && branch === objective.branch && tree === 'clean\n' ? 'BLOQUEADO\n' : 'REANUDABLE\n' };
       }
     });
-    const result = await adapters.preflight({ objective: { ...objective, workspace: 'tools/app' } });
+    const result = await adapters.preflight({ objective: { ...objective, workspace: '.' } });
     assert.equal(result.status, 'blocked');
-    assert.equal(calls[0].file, '/repo/tools/app/.jz/bin/jz-state');
+    assert.equal(calls[0].file, '/repo/.jz/bin/jz-state');
     assert.deepEqual(calls[1].argv, ['branch', '--show-current']);
-    assert.equal(calls[1].options.cwd, '/repo/tools/app');
-    assert.equal(calls[1].options.env.PWD, '/repo/tools/app');
+    assert.equal(calls[1].options.cwd, '/repo');
+    assert.equal(calls[1].options.env.PWD, '/repo');
     assert.equal(calls[1].options.env.PATH, '/usr/sbin:/usr/bin:/sbin:/bin');
     assert.equal(calls[1].options.env.LANG, 'C.UTF-8');
     assert.equal(calls[1].options.env.LC_ALL, 'C.UTF-8');
@@ -133,7 +155,7 @@ test('runAgent terminates then kills on injected timeout', async () => {
     spawn: () => child, setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, timeoutMs: 1, killGraceMs: 1,
     readFile: async () => primary
   });
-  const pending = adapters.runAgent({ objective: { ...objective, workspace: 'tools/app' }, phase: 'implementation', failures: [] });
+  const pending = adapters.runAgent({ objective: { ...objective, workspace: '.' }, phase: 'implementation', failures: [] });
   while (timers.length === 0) await new Promise((r) => setImmediate(r));
   timers[0]();
   timers[1]();
@@ -146,7 +168,7 @@ test('inspectChanges rejects failed tree status instead of reporting clean paths
     root: '/repo', stateDir: '/state', realpath: async (path) => path,
     execFile: async () => ({ rc: 1, stderr: 'tree failure' })
   });
-  await assert.rejects(adapters.inspectChanges({ objective: { ...objective, workspace: 'tools/app' } }), /tree status/);
+  await assert.rejects(adapters.inspectChanges({ objective: { ...objective, workspace: '.' } }), /tree status/);
 });
 
 test('correction prompt contains structured failures but not agent output canary', () => {
@@ -170,7 +192,7 @@ test('split-tdd prompt includes criteria and phase-specific supervised instructi
 
 test('commit returns capability missing and calls the installed jz-git with the manifest and op', async () => {
   const absent = createOpenCodeAdapters({ root: '/repo', stateDir: '/state', realpath: async (path) => path, exists: async () => false });
-  assert.deepEqual(await absent.commit({ objective: { ...objective, workspace: 'tools/app' } }), { rc: 78, evidence: 'capability missing' });
+  assert.deepEqual(await absent.commit({ objective: { ...objective, workspace: '.' } }), { rc: 78, evidence: 'capability missing' });
 
   const calls = [];
   const present = createOpenCodeAdapters({
@@ -178,9 +200,9 @@ test('commit returns capability missing and calls the installed jz-git with the 
     env: { HOME: '/home/u', ANTHROPIC_API_KEY: 'CANARY' },
     execFile: async (file, argv, options) => { calls.push({ file, argv, options }); return { rc: 0, stdout: '{"ok":true,"head":"abc123","evidence":"commit-proof"}\n' }; }
   });
-  assert.deepEqual(await present.commit({ objective: { ...objective, workspace: 'tools/app' }, op: 'U:run:commit' }), { rc: 0, head: 'abc123', evidence: 'commit-proof' });
+  assert.deepEqual(await present.commit({ objective: { ...objective, workspace: '.' }, op: 'U:run:commit' }), { rc: 0, head: 'abc123', evidence: 'commit-proof' });
   assert.equal(calls[0].file, '/usr/bin/node');
-  assert.deepEqual(calls[0].argv, ['/opt/jz/jz-git.mjs', 'commit', '--repo', '/repo/tools/app', '--branch', objective.branch, '--message', objective.commit.message, '--op', 'U:run:commit', '--path', 'src', '--path', 'test']);
+  assert.deepEqual(calls[0].argv, ['/opt/jz/jz-git.mjs', 'commit', '--repo', '/repo', '--branch', objective.branch, '--message', objective.commit.message, '--op', 'U:run:commit', '--path', 'src', '--path', 'test']);
   assert.equal(calls[0].options.env.HOME, '/home/u');
   assert.equal(JSON.stringify(calls[0].options.env).includes('CANARY'), false);
 });
@@ -191,9 +213,9 @@ test('push returns remote SHA; malformed helper output and checkpoint keep only 
     execFile: async (file, argv) => argv[1] === 'push' ? { rc: 0, stdout: '{"ok":true,"head":"abc","remoteSha":"abc","evidence":"origin ok"}' }
       : argv[1] === 'commit' ? { rc: 0, stdout: 'RAW_COMMIT_CANARY' } : { rc: 7, stdout: 'RAW_CHECKPOINT_CANARY' }
   });
-  assert.deepEqual(await adapters.push({ objective: { ...objective, workspace: 'tools/app' } }), { rc: 0, head: 'abc', remoteSha: 'abc', evidence: 'origin ok' });
-  assert.deepEqual(await adapters.commit({ objective: { ...objective, workspace: 'tools/app' } }), { rc: 0, evidence: 'jz-git' });
-  assert.deepEqual(await adapters.checkpoint({ result: 'completed', state: { objective: { ...objective, workspace: 'tools/app' } } }), { rc: 7 });
+  assert.deepEqual(await adapters.push({ objective: { ...objective, workspace: '.' } }), { rc: 0, head: 'abc', remoteSha: 'abc', evidence: 'origin ok' });
+  assert.deepEqual(await adapters.commit({ objective: { ...objective, workspace: '.' } }), { rc: 0, evidence: 'jz-git' });
+  assert.deepEqual(await adapters.checkpoint({ result: 'completed', state: { objective: { ...objective, workspace: '.' } } }), { rc: 7 });
 });
 
 test('runCheck extracts stderr log path without persisting raw output', async () => {
@@ -201,11 +223,11 @@ test('runCheck extracts stderr log path without persisting raw output', async ()
     root: '/repo', stateDir: '/state', realpath: async (path) => path,
     execFile: async () => ({ rc: 1, stdout: 'RAW_CHECK_CANARY', stderr: 'log=/state/run.log\n' })
   });
-  const result = await adapters.runCheck({ objective: { ...objective, workspace: 'tools/app' }, check: objective.checks[0] });
+  const result = await adapters.runCheck({ objective: { ...objective, workspace: '.' }, check: objective.checks[0] });
   assert.deepEqual(result, { rc: 1, log: '/state/run.log', evidence: 'unit' });
   const real = createOpenCodeAdapters({ root: '/repo', stateDir: '/state', realpath: async (path) => path,
     execFile: async () => ({ rc: 0, stdout: '', stderr: 'jz-run: rc=0 head=abc tree=f00 log=.jz-state/runs/x.log\n' }) });
-  assert.equal((await real.runCheck({ objective: { ...objective, workspace: 'tools/app' }, check: objective.checks[0] })).log, '.jz-state/runs/x.log');
+  assert.equal((await real.runCheck({ objective: { ...objective, workspace: '.' }, check: objective.checks[0] })).log, '.jz-state/runs/x.log');
   assert.equal(JSON.stringify(result).includes('RAW_CHECK_CANARY'), false);
 });
 
@@ -224,10 +246,10 @@ test('runAgent uses workspace cwd and resolves spawn error exactly once', async 
       return child;
     }
   });
-  const result = await adapters.runAgent({ objective: { ...objective, workspace: 'tools/app' }, phase: 'implementation', failures: [] });
+  const result = await adapters.runAgent({ objective: { ...objective, workspace: '.' }, phase: 'implementation', failures: [] });
   assert.equal(result.rc, 1);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].options.cwd, '/repo/tools/app');
-  assert.equal(calls[0].options.env.PWD, '/repo/tools/app');
+  assert.equal(calls[0].options.cwd, '/repo');
+  assert.equal(calls[0].options.env.PWD, '/repo');
   assert.equal(calls[0].options.env.PATH, '/usr/sbin:/usr/bin:/sbin:/bin');
 });

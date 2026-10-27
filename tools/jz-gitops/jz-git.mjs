@@ -18,9 +18,12 @@ const CONTROL = new Set(['.git', '.claude', '.opencode', '.jz', '.jz-state', 'AG
   'opencode.jsonc', '.mcp.json']);
 const MAX_SCAN = 200;
 
+// SEC-8: nunca se repiten credenciales incrustadas en URLs.
+export const scrub = (text) => String(text).replace(/\/\/[^/@\s]+@/g, '//[REDACTED]@');
+
 class GitOpsError extends Error {
   constructor(message, code = EXIT.failed) {
-    super(message);
+    super(scrub(message));
     this.code = code;
   }
 }
@@ -104,7 +107,22 @@ export function commit({ repo, branch, message, paths, op }, env = cleanEnv()) {
   const present = paths.filter((p) => existsSync(join(real, p))
     || must(git(['ls-files', '-z', '--', `:(literal)${p}`]), 'ls-files').length > 0);
   if (present.length) must(git(['add', '-A', '--', ...present.map((p) => `:(literal)${p}`)]), 'add');
-  const pending = must(git(['diff', '--cached', '--name-only', '-z']), 'diff --cached').split('\0').filter(Boolean);
+  // SEC-3: el manifiesto puede ser un directorio; cada entrada añadida se valida entera, y no se confirman
+  // enlaces simbólicos (120000) ni gitlinks (160000).
+  const raw = must(git(['diff', '--cached', '--raw', '--no-renames', '-z']), 'diff --cached').split('\0');
+  const pending = [];
+  const refused = [];
+  for (let i = 0; i + 1 < raw.length; i += 2) {
+    const meta = raw[i].split(' ');
+    const file = raw[i + 1];
+    if (!file) continue;
+    pending.push(file);
+    if (!validPath(file) || ['120000', '160000'].includes(meta[1])) refused.push(file);
+  }
+  if (refused.length) {
+    git(['reset', '-q', '--', ...present.map((p) => `:(literal)${p}`)]);
+    throw new GitOpsError(`rutas protegidas, enlaces o gitlinks en el manifiesto: ${refused.join(', ')}`, EXIT.unauthorized);
+  }
   if (pending.length === 0) throw new GitOpsError('nada que confirmar en el manifiesto');
   const body = op ? `${message.trimEnd()}\n\nJz-Op: ${op}\n` : `${message.trimEnd()}\n`;
   must(git(['commit', '--no-verify', '--no-gpg-sign', '-q', '-F', '-'], body), 'commit');
@@ -135,6 +153,10 @@ export function push({ repo, branch, remote = 'origin', policyFile }, env = clea
   const { git } = openRepo(repo, branch, env);
   const url = must(git(['remote', 'get-url', remote]), 'remote').trim();
   if (policy.push.remotes[remote] !== url) throw new GitOpsError(`remoto ${remote} no autorizado (${url})`, EXIT.unauthorized);
+  // SEC-4: la URL efectiva de push (pushurl, pushInsteadOf) debe ser la autorizada, y mirror fuerza el push.
+  const pushUrls = must(git(['remote', 'get-url', '--push', '--all', remote]), 'remote').trim().split('\n');
+  if (pushUrls.length !== 1 || pushUrls[0] !== url) throw new GitOpsError(`URL de push no autorizada para ${remote}`, EXIT.unauthorized);
+  if (git(['config', '--get', `remote.${remote}.mirror`]).stdout.trim()) throw new GitOpsError(`remoto ${remote} mirror no autorizado`, EXIT.unauthorized);
   if (!branchAllowed(branch, policy.push.branches)) throw new GitOpsError(`push no autorizado para ${branch}`, EXIT.unauthorized);
   const local = must(git(['rev-parse', '--verify', `refs/heads/${branch}^{commit}`]), 'rev-parse').trim();
   const remoteSha = () => must(git(['ls-remote', remote, `refs/heads/${branch}`]), 'ls-remote').split(/\s/)[0] || null;

@@ -5,7 +5,7 @@ corrige automáticamente, confirma y publica mediante `tools/jz-gitops/jz-git.mj
 pasos. Operación, responsabilidades y límites: [`docs/OPERACION-JZ-AI.md`](../../docs/OPERACION-JZ-AI.md).
 
 ```sh
-tools/jz-autonomy/bin/jz-install <worktree> HEAD
+git -C <worktree> show <sha>:tools/jz-autonomy/bin/jz-install | bash -s -- <worktree> <sha>
 node ~/.local/share/jz-ai/current/tools/jz-autonomy/bin/jz-autonomy.js run --root <worktree> \
   --objective tools/jz-autonomy/objectives/handoff-contract.json --state-dir <nombre> [--engines claude,opencode]
 node ~/.local/share/jz-ai/current/tools/jz-autonomy/bin/jz-autonomy.js resume --root <worktree> --state-dir <nombre>

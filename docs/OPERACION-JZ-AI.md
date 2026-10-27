@@ -19,13 +19,17 @@ El supervisor corre en el host con los permisos de quien lo lanza; no lo lanza u
 ## Ejecutar un objetivo
 
 ```sh
-tools/jz-autonomy/bin/jz-install <worktree> HEAD          # instala la release del commit revisado
+# Instala la release de un commit revisado. Se ejecuta desde el commit, nunca desde el árbol (lo escriben workers):
+sha=$(git -C <worktree> rev-parse <ref-revisada>)
+git -C <worktree> show "${sha}:tools/jz-autonomy/bin/jz-install" | bash -s -- <worktree> "$sha"
 node ~/.local/share/jz-ai/current/tools/jz-autonomy/bin/jz-autonomy.js run \
   --root <worktree> --objective <ruta-relativa.json> --state-dir <nombre> [--engines claude,opencode]
 node ~/.local/share/jz-ai/current/tools/jz-autonomy/bin/jz-autonomy.js resume --root <worktree> --state-dir <nombre>
 ```
 
 Requisitos: worktree limpio, en la rama del objetivo, sin otro escritor ni otro motor con su directorio dentro.
+El objetivo debe estar versionado y sin cambios respecto de HEAD, `workspace` es siempre `.` y `allowedPaths`
+no puede cubrir `tools/jz-autonomy/bin`, `tools/jz-autonomy/objectives` ni `tools/jz-gitops`.
 Salida: JSON final en stdout; exit 0 `completed`, 1 `failed`, 2 `blocked`, 3 error interno.
 
 Objetivo (`jz-autonomy-objective-v1`): `unit`, `objective`, `criteria`, `workspace`, `branch`,
@@ -38,10 +42,13 @@ Ejemplos en `tools/jz-autonomy/objectives/`.
 1. `preflight`: `jz-state` REANUDABLE, rama correcta, árbol limpio.
 2. Bloqueo de escritor del supervisor (`.jz-state/writer.lock`, motor `jz-autonomy`) durante toda la ejecución.
 3. Worker de implementación. En `split-tdd` sólo puede tocar `testPaths` y debe dejar un check en rojo.
-4. Inspección de rutas (fuera de `allowedPaths` = `blocked`) y checks.
+4. Inspección de rutas: fuera de `allowedPaths`, o con un nombre del plano de control o de secreto a cualquier
+   profundidad, es `blocked`. Se registra la huella del árbol (`jz-run --fingerprint`) y se ejecutan los checks.
 5. Correcciones automáticas con los fallos estructurados: re-ejecuta primero los checks que fallaron y,
    en verde, una sola vez los restantes.
-6. Commit por `jz-git` con `Jz-Op: <unit>:<runId>:commit`; push si `push: true`.
+6. Si la huella cambió desde la inspección, `blocked`. Commit por `jz-git` con `Jz-Op: <unit>:<runId>:commit`
+   (rechaza secretos, plano de control, enlaces y gitlinks dentro de un directorio del manifiesto); push si
+   `push: true`, sólo a la URL de push autorizada y sin `mirror`.
 7. Libera el bloqueo y registra `jz-checkpoint`.
 
 ## Estado y recuperación
@@ -71,5 +78,9 @@ la hace sólo el orquestador Claude Code, en ramas `integ/*`, tras comprobar anc
 
 - Todo corre como root en este host: los permisos de archivo de la release no protegen frente a root; la
   protección real es la política jz (hook y plugin) y el sandbox de `jz-run`, que no montan la release.
+  Los motores corren en su propio grupo de procesos, que se mata al terminar cada agente.
+- El journal (`state.json`) no está firmado: su integridad depende de que la política deniega `.jz-state` a
+  los workers. Pendiente (backlog): guardarlo fuera del worktree o firmarlo.
+- `admin-authorize` también se ejecuta desde la release instalada, no desde el árbol.
 - `main` no tiene protecciones, rulesets ni CI en GitHub: no se automatizan merges a `main`.
 - QA y Security revisan al cierre de hitos; los hallazgos no bloqueantes van al backlog.

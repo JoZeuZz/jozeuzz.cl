@@ -5,6 +5,7 @@ import { join } from 'node:path';
 const schema = 'jz-autonomy-objective-v1';
 const agents = new Set(['jz-implementer', 'jz-implementer-copilot']);
 const engines = new Set(['claude', 'opencode']);
+const supervisorPaths = ['tools/jz-autonomy/bin', 'tools/jz-autonomy/objectives', 'tools/jz-gitops'];
 const controlNames = new Set(['.git', '.claude', '.opencode', '.jz', '.jz-state', 'AGENTS.md', 'CLAUDE.md', 'opencode.json', 'opencode.jsonc', '.mcp.json']);
 
 function fail(message) {
@@ -26,6 +27,12 @@ function isUnsafePath(value) {
   ));
 }
 
+// SEC-3: nombres del plano de control o de secretos en cualquier componente de una ruta cambiada.
+export function protectedPath(value) {
+  return String(value).split(/[\\/]/).some((part) => controlNames.has(part) || /^\.env(\..+)?$/.test(part)
+    && !/^\.env\.(example|sample|template)$/.test(part) || /\.(?:pem|key|p12|pfx)$/i.test(part) || /^id_(rsa|ed25519|ecdsa|dsa)/.test(part));
+}
+
 function string(value, name) {
   if (typeof value !== 'string' || !value) fail(name);
 }
@@ -33,6 +40,7 @@ function string(value, name) {
 function redact(value) {
   if (typeof value !== 'string') return value;
   return value
+    .replace(/\/\/[^/@\s]+@/g, '//[REDACTED]@')
     .replace(/\b(authorization|api[_-]?key|token|secret|password)\s*[:=]\s*\S+/gi, '$1=[REDACTED]')
     .replace(/\bBearer\s+\S+/gi, 'Bearer [REDACTED]');
 }
@@ -53,13 +61,19 @@ export function validateObjective(input) {
   const value = { ...input, maxCorrections: input.maxCorrections ?? 1, workflow: input.workflow ?? 'standard' };
   if (value.schema !== schema) fail('schema');
   for (const name of ['unit', 'objective', 'workspace', 'branch']) string(value[name], name);
-  if (isUnsafePath(value.workspace)) fail('path');
+  // SEC-1: el supervisor ejecuta el plano de control de <workspace>/.jz; sólo el de la raíz está protegido.
+  if (value.workspace !== '.') fail('workspace');
   if (!/^(feat|fix|chore|docs|work)\/.+/.test(value.branch) || ['main', 'master', 'production'].includes(value.branch)) fail('branch');
   if (!agents.has(value.agent)) fail('agent');
   if (!Array.isArray(value.criteria) || value.criteria.length === 0 || value.criteria.some((criterion) => typeof criterion !== 'string')) fail('criteria');
   if (!['standard', 'split-tdd'].includes(value.workflow)) fail('workflow');
   if (!Array.isArray(value.allowedPaths) || value.allowedPaths.length === 0) fail('allowedPaths');
   for (const path of value.allowedPaths) if (isUnsafePath(path)) fail(/\.env|\.pem|\.key|^id_/i.test(path) ? 'secret path' : 'path');
+  // SEC-2: un objetivo nunca modifica el instalador, el GitOps ni los objetivos que relanza el humano.
+  for (const path of value.allowedPaths) {
+    const clean = path.replace(/\/+$/, '');
+    if (supervisorPaths.some((guarded) => clean === guarded || guarded.startsWith(`${clean}/`) || clean.startsWith(`${guarded}/`))) fail('supervisor path');
+  }
   if (value.workflow === 'split-tdd') {
     if (!Array.isArray(value.testPaths) || value.testPaths.length === 0) fail('testPaths');
     for (const path of value.testPaths) {
@@ -198,7 +212,18 @@ export async function runObjective(input, adapters, options = {}) {
     if (output.error) return output.error;
     const unexpected = output.paths.filter((path) => !permitted.some((allowed) => path === allowed || path.startsWith(`${allowed}/`)));
     await transition('inspect', { paths: output.paths });
-    return unexpected.length > 0 ? `unexpected paths: ${unexpected.join(', ')}` : null;
+    const guarded = output.paths.filter(protectedPath);
+    if (guarded.length > 0) return `protected path: ${guarded.join(', ')}`;
+    if (unexpected.length > 0) return `unexpected paths: ${unexpected.join(', ')}`;
+    // SEC-5: huella del árbol inspeccionado; el commit exige que no haya cambiado.
+    if (typeof adapters.fingerprint === 'function') {
+      const fp = await step('fingerprint', async () => {
+        try { return await adapters.fingerprint({ objective }); } catch { return { rc: 1 }; }
+      });
+      if (fp?.rc !== 0 || typeof fp.fingerprint !== 'string') return 'tree fingerprint unavailable';
+      inspected = fp.fingerprint;
+    }
+    return null;
   }
   async function runChecks(checks) {
     const records = [];
@@ -219,6 +244,7 @@ export async function runObjective(input, adapters, options = {}) {
     return records.filter((record) => record.rc !== 0).map((record) => ({ kind: 'check', phase: 'check', ...record }));
   }
   let locked = false;
+  let inspected = null;
   async function close(result, reason) {
     diverged = true;
     state.result = result;
@@ -291,6 +317,11 @@ export async function runObjective(input, adapters, options = {}) {
   if (failures.length > 0) return close('failed', 'checks failed');
 
   if (typeof adapters.commit !== 'function') return close('blocked', 'commit capability missing');
+  if (inspected !== null) {
+    let now;
+    try { now = await adapters.fingerprint({ objective }); } catch { now = null; }
+    if (now?.rc !== 0 || now.fingerprint !== inspected) return close('blocked', 'tree changed after inspection');
+  }
   const commit = await step('commit', async () => {
     try {
       const out = await adapters.commit({ objective, state, paths, op: `${objective.unit}:${state.runId}:commit` });
