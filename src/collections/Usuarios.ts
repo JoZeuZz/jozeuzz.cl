@@ -1,6 +1,7 @@
 import type { CollectionConfig } from 'payload'
 
 import { nadie, usuarioPropio } from '@/modules/identity/access'
+import { rechazarCambioIdentidad } from '@/modules/identity/inmutables'
 
 export const Usuarios: CollectionConfig = {
   slug: 'usuarios',
@@ -14,6 +15,14 @@ export const Usuarios: CollectionConfig = {
     create: nadie,
     update: usuarioPropio,
     delete: nadie,
+  },
+  hooks: {
+    beforeChange: [
+      ({ data, originalDoc }) => {
+        rechazarCambioIdentidad({ data, originalDoc })
+        return data
+      },
+    ],
   },
   fields: [
     { name: 'nombre', type: 'text', required: true },
