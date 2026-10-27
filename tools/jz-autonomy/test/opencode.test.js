@@ -134,24 +134,30 @@ test('split-tdd prompt includes criteria and phase-specific supervised instructi
   assert.equal(correction.includes('RAW_AGENT_CANARY'), false);
 });
 
-test('commit returns capability missing and uses exact helper argv when available', async () => {
+test('commit returns capability missing and calls the installed jz-git with the manifest and op', async () => {
   const absent = createOpenCodeAdapters({ root: '/repo', stateDir: '/state', realpath: async (path) => path, exists: async () => false });
   assert.deepEqual(await absent.commit({ objective: { ...objective, workspace: 'tools/app' } }), { rc: 78, evidence: 'capability missing' });
 
   const calls = [];
   const present = createOpenCodeAdapters({
-    root: '/repo', stateDir: '/state', realpath: async (path) => path, exists: async () => true,
-    execFile: async (file, argv, options) => { calls.push({ file, argv, options }); return { rc: 0, stdout: '{"head":"abc123","evidence":"commit-proof"}' }; }
+    root: '/repo', stateDir: '/state', realpath: async (path) => path, exists: async () => true, node: '/usr/bin/node', gitops: '/opt/jz/jz-git.mjs',
+    env: { HOME: '/home/u', ANTHROPIC_API_KEY: 'CANARY' },
+    execFile: async (file, argv, options) => { calls.push({ file, argv, options }); return { rc: 0, stdout: '{"ok":true,"head":"abc123","evidence":"commit-proof"}\n' }; }
   });
-  assert.deepEqual(await present.commit({ objective: { ...objective, workspace: 'tools/app' } }), { rc: 0, head: 'abc123', evidence: 'commit-proof' });
-  assert.deepEqual(calls[0].argv, ['commit', '--branch', objective.branch, '--message', objective.commit.message, '--path', 'src', '--path', 'test']);
+  assert.deepEqual(await present.commit({ objective: { ...objective, workspace: 'tools/app' }, op: 'U:run:commit' }), { rc: 0, head: 'abc123', evidence: 'commit-proof' });
+  assert.equal(calls[0].file, '/usr/bin/node');
+  assert.deepEqual(calls[0].argv, ['/opt/jz/jz-git.mjs', 'commit', '--repo', '/repo/tools/app', '--branch', objective.branch, '--message', objective.commit.message, '--op', 'U:run:commit', '--path', 'src', '--path', 'test']);
+  assert.equal(calls[0].options.env.HOME, '/home/u');
+  assert.equal(JSON.stringify(calls[0].options.env).includes('CANARY'), false);
 });
 
-test('commit malformed helper output and checkpoint preserve only rc-safe fields', async () => {
+test('push returns remote SHA; malformed helper output and checkpoint keep only rc-safe fields', async () => {
   const adapters = createOpenCodeAdapters({
-    root: '/repo', stateDir: '/state', realpath: async (path) => path, exists: async () => true,
-    execFile: async (file) => file.endsWith('jz-git') ? { rc: 0, stdout: 'RAW_COMMIT_CANARY' } : { rc: 7, stdout: 'RAW_CHECKPOINT_CANARY' }
+    root: '/repo', stateDir: '/state', realpath: async (path) => path, exists: async () => true, node: '/usr/bin/node', gitops: '/opt/jz/jz-git.mjs',
+    execFile: async (file, argv) => argv[1] === 'push' ? { rc: 0, stdout: '{"ok":true,"head":"abc","remoteSha":"abc","evidence":"origin ok"}' }
+      : argv[1] === 'commit' ? { rc: 0, stdout: 'RAW_COMMIT_CANARY' } : { rc: 7, stdout: 'RAW_CHECKPOINT_CANARY' }
   });
+  assert.deepEqual(await adapters.push({ objective: { ...objective, workspace: 'tools/app' } }), { rc: 0, head: 'abc', remoteSha: 'abc', evidence: 'origin ok' });
   assert.deepEqual(await adapters.commit({ objective: { ...objective, workspace: 'tools/app' } }), { rc: 0, evidence: 'jz-git' });
   assert.deepEqual(await adapters.checkpoint({ result: 'completed', state: { objective: { ...objective, workspace: 'tools/app' } } }), { rc: 7 });
 });

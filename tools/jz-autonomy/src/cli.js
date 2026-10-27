@@ -4,7 +4,9 @@ import { createOpenCodeAdapters } from './opencode.js';
 import { runObjective } from './runner.js';
 
 const maxObjectiveBytes = 64 * 1024;
-const usage = 'usage: jz-autonomy run --objective <file> --state-dir <dir> [--root <absolute>]\n';
+const usage = 'usage: jz-autonomy run --objective <file> --state-dir <dir> [--root <absolute>] [--engines claude,opencode]\n'
+  + '       jz-autonomy resume --state-dir <dir> [--root <absolute>]\n';
+const engineNames = new Set(['claude', 'opencode']);
 
 function inside(base, target) {
   const path = relative(base, target);
@@ -14,15 +16,50 @@ function inside(base, target) {
 function parse(argv) {
   if (argv.length === 1 && argv[0] === '--help') return { help: true };
   if (argv.length === 1 && argv[0] === '--version') return { version: true };
-  if (argv[0] !== 'run') return null;
+  if (argv[0] !== 'run' && argv[0] !== 'resume') return null;
+  const allowed = argv[0] === 'run' ? ['--objective', '--state-dir', '--root', '--engines'] : ['--state-dir', '--root'];
   const values = {};
   for (let index = 1; index < argv.length; index += 2) {
     const key = argv[index];
     const value = argv[index + 1];
-    if (!['--objective', '--state-dir', '--root'].includes(key) || !value || values[key]) return null;
+    if (!allowed.includes(key) || !value || values[key]) return null;
     values[key] = value;
   }
-  return values['--objective'] && values['--state-dir'] ? { objective: values['--objective'], stateDir: values['--state-dir'], root: values['--root'] } : null;
+  let engines;
+  if (values['--engines']) {
+    engines = values['--engines'].split(',');
+    if (engines.some((name) => !engineNames.has(name)) || new Set(engines).size !== engines.length) return null;
+  }
+  if (argv[0] === 'resume') return values['--state-dir'] ? { resume: true, stateDir: values['--state-dir'], root: values['--root'] } : null;
+  return values['--objective'] && values['--state-dir'] ? { objective: values['--objective'], stateDir: values['--state-dir'], root: values['--root'], engines } : null;
+}
+
+function timeoutOf(objective) {
+  return Number.isInteger(objective?.timeoutMinutes) ? objective.timeoutMinutes * 60_000 : 30 * 60_000;
+}
+
+function report(result, io) {
+  const final = { result: result.result, runId: result.runId, reason: result.reason, corrections: result.corrections, checks: result.checks, commit: result.commit, push: result.push, paths: result.paths };
+  io.stdout.write(`${JSON.stringify(final)}\n`);
+  return result.result === 'completed' ? 0 : result.result === 'failed' ? 1 : 2;
+}
+
+// Reanuda un state-dir existente: reutiliza el journal y no repite los pasos ya registrados.
+async function resume(command, root, io) {
+  if (isAbsolute(command.stateDir) || command.stateDir === '.') throw new Error('state');
+  const stateBase = join(root, '.jz-state', 'autonomy');
+  const stateDir = resolve(stateBase, command.stateDir);
+  if (!inside(stateBase, stateDir) || stateDir === stateBase) throw new Error('state');
+  const realDir = await io.realpath(stateDir).catch(() => { throw new Error('state'); });
+  if (!inside(await io.realpath(stateBase), realDir)) throw new Error('state');
+  const statePath = join(realDir, 'state.json');
+  await regular(statePath, io).catch(() => { throw new Error('state'); });
+  let saved;
+  try { saved = JSON.parse((await io.readFile(statePath)).toString('utf8')); } catch { throw new Error('state'); }
+  if (saved?.result === 'completed') return report({ ...saved, paths: saved.paths }, io);
+  const adapters = io.createOpenCodeAdapters({ root, stateDir: realDir, engines: saved?.objective?.engines, timeoutMs: timeoutOf(saved?.objective) });
+  const result = await io.runObjective(saved.objective, adapters, { stateDir: realDir, resume: saved });
+  return report(result, io);
 }
 
 async function regular(path, io) {
@@ -60,6 +97,7 @@ export async function runCli(argv, injected = {}) {
     const requestedRoot = command.root ?? io.cwd();
     if (!isAbsolute(requestedRoot)) throw new Error('root');
     const root = await io.realpath(requestedRoot);
+    if (command.resume) return await resume(command, root, io);
     if (isAbsolute(command.objective)) throw new Error('objective');
     const objectivePath = resolve(root, command.objective);
     if (!inside(root, objectivePath)) throw new Error('objective');
@@ -112,11 +150,9 @@ export async function runCli(argv, injected = {}) {
     }
     if (!inside(realBase, realDir)) throw new Error('state');
 
-    const adapters = io.createOpenCodeAdapters({ root, stateDir });
+    const adapters = io.createOpenCodeAdapters({ root, stateDir, engines: command.engines, timeoutMs: timeoutOf(objective) });
     const result = await io.runObjective(objective, adapters, { stateDir });
-    const final = { result: result.result, corrections: result.corrections, checks: result.checks, commit: result.commit, paths: result.paths };
-    io.stdout.write(`${JSON.stringify(final)}\n`);
-    return result.result === 'completed' ? 0 : result.result === 'failed' ? 1 : 2;
+    return report(result, io);
   } catch (error) {
     const input = error instanceof SyntaxError || ['root', 'objective', 'state', 'invalid file'].includes(error?.message);
     io.stderr.write(input ? 'invalid input\n' : 'internal error\n');

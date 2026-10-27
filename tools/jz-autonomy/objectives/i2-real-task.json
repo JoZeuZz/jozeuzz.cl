@@ -1,6 +1,6 @@
 {
   "schema": "jz-autonomy-objective-v1",
-  "unit": "JZ-AUTONOMY-V2-I2-DEMO",
+  "unit": "JZ-AUTONOMY-V2-DEMO-SUMMARY",
   "objective": "Añadir summarizeRun(result) en tools/jz-autonomy/src/summary.js y tests en tools/jz-autonomy/test/summary.test.js",
   "criteria": [
     "salida estable result=<status> corrections=<n> checks=<passed>/<total>",
@@ -21,15 +21,29 @@
   "checks": [
     {
       "id": "summary-focal",
-      "argv": ["node", "--test", "tools/jz-autonomy/test/summary.test.js"]
+      "argv": [
+        "node",
+        "--test",
+        "tools/jz-autonomy/test/summary.test.js"
+      ]
     },
     {
       "id": "summary-suite",
-      "argv": ["node", "--test", "tools/jz-autonomy/test/"]
+      "argv": [
+        "node",
+        "--test",
+        "tools/jz-autonomy/test/"
+      ]
     }
   ],
   "maxCorrections": 1,
   "commit": {
     "message": "feat(autonomy): add run summary"
-  }
+  },
+  "engines": [
+    "claude",
+    "opencode"
+  ],
+  "push": true,
+  "timeoutMinutes": 20
 }

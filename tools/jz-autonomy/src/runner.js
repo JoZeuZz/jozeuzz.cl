@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 const schema = 'jz-autonomy-objective-v1';
 const agents = new Set(['jz-implementer', 'jz-implementer-copilot']);
+const engines = new Set(['claude', 'opencode']);
 const controlNames = new Set(['.git', '.claude', '.opencode', '.jz', '.jz-state', 'AGENTS.md', 'CLAUDE.md', 'opencode.json', 'opencode.jsonc', '.mcp.json']);
 
 function fail(message) {
@@ -75,6 +76,12 @@ export function validateObjective(input) {
     if (!Array.isArray(check.argv) || check.argv.length === 0 || check.argv.some((arg) => typeof arg !== 'string' || !arg)) fail('check.argv');
   }
   if (!Number.isInteger(value.maxCorrections) || value.maxCorrections < 0 || value.maxCorrections > 2) fail('maxCorrections');
+  if (value.engines !== undefined) {
+    if (!Array.isArray(value.engines) || value.engines.length === 0 || new Set(value.engines).size !== value.engines.length
+      || value.engines.some((engine) => !engines.has(engine))) fail('engines');
+  }
+  if (value.push !== undefined && typeof value.push !== 'boolean') fail('push');
+  if (value.timeoutMinutes !== undefined && (!Number.isInteger(value.timeoutMinutes) || value.timeoutMinutes < 1 || value.timeoutMinutes > 240)) fail('timeoutMinutes');
   if (!value.commit || typeof value.commit !== 'object') fail('commit');
   string(value.commit.message, 'commit.message');
   return value;
@@ -98,6 +105,18 @@ function structuralFailure(failure) {
   };
 }
 
+// Resultados que se reutilizan al reanudar. Los fallos de preflight, commit y push y las cuotas no se
+// memorizan: se reintentan al reanudar.
+function memorable(name, output) {
+  if (name === 'agent') return !output?.unavailable;
+  if (['preflight', 'commit', 'push'].includes(name)) return name === 'preflight' ? output?.status === 'clean' && !output?.dirty : output?.rc === 0;
+  return true;
+}
+
+function plain(value) {
+  return value === undefined ? null : JSON.parse(JSON.stringify(value));
+}
+
 export async function runObjective(input, adapters, options = {}) {
   const objective = validateObjective(input);
   requiredAdapters(adapters);
@@ -106,8 +125,16 @@ export async function runObjective(input, adapters, options = {}) {
   const now = typeof options.clock === 'function' ? options.clock : () => new Date().toISOString();
   const identify = typeof options.id === 'function' ? options.id : randomUUID;
   const paths = { state: join(options.stateDir, 'state.json'), events: join(options.stateDir, 'events.jsonl') };
-  const state = { schema, objective, result: 'running', corrections: 0, checks: [], commit: null, paths, events: [] };
+  const prior = options.resume ?? null;
+  if (prior && (prior.schema !== schema || !Array.isArray(prior.steps) || typeof prior.runId !== 'string')) throw new TypeError('Invalid resume state');
+  const journal = prior ? prior.steps : [];
+  const state = {
+    schema, runId: prior?.runId ?? identify(), objective, result: 'running', corrections: 0, checks: [], commit: null, push: null,
+    paths, steps: [], events: prior ? [...prior.events] : []
+  };
   let writes = 0;
+  let diverged = false;
+  const replaying = () => !diverged && state.steps.length < journal.length;
 
   await mkdir(options.stateDir, { recursive: true });
   async function persist() {
@@ -115,46 +142,74 @@ export async function runObjective(input, adapters, options = {}) {
     await writeFile(temp, `${JSON.stringify(state)}\n`, { mode: 0o600 });
     await rename(temp, paths.state);
   }
-  async function transition(event, detail = {}) {
+  async function transition(event, detail = {}, force = false) {
+    if (replaying() && !force) return;
     state.updatedAt = now();
     const entry = { at: state.updatedAt, event, result: state.result, ...detail };
     state.events.push(entry);
     await persist();
     await appendFile(paths.events, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
   }
-  async function callAgent(phase, failures = []) {
-    let output;
-    try {
-      output = await adapters.runAgent({ phase, objective, failures });
-    } catch (error) {
-      output = { rc: 1, error: error instanceof Error ? error.message : 'agent adapter failed' };
+  // Paso del journal: al reanudar devuelve el resultado registrado en vez de repetir la operación.
+  async function step(name, fn) {
+    const key = `${state.steps.length}:${name}`;
+    if (replaying()) {
+      const recorded = journal[state.steps.length];
+      if (recorded.key === key) {
+        state.steps.push(recorded);
+        return recorded.output;
+      }
+      diverged = true;
     }
-    const failure = { kind: 'agent', phase, rc: Number.isInteger(output?.rc) ? output.rc : 1 };
-    await transition('agent', failure);
+    const output = await fn();
+    if (memorable(name, output)) {
+      state.steps.push({ key, output: plain(output) });
+      await persist();
+    } else {
+      diverged = true;
+    }
+    return output;
+  }
+  async function callAgent(phase, failures = []) {
+    const output = await step('agent', async () => {
+      try {
+        const out = await adapters.runAgent({ phase, objective, failures, runId: state.runId });
+        return { rc: Number.isInteger(out?.rc) ? out.rc : 1, engine: typeof out?.engine === 'string' ? out.engine : null, unavailable: Boolean(out?.unavailable) };
+      } catch (error) {
+        return { rc: 1, engine: null, unavailable: false, error: error instanceof Error ? error.message : 'agent adapter failed' };
+      }
+    });
+    const failure = { kind: 'agent', phase, rc: output.rc };
+    await transition('agent', { ...failure, engine: output.engine, unavailable: output.unavailable });
+    if (output.unavailable) return { ...failure, unavailable: true };
     return failure.rc === 0 ? null : failure;
   }
   async function inspect(phase) {
-    let output;
-    try {
-      output = await adapters.inspectChanges({ objective, allowedPaths: objective.workflow === 'split-tdd' && phase === 'implementation' ? objective.testPaths : objective.allowedPaths });
-    } catch (error) {
-      return error instanceof Error ? error.message : 'change inspection failed';
-    }
-    const paths = Array.isArray(output?.paths) ? output.paths : [];
     const permitted = objective.workflow === 'split-tdd' && phase === 'implementation' ? objective.testPaths : objective.allowedPaths;
-    const unexpected = paths.filter((path) => !permitted.some((allowed) => path === allowed || path.startsWith(`${allowed}/`)));
-    await transition('inspect', { paths });
+    const output = await step('inspect', async () => {
+      try {
+        const out = await adapters.inspectChanges({ objective, allowedPaths: permitted });
+        return { paths: Array.isArray(out?.paths) ? out.paths : [] };
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'change inspection failed' };
+      }
+    });
+    if (output.error) return output.error;
+    const unexpected = output.paths.filter((path) => !permitted.some((allowed) => path === allowed || path.startsWith(`${allowed}/`)));
+    await transition('inspect', { paths: output.paths });
     return unexpected.length > 0 ? `unexpected paths: ${unexpected.join(', ')}` : null;
   }
   async function runChecks(checks) {
     const records = [];
     for (const check of checks) {
-      let output;
-      try {
-        output = await adapters.runCheck({ check, objective });
-      } catch (error) {
-        output = { rc: 1, log: error instanceof Error ? error.message : 'check adapter failed' };
-      }
+      const output = await step('check', async () => {
+        try {
+          const out = await adapters.runCheck({ check, objective });
+          return { rc: out?.rc, log: out?.log, evidence: out?.evidence };
+        } catch (error) {
+          return { rc: 1, log: error instanceof Error ? error.message : 'check adapter failed' };
+        }
+      });
       const record = checkRecord(check, output);
       records.push(record);
       state.checks.push(record);
@@ -162,10 +217,16 @@ export async function runObjective(input, adapters, options = {}) {
     }
     return records.filter((record) => record.rc !== 0).map((record) => ({ kind: 'check', phase: 'check', ...record }));
   }
+  let locked = false;
   async function close(result, reason) {
+    diverged = true;
     state.result = result;
     if (reason) state.reason = redact(reason);
     await transition('closed', { reason: state.reason });
+    if (locked && typeof adapters.release === 'function') {
+      try { await adapters.release({ objective, runId: state.runId }); } catch {}
+      locked = false;
+    }
     let checkpoint = { rc: 1 };
     try {
       const output = await adapters.checkpoint({ result, state, paths });
@@ -179,20 +240,33 @@ export async function runObjective(input, adapters, options = {}) {
       state.reason = 'checkpoint failed';
     }
     await transition('checkpoint', checkpoint);
-    return { result: state.result, corrections: state.corrections, checks: state.checks, commit: state.commit, paths };
+    return { result: state.result, runId: state.runId, corrections: state.corrections, checks: state.checks, commit: state.commit, push: state.push, reason: state.reason, paths };
   }
 
-  await transition('initialized');
-  let preflight;
-  try {
-    preflight = await adapters.preflight({ objective });
-  } catch (error) {
-    return close('blocked', error instanceof Error ? error.message : 'preflight adapter failed');
+  if (prior) await transition('resumed', { steps: journal.length }, true);
+  else await transition('initialized');
+  const preflight = await step('preflight', async () => {
+    try {
+      const out = await adapters.preflight({ objective });
+      return { status: out?.status, dirty: Boolean(out?.dirty), reason: out?.reason };
+    } catch (error) {
+      return { status: 'blocked', error: error instanceof Error ? error.message : 'preflight adapter failed' };
+    }
+  });
+  if (preflight.error) return close('blocked', preflight.error);
+  await transition('preflight', { status: preflight.status, dirty: preflight.dirty });
+  if (preflight.status === 'blocked' || preflight.status === 'BLOQUEADO' || preflight.dirty) return close('blocked', preflight.reason || 'preflight blocked');
+
+  if (typeof adapters.acquire === 'function') {
+    let lock;
+    try { lock = await adapters.acquire({ objective, runId: state.runId }); } catch (error) { lock = { rc: 1, reason: error?.message }; }
+    if (lock?.rc !== 0) return close('blocked', `writer lock: ${lock?.reason ?? 'busy'}`);
+    locked = true;
+    await transition('locked', {}, true);
   }
-  await transition('preflight', { status: preflight?.status, dirty: Boolean(preflight?.dirty) });
-  if (preflight?.status === 'blocked' || preflight?.status === 'BLOQUEADO' || preflight?.dirty) return close('blocked', preflight?.reason || 'preflight blocked');
 
   const initialAgentFailure = await callAgent('implementation');
+  if (initialAgentFailure?.unavailable) return close('blocked', 'engines unavailable');
   const initialInspection = await inspect('implementation');
   if (initialInspection) return close('blocked', initialInspection);
   let failures = [initialAgentFailure, ...(await runChecks(objective.checks))].filter(Boolean);
@@ -202,6 +276,7 @@ export async function runObjective(input, adapters, options = {}) {
     const structuredFailures = failures.map(structuralFailure);
     await transition('correction', { failures: structuredFailures });
     const correctionFailure = await callAgent('correction', structuredFailures);
+    if (correctionFailure?.unavailable) return close('blocked', 'engines unavailable');
     const correctionInspection = await inspect('correction');
     if (correctionInspection) return close('blocked', correctionInspection);
     const affected = objective.checks.filter((check) => failures.some((failure) => failure.kind !== 'agent' && failure.id === check.id));
@@ -212,19 +287,36 @@ export async function runObjective(input, adapters, options = {}) {
   if (failures.length > 0) return close('failed', 'checks failed');
 
   if (typeof adapters.commit !== 'function') return close('blocked', 'commit capability missing');
-  try {
-    const commit = await adapters.commit({ objective, state, paths });
-    state.commit = {
-      rc: Number.isInteger(commit?.rc) ? commit.rc : 1,
-      evidence: redact(typeof commit?.evidence === 'string' ? commit.evidence : ''),
-      head: redact(typeof commit?.head === 'string' ? commit.head : '')
-    };
-    await transition('commit', state.commit);
-    if (state.commit.rc !== 0) return close('blocked', 'commit failed');
-  } catch (error) {
-    state.commit = { rc: 1, evidence: '', head: '' };
-    await transition('commit', state.commit);
-    return close('blocked', error instanceof Error ? error.message : 'commit failed');
+  const commit = await step('commit', async () => {
+    try {
+      const out = await adapters.commit({ objective, state, paths, op: `${objective.unit}:${state.runId}:commit` });
+      return {
+        rc: Number.isInteger(out?.rc) ? out.rc : 1,
+        evidence: redact(typeof out?.evidence === 'string' ? out.evidence : ''),
+        head: redact(typeof out?.head === 'string' ? out.head : '')
+      };
+    } catch (error) {
+      return { rc: 1, evidence: '', head: '', error: error instanceof Error ? error.message : 'commit failed' };
+    }
+  });
+  state.commit = { rc: commit.rc, evidence: commit.evidence, head: commit.head };
+  await transition('commit', state.commit);
+  if (state.commit.rc !== 0) return close('blocked', commit.error ?? 'commit failed');
+
+  if (objective.push) {
+    if (typeof adapters.push !== 'function') return close('blocked', 'push capability missing');
+    const pushed = await step('push', async () => {
+      try {
+        const out = await adapters.push({ objective, state });
+        return { rc: Number.isInteger(out?.rc) ? out.rc : 1, remoteSha: typeof out?.remoteSha === 'string' ? out.remoteSha : '', evidence: redact(typeof out?.evidence === 'string' ? out.evidence : '') };
+      } catch (error) {
+        return { rc: 1, remoteSha: '', evidence: error instanceof Error ? redact(error.message) : 'push failed' };
+      }
+    });
+    state.push = pushed;
+    await transition('push', pushed);
+    if (pushed.rc !== 0) return close('blocked', pushed.rc === 77 ? 'push not authorized' : 'push failed');
+    if (state.commit.head && pushed.remoteSha !== state.commit.head) return close('blocked', 'remote SHA mismatch');
   }
   return close('completed');
 }

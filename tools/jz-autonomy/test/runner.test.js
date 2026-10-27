@@ -295,3 +295,82 @@ test('result.checks preserves rc and order; correction runs affected then full s
   assert.equal(state.checks.length, 5);
   assert.equal(state.checks[0].id, 'unit'); assert.equal(state.checks[0].rc, 1);
 });
+
+test('resume replays recorded steps and retries only the unauthorized push', async () => {
+  const dir = await stateDir();
+  const calls = [];
+  let pushRc = 77;
+  const adapters = {
+    ...greenAdapters(calls),
+    commit: async ({ op }) => { calls.push(`commit:${op}`); return { rc: 0, head: 'abc123' }; },
+    push: async () => { calls.push('push'); return pushRc === 0 ? { rc: 0, remoteSha: 'abc123' } : { rc: pushRc }; }
+  };
+  const first = await runObjective(objective({ push: true }), adapters, { stateDir: dir, id: () => 'run-1' });
+  assert.equal(first.result, 'blocked');
+  assert.equal(first.reason, 'push not authorized');
+  const saved = JSON.parse(await readFile(join(dir, 'state.json'), 'utf8'));
+  calls.length = 0;
+  pushRc = 0;
+  const second = await runObjective(saved.objective, adapters, { stateDir: dir, resume: saved, id: () => 'run-2' });
+  assert.equal(second.result, 'completed');
+  assert.equal(second.runId, 'run-1');
+  assert.deepEqual(calls, ['push', 'checkpoint:completed']);
+  assert.equal(second.push.remoteSha, 'abc123');
+});
+
+test('resume after an interruption reruns only from the first unrecorded step', async () => {
+  const dir = await stateDir();
+  const calls = [];
+  let hang = true;
+  const adapters = {
+    ...greenAdapters(calls),
+    runCheck: async ({ check }) => {
+      calls.push(`check:${check.id}`);
+      // Simula un proceso cortado: el paso nunca termina ni queda registrado.
+      if (hang && check.id === 'suite') return new Promise(() => {});
+      return { rc: 0 };
+    }
+  };
+  runObjective(objective(), adapters, { stateDir: dir, id: () => 'run-x' });
+  for (let i = 0; i < 50 && !calls.includes('check:suite'); i++) await new Promise((r) => setTimeout(r, 10));
+  hang = false;
+  const saved = JSON.parse(await readFile(join(dir, 'state.json'), 'utf8'));
+  calls.length = 0;
+  const result = await runObjective(saved.objective, adapters, { stateDir: dir, resume: saved });
+  assert.equal(result.result, 'completed');
+  assert.deepEqual(calls, ['check:suite', 'commit', 'checkpoint:completed']);
+});
+
+test('all engines unavailable blocks without counting a correction', async () => {
+  const calls = [];
+  const adapters = { ...greenAdapters(calls), runAgent: async () => ({ rc: 75, unavailable: true }) };
+  const result = await runObjective(objective(), adapters, { stateDir: await stateDir() });
+  assert.equal(result.result, 'blocked');
+  assert.equal(result.reason, 'engines unavailable');
+  assert.equal(result.corrections, 0);
+  assert.equal(calls.some((c) => c.startsWith('check:')), false);
+});
+
+test('writer lock is required, held during work and released before the checkpoint', async () => {
+  const calls = [];
+  const busy = { ...greenAdapters(calls), acquire: async () => ({ rc: 1, reason: 'otro escritor' }) };
+  const blocked = await runObjective(objective(), busy, { stateDir: await stateDir() });
+  assert.equal(blocked.result, 'blocked');
+  assert.match(blocked.reason, /otro escritor/);
+  assert.equal(calls.includes('agent:implementation'), false);
+  calls.length = 0;
+  const held = { ...greenAdapters(calls), acquire: async () => { calls.push('acquire'); return { rc: 0 }; }, release: async () => { calls.push('release'); } };
+  const done = await runObjective(objective(), held, { stateDir: await stateDir() });
+  assert.equal(done.result, 'completed');
+  assert.deepEqual(calls.slice(0, 3), ['preflight', 'acquire', 'agent:implementation']);
+  assert.deepEqual(calls.slice(-2), ['release', 'checkpoint:completed']);
+});
+
+test('validateObjective checks engines, push and timeout', () => {
+  assert.throws(() => validateObjective(objective({ engines: [] })), /engines/);
+  assert.throws(() => validateObjective(objective({ engines: ['claude', 'claude'] })), /engines/);
+  assert.throws(() => validateObjective(objective({ engines: ['codex'] })), /engines/);
+  assert.throws(() => validateObjective(objective({ push: 'yes' })), /push/);
+  assert.throws(() => validateObjective(objective({ timeoutMinutes: 0 })), /timeoutMinutes/);
+  assert.equal(validateObjective(objective({ engines: ['opencode', 'claude'], push: true, timeoutMinutes: 30 })).push, true);
+});

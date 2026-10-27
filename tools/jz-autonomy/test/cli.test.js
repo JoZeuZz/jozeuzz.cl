@@ -142,9 +142,30 @@ test('wires parsed objective, adapters, and resolved state dir exactly', async (
   const objective = { schema: 'jz-autonomy-objective-v1', unit: 'UNIT' };
   const { io, output } = harness({ readFile: async () => Buffer.from(JSON.stringify(objective)) });
   assert.equal(await runCli(args, io), 0);
-  assert.deepEqual(output.adapters, [{ root: '/repo', stateDir: '/repo/.jz-state/autonomy/slice-1' }]);
+  assert.deepEqual(output.adapters, [{ root: '/repo', stateDir: '/repo/.jz-state/autonomy/slice-1', engines: undefined, timeoutMs: 1_800_000 }]);
   assert.deepEqual(output.runs, [{ objective, adapters: { adapter: true }, options: { stateDir: '/repo/.jz-state/autonomy/slice-1' } }]);
   assert.deepEqual(JSON.parse(output.stdout.join('')), { result: 'completed', corrections: 0, checks: [], commit: null, paths: { state: '/state', events: '/events' } });
+});
+
+test('passes --engines and rejects unknown or repeated engines', async () => {
+  const { io, output } = harness();
+  assert.equal(await runCli([...args, '--engines', 'claude,opencode'], io), 0);
+  assert.deepEqual(output.adapters[0].engines, ['claude', 'opencode']);
+  for (const bad of ['codex', 'claude,claude', '']) assert.equal(await runCli([...args, '--engines', bad], harness().io), 2);
+});
+
+test('resume reuses the saved journal and does not rerun a completed state', async () => {
+  const saved = { schema: 'jz-autonomy-objective-v1', runId: 'r1', steps: [], events: [], result: 'blocked', objective: { unit: 'U', engines: ['claude'] } };
+  const lstat = async () => ({ isFile: () => true, isSymbolicLink: () => false });
+  const { io, output } = harness({ lstat, readFile: async () => Buffer.from(JSON.stringify(saved)) });
+  assert.equal(await runCli(['resume', '--state-dir', 'slice-1'], io), 0);
+  assert.equal(output.runs[0].options.resume.runId, 'r1');
+  assert.deepEqual(output.adapters[0].engines, ['claude']);
+  const done = harness({ lstat, readFile: async () => Buffer.from(JSON.stringify({ ...saved, result: 'completed' })) });
+  assert.equal(await runCli(['resume', '--state-dir', 'slice-1'], done.io), 0);
+  assert.equal(done.output.runs.length, 0);
+  assert.equal(await runCli(['resume', '--state-dir', '../x'], harness({ lstat }).io), 2);
+  assert.equal(await runCli(['resume', '--objective', 'o.json', '--state-dir', 's'], harness().io), 2);
 });
 
 test('maps runner completed, failed, blocked and internal errors to exit codes', async () => {
