@@ -160,7 +160,7 @@ Use this dependency set:
     "test:integration": "vitest run test/integration",
     "test:http": "vitest run test/http",
     "test:e2e": "playwright test",
-    "test:foundation": "node --test test/foundation",
+    "test:foundation": "node --test test/foundation/*.test.mjs",
     "test": "npm run test:foundation && npm run test:unit && npm run test:integration && npm run test:http"
   },
   "engines": { "node": ">=24.22.0 <25" },
@@ -187,11 +187,14 @@ Use this dependency set:
     "typescript": "5.9.3",
     "vite-tsconfig-paths": "6.1.1",
     "vitest": "4.1.11"
+  },
+  "overrides": {
+    "dompurify": "3.4.17"
   }
 }
 ```
 
-Write `$NODE_IMAGE` exactly to `tooling/node-image.txt`. Create executable `scripts/run-node`: it reads that digest and runs commands inside the pinned image with current UID/GID, repository mounted at `/app`, working directory `/app`, and host networking only for disposable localhost test databases. Obtain npm version through this wrapper, then set `packageManager` through it; foundation test verifies exact numeric form. Set `.npmrc` to `save-exact=true`, `engine-strict=true`, `ignore-scripts=true`, and `audit=true`. Run installation through `scripts/run-node`, review package lifecycle needs, then run only required trusted rebuilds explicitly. Do not disable signature or integrity verification.
+Write `$NODE_IMAGE` exactly to `tooling/node-image.txt`. Create executable `scripts/run-node`: it reads that digest and runs commands inside the pinned image with current UID/GID, repository mounted at `/app`, working directory `/app`, and host networking only for disposable localhost test databases. Obtain npm version through this wrapper, then set `packageManager` through it; foundation test verifies exact numeric form. Set `.npmrc` to `save-exact=true`, `engine-strict=true`, `ignore-scripts=true`, and `audit=true`. Apply exact override `dompurify: 3.4.17` to remediate GHSA-cg2g-xh64-v4q7 through the Payload admin dependency graph; document source and date. Run installation through `scripts/run-node`, review package lifecycle needs, then run only required trusted rebuilds explicitly. Do not disable signature or integrity verification.
 
 Capture each protected reference worktree's HEAD plus SHA-256 of `git status --porcelain=v1 -z` for `/home/proyectos/jozeuzz-poc-candidata-a`, `/home/proyectos/jozeuzz/worktrees/historico/poc-drizzle-fix` and `/home/proyectos/jozeuzz-jz-agents`. Generate `scripts/verify-external-worktrees.sh` with those exact baseline values; it reads only Git metadata and exits 1 on any later difference.
 

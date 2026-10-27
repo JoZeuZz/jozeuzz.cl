@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+image="$(tr -d '\r\n' < tooling/node-image.txt)"
+options=(--rm --user "$(id -u):$(id -g)" --volume "$PWD:/app" --workdir /app)
+
+if [[ "${JZ_NODE_NETWORK:-}" == "host" ]]; then
+  options+=(--network host)
+fi
+
+exec docker run "${options[@]}" "$image" "$@"
