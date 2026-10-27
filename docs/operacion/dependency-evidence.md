@@ -26,6 +26,41 @@ Fecha de acceso: 2026-10-27.
 - GREEN: `npm audit --omit=dev --json` informa 0 critical, 4 high, 10 moderate y 0 low (14 total); exit 1 por hallazgos restantes.
 - High diferidos: `happy-dom` vía `@lexical/headless` y `undici` vía `payload`; ambos exigen cambiar versiones directas I1 fijadas. Moderate diferidos: cadena `payload`/`@payloadcms/db-postgres`/`drizzle-kit` y `esbuild`; parche requiere `@payloadcms/db-postgres@3.92.0`. Se revisan antes de integrar o actualizar dependencias.
 
+## Triage npm audit 2026-10-27 (reevaluación I1)
+
+Ejecutado: `npm audit --omit=dev` sobre imagen `node@sha256:91acba...` en contenedor aislado.
+Resultado: **0 critical, 4 high, 10 moderate** (sin cambio respecto a registro anterior).
+
+### High: undici 7.0.0–7.30.0 (undici@7.29.0)
+- **Cadena**: `payload@3.90.2` → `undici@7.29.0`
+- **CVEs**: GHSA-3wwx-pv8p-q78v (DoS WebSocket), GHSA-pmjh-fq2x-6v4x (DoS orphaned RetryHandler),
+  GHSA-r53p-7pc4-xj5r (response splitting retry), GHSA-rfgv-xxqx-mfg5 (DoS WebSocket subprotocol),
+  GHSA-3xpg-4rpp-hhhm (DoS decompression), GHSA-2jfj-6hjv-fm6j (cookie disclosure),
+  GHSA-2gqq-gqf2-x968 (response truncation), GHSA-w293-vg96-wgc3 (TLS bypass),
+  GHSA-8436-99hf-9mmv (unsafe HTTP methods caching), GHSA-rx4f-c7p8-82vq (DoS WebSocketStream),
+  GHSA-4qv8-2p9j-2685 (DoS EventSource), GHSA-f72v-6w45-q472 (SRI bypass),
+  GHSA-xjj6-f33q-929c (DoS content-encodings)
+- **Reachability**: undici es dependencia de runtime de payload (HTTP client interno). En MVP I1 no hay endpoints externos ni WebSocket expuesto. La mayoría son DoS en funciones WebSocket/EventSource no usadas en SSR. Sin override posible sin cambiar payload (exigiría `payload@≥3.92.0`).
+- **Decisión**: diferir. Evaluar al actualizar payload. No aplicar --force.
+
+### High: esbuild ≤0.24.2 (esbuild@0.28.2 — GHSA-67mh-4wv8-2f99)
+- **Cadena**: `@payloadcms/db-postgres@3.90.2` → `drizzle-kit@0.31.7` → `esbuild-register@3.6.0` → `esbuild@~0.28.0`; también `payload@3.90.2` → `tsx@4.22.4` → `esbuild@~0.28.0`
+- **CVE**: advisory permite sitio web enviar peticiones al dev server y leer respuesta
+- **Reachability**: afecta **solo entorno de desarrollo** (drizzle-kit CLI, tsx transpiler). No alcanza runtime de producción. No hay dev server expuesto en CI ni producción.
+- **Decisión**: diferir. No aplicar override (requeriría cambiar drizzle-kit/tsx vía payloadcms).
+
+### High: happy-dom ≤20.14.6 (happy-dom@20.14.6 — GHSA-834v-8h66-3h79)
+- **Cadena**: `@payloadcms/richtext-lexical@3.90.2` → `@lexical/headless@0.50.0` → `happy-dom@20.14.6`; también peerOptional de vitest (dev)
+- **CVE**: Incomplete fix CVE-2026-33943, unsanitized import alias → host code execution
+- **Reachability**: `@lexical/headless` se usa para serializar richtext en Lexical editor (admin UI). En MVP I1 no hay contenido richtext en ninguna colección. La vía de vitest es devDependency.
+- **Decisión**: diferir hasta que richtext-lexical publique parche compatible.
+
+### Moderate: cadena payload/drizzle/undici (10 entradas)
+- Todas son transitivas de las mismas tres HIGH anteriores o variantes moderate de undici.
+- Misma decisión: diferir, evaluar al actualizar payload.
+
+**Próxima revisión**: al actualizar payload/richtext-lexical a versión ≥3.92.0.
+
 ## Workaround de migración
 
 - Payload `3.90.2` generó imports ESM de `MigrateUpArgs` y `MigrateDownArgs` como valores. `@payloadcms/drizzle/dist/postgres/types.d.ts` los declara tipos; bajo `verbatimModuleSyntax` el binario no elimina esos imports y falla en runtime.
