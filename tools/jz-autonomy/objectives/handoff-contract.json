@@ -1,0 +1,27 @@
+{
+  "schema": "jz-autonomy-objective-v1",
+  "unit": "JZ-AUTONOMY-V2-HANDOFF",
+  "objective": "Añadir buildHandoff(input) en tools/jz-autonomy/src/handoff.js, que devuelve el contrato de entrega entre motores en Markdown, y sus tests en tools/jz-autonomy/test/handoff.test.js. input = { branch, sha, changes: string[], tests: { command, result }[], ci, risks: string[], ready: boolean }.",
+  "criteria": [
+    "la salida empieza por '## Entrega' y tiene, en este orden, las secciones 'Rama y SHA', 'Cambios funcionales', 'Pruebas y CI', 'Riesgos bloqueantes' y 'Disponibilidad para integración'",
+    "'Rama y SHA' contiene `<branch>@<sha>`; sha debe ser hexadecimal de 7 a 40 caracteres",
+    "listas vacías se escriben como '- Ninguno.'; ready true escribe 'Lista para integrar' y false 'No lista'",
+    "TypeError con un mensaje claro para input inválido (no objeto, branch vacío, sha inválido, arrays con no-strings, ready no booleano)",
+    "función pura y sin dependencias"
+  ],
+  "workspace": ".",
+  "branch": "chore/jz-agents",
+  "agent": "jz-implementer",
+  "workflow": "split-tdd",
+  "engines": ["claude", "opencode"],
+  "push": true,
+  "timeoutMinutes": 20,
+  "testPaths": ["tools/jz-autonomy/test/handoff.test.js"],
+  "allowedPaths": ["tools/jz-autonomy/src/handoff.js", "tools/jz-autonomy/test/handoff.test.js"],
+  "checks": [
+    { "id": "handoff-focal", "argv": ["node", "--test", "tools/jz-autonomy/test/handoff.test.js"] },
+    { "id": "autonomy-suite", "argv": ["node", "--test", "tools/jz-autonomy/test/"] }
+  ],
+  "maxCorrections": 2,
+  "commit": { "message": "feat(autonomy): add engine handoff contract builder" }
+}

@@ -1,0 +1,26 @@
+{
+  "schema": "jz-autonomy-objective-v1",
+  "unit": "JZ-AUTONOMY-V2-TIMELINE",
+  "objective": "Añadir formatTimeline(events) en tools/jz-autonomy/src/timeline.js y sus tests en tools/jz-autonomy/test/timeline.test.js. events es el array de eventos de events.jsonl ({ at, event, result, ...detalle }). Devuelve un texto con una línea por evento: `<HH:MM:SS> <event> <detalle>`, donde el detalle es `phase=<p> engine=<e> rc=<n>` para agent, `id=<id> rc=<n>` para check, `paths=<n>` para inspect, `head=<7 primeros>` para commit, `rc=<n>` para push y `reason=<r>` para closed; los demás eventos sin detalle.",
+  "criteria": [
+    "una línea por evento, en orden, con la hora UTC HH:MM:SS tomada de at",
+    "detalles exactos por tipo de evento según el objetivo; campos ausentes se omiten",
+    "TypeError si events no es un array o si un evento no tiene at (ISO válido) ni event string",
+    "función pura y sin dependencias"
+  ],
+  "workspace": ".",
+  "branch": "chore/jz-agents",
+  "agent": "jz-implementer",
+  "workflow": "split-tdd",
+  "engines": ["opencode"],
+  "push": true,
+  "timeoutMinutes": 20,
+  "testPaths": ["tools/jz-autonomy/test/timeline.test.js"],
+  "allowedPaths": ["tools/jz-autonomy/src/timeline.js", "tools/jz-autonomy/test/timeline.test.js"],
+  "checks": [
+    { "id": "timeline-focal", "argv": ["node", "--test", "tools/jz-autonomy/test/timeline.test.js"] },
+    { "id": "autonomy-suite", "argv": ["node", "--test", "tools/jz-autonomy/test/"] }
+  ],
+  "maxCorrections": 2,
+  "commit": { "message": "feat(autonomy): add human-readable event timeline" }
+}

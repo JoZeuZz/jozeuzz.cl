@@ -18,6 +18,7 @@ Una web de portafolio profesional y servicios técnicos, con datos privados y ba
 - Ejecutar los checks relevantes; detallar los que no pudieron ejecutarse.
 - No cambiar producción, DNS, infraestructura o políticas de acceso sin permiso humano.
 - En fallos/cuotas: generar handoff explícito y verificar el estado real al reanudar.
+- Modo autónomo de los especialistas `jz-*`: seguir `docs/AUTONOMIA-JZ.md`. Los agentes ejecutan comandos de desarrollo sólo mediante `.jz/bin/jz-run` y reanudan tras `.jz/bin/jz-state`. Una ejecución en verde de `jz-run` no es una validación: la evidencia reconocida sólo la produce `.jz/bin/jz-verify run <perfil>` con un perfil de `.jz/profiles/`.
 - Documentar decisiones importantes mediante ADR.
 - No asumir versiones actuales de frameworks o modelos: verificar documentación al ejecutar.
 

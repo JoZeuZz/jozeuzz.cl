@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# jz-verify — verificación reconocida (I2): ejecuta un perfil autorizado de .jz/profiles mediante jz-run y registra
+# su evidencia en .jz-state/verify/, o informa la vigencia de las evidencias registradas.
+# Sólo acepta un identificador de perfil: el comando y el criterio de éxito los fija el perfil, nunca quien llama.
+# Una ejecución de jz-run con rc=0 (jz-run true basta) no es una verificación reconocida.
+#
+# Uso: .jz/bin/jz-verify run <perfil>    (0 VALIDADO, 1 FALLIDO, 2 perfil o uso no válidos, 3 BLOQUEADO)
+#      .jz/bin/jz-verify status [--json] (VALIDADO, FALLIDO, OBSOLETO, BLOQUEADO o SIN_VERIFICACION; 3 si BLOQUEADO)
+# Ver .jz/lib/verify.mjs y docs/propuestas/JZ-I2-VERIFICACION.md.
+set -euo pipefail
+
+SELF=$(readlink -f "${BASH_SOURCE[0]}")
+WT=$(cd "$(dirname "$SELF")/../.." && pwd -P)
+# Entorno vacío (sin NODE_OPTIONS ni variables del motor) y el mismo node que ejecuta el perfil dentro de jz-run (PATH
+# del sandbox): su identidad forma parte de la evidencia. JZ_ENGINE sólo etiqueta el registro de jz-run.
+exec /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 JZ_ENGINE="${JZ_ENGINE:-unknown}" \
+  node "$WT/.jz/lib/verify.mjs" "$WT" "$@"
