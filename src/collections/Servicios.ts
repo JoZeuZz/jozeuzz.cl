@@ -1,12 +1,13 @@
 import type { CollectionConfig } from 'payload'
 
-import { servicioActivoPorGatewayOAdmin, soloAdmin } from '@/modules/identity/access'
+import { servicioActivoPorGateway } from '@/modules/catalog/publico'
+import { soloAdmin } from '@/modules/identity/access'
 
 export const Servicios: CollectionConfig = {
   slug: 'servicios',
   admin: { useAsTitle: 'nombre' },
   access: {
-    read: servicioActivoPorGatewayOAdmin,
+    read: servicioActivoPorGateway,
     create: soloAdmin,
     update: soloAdmin,
     delete: soloAdmin,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { servicioActivoPorGatewayOAdmin, soloAdmin, usuarioPropio } from '@/modules/identity/access'
+import { soloAdmin, usuarioPropio } from '@/modules/identity/access'
+import { servicioActivoPorGateway } from '@/modules/catalog/publico'
 
 describe('acceso', () => {
   it('niega anónimo y permite admin autenticado', () => {
@@ -7,8 +8,8 @@ describe('acceso', () => {
     expect(soloAdmin({ req: { user: { collection: 'usuarios' } } } as never)).toBe(true)
   })
 
-  it('cierra canal genérico y permite gateway con capacidad interna', () => {
-    expect(servicioActivoPorGatewayOAdmin({ req: { user: null, context: {} } } as never)).toBe(false)
+  it('cierra canal genérico: servicioActivoPorGateway sin capability retorna false', () => {
+    expect(servicioActivoPorGateway({ req: { user: null, context: {} } } as never)).toBe(false)
     expect(usuarioPropio({ req: { user: { id: 'u1', collection: 'usuarios' } }, id: 'u2' } as never)).toBe(false)
   })
 })

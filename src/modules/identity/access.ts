@@ -1,9 +1,5 @@
 import type { Access } from 'payload'
 
-const capacidadGatewayCatalogo = Symbol('gateway-catalogo')
-
-type ContextoGateway = Record<PropertyKey, unknown>
-
 export const soloAdmin: Access = ({ req }) => req.user?.collection === 'usuarios'
 
 export const usuarioPropio: Access = ({ id, req }) =>
@@ -11,17 +7,23 @@ export const usuarioPropio: Access = ({ id, req }) =>
 
 export const nadie: Access = () => false
 
-export const servicioActivoPorGatewayOAdmin: Access = ({ req }) => {
-  if (req.user?.collection === 'usuarios') return true
-
-  const contexto = req.context as ContextoGateway
-  if (contexto[capacidadGatewayCatalogo] === true) {
-    return { activo: { equals: true } }
+/**
+ * Crea una función Access que permite:
+ * - admin autenticado: true (lectura completa)
+ * - portador de capability (símbolo privado en context): filtro activo
+ * - cualquier otro: false
+ *
+ * El símbolo y el factory de context se instancian en catalog/publico.ts.
+ * Este módulo nunca crea ni exporta capability directamente.
+ */
+export function crearAccesoServiciosPorCapabilityOAdmin(
+  esCapabilityActiva: (context: Record<PropertyKey, unknown>) => boolean
+): Access {
+  return ({ req }) => {
+    if (req.user?.collection === 'usuarios') return true
+    if (esCapabilityActiva(req.context as Record<PropertyKey, unknown>)) {
+      return { activo: { equals: true } }
+    }
+    return false
   }
-
-  return false
-}
-
-export function contextoGatewayCatalogo(): ContextoGateway {
-  return { [capacidadGatewayCatalogo]: true }
 }
