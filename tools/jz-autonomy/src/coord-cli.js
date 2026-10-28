@@ -55,6 +55,8 @@ export function formatStatus(state) {
   for (const t of Object.values(state.tasks)) lines.push(`task ${t.id} ${t.from}->${t.to} ${t.status}${t.result?.summary ? `: ${t.result.summary.slice(0, 120)}` : ''}`);
   const cp = state.checkpoints.at(-1);
   if (cp) lines.push(`checkpoint ${cp.n} (${cp.reason}) head ${cp.head.slice(0, 12)} tree ${cp.tree.slice(0, 12)} paths ${cp.paths.join(',') || '-'}`);
+  if (state.lease) lines.push(`lease ${state.lease.holder} turn ${state.lease.turn ?? state.lease.token} pid ${state.lease.pid ?? '-'}${state.lease.identity ? ` (start ${state.lease.identity.start})` : ''} until ${state.lease.expiresAt}`);
+  if (state.committing) lines.push(`commit pending: ${state.committing.op}`);
   if (state.commit) lines.push(`commit ${state.commit.head?.slice(0, 12) ?? '-'} rc=${state.commit.rc}${state.commit.reused ? ' (reused)' : ''}`);
   return `${lines.join('\n')}\n`;
 }
