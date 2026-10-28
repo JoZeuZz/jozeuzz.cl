@@ -131,6 +131,26 @@ Hechos observados en las ejecuciones reales:
   4. transfiere a otro motor, que termina sin perder cambios y sin commits duplicados.
 - El liderazgo vuelve en sentido inverso al reanudar, también entre procesos distintos del controlador.
 
+## Incremento 2: concurrencia y recuperación (2026-10-28)
+
+Código `92b9491` y `40edbff` sobre `6ecce57`. Evidencia: [`evidencia/jz-coord/hardening-20261028.md`](evidencia/jz-coord/hardening-20261028.md).
+Contrato actualizado en [`docs/OPERACION-JZ-AI.md`](../OPERACION-JZ-AI.md); release en
+[`release-jz-coord.md`](release-jz-coord.md).
+
+Cada defecto se reprodujo primero con una prueba que fallaba sobre `6ecce57` y pasa ahora.
+
+| # | Defecto en `6ecce57` | Corrección |
+|---|---|---|
+| 1 | `close()` borraba el lease y el turno en vuelo aunque el motor siguiera vivo: un `resume` bloqueado por el lease dejaba vía libre al siguiente | `close()` sólo los olvida si el titular terminó; `status` muestra el lease conservado |
+| 2 | Dos `lead`/`resume` podían operar a la vez sobre el mismo state-dir, y el segundo partía de una copia vieja del estado | `controller.lock` exclusivo con identidad; recuperación sólo de un titular demostradamente muerto; el estado se relee con el bloqueo tomado |
+| 3 | Escrituras de `state.json` concurrentes (la del pid tras el spawn no se esperaba): una escritura lenta podía pisar un estado posterior. Sin `fsync`. `events.jsonl` podía quedar sin líneas o con una a medias | Escrituras en serie y duraderas; reparación de `events.jsonl` desde `state.json` al reanudar |
+| 4 | `kill` sólo comprobaba los argumentos (`--agent jz-orchestrator`): podía matar otro orquestador que hubiera heredado el pid. Un lease sin pid registrado (caída justo tras el spawn) se daba por terminado | Identidad `starttime` + `boot_id` y token `JZ_COORD_LEASE` en el entorno del motor; sólo se mata lo demostrado |
+| 5 | Un checkpoint fallido se ignoraba y la meta seguía | Fail-closed: `blocked` antes de otro turno |
+| 6 | Al reanudar con el mismo líder no se verificaba el árbol: una pérdida de cambios tras un checkpoint válido terminaba en `commit failed` o en un commit incompleto | Cada `resume` verifica el árbol; restauración ruta a ruta si sólo hubo pérdida; cualquier divergencia bloquea sin tocar nada |
+| 7 | Restauración sólo con pérdida total; una pérdida parcial bloqueaba | Restauración parcial con la misma garantía |
+| 8 | Caída durante el commit o el push: el `resume` gastaba otro turno de motor y podía confirmar un árbol distinto | Marca `committing`: `resume` repite verificación y commit con el mismo `Jz-Op`; tras el push sólo repite el push |
+| 9 | `reused` de `jz-git` se perdía en el adaptador | Se conserva |
+
 ## Limitaciones y trabajo pendiente
 
 - **Cuota real no probada.** Sólo se probó cuota simulada. La detección de cuota real reutiliza los
@@ -145,10 +165,16 @@ Hechos observados en las ejecuciones reales:
 - **Un orquestador interactivo no puede delegar fuera del controlador.** Una sesión interactiva (p. ej. esta
   de Claude Code) no puede delegar en OpenCode sin pasar por `jz-coord lead`. Falta un `jz-coord delegate`
   puntual.
+- **Mutex de recuperación huérfano.** Si un controlador muere justo mientras recupera un
+  `controller.lock` obsoleto (microsegundos), queda `controller.lock.recover` y los siguientes controladores
+  se rechazan hasta que una persona lo retire. Es intencionado: no se elimina nada a ciegas.
+- **Grupo huérfano sin token.** Si el líder del turno murió y queda su grupo de procesos sin ningún proceso
+  con el token (p. ej. hijos con el entorno reiniciado), la identidad no se puede demostrar: la meta queda en
+  `blocked` en lugar de matar ese grupo.
+- **HEAD movido durante un commit interrumpido.** Si el controlador cae durante el commit y alguien confirma
+  otra cosa en la rama, el `resume` vuelve a verificar y confirma encima (sin sobrescribir nada).
 - **Estado sin firmar.** `state.json` no está firmado, igual que el journal de `jz-autonomy` (backlog
   existente). Lo protege la política jz, que niega `.jz-state` a los agentes.
-- **Restauración sólo probada en sintético.** La restauración desde el checkpoint (`git apply` del patch) se
-  probó en sintético, no con pérdida real de archivos.
 - **`jz-security` de OpenCode sigue siendo lento** (Copilot Sonnet 4.6, 11–12 min por revisión). El prompt
   lo mitiga; la causa del perfil o del proveedor queda en el backlog.
 - **Aún no hay release instalada.** `jz-coord` no está instalado como release ni se ha usado sobre el

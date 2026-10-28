@@ -107,19 +107,33 @@ Contrato de turno (`jz-coord-v1`):
 
 Estado y seguridad:
 
-- `.jz-state/coord/<nombre>/state.json` (atómico) y `events.jsonl` contienen la meta, la salud de cada
-  motor, el líder y su historial, el lease, el turno en vuelo, las tareas, el buzón, los checkpoints y el
-  commit. También quedan los logs de cada turno y los patches de cada checkpoint.
-- Lease de escritor: cada turno tiene un titular, un pid y un plazo (timeout más 60 s). Nadie escribe ni
-  hereda mientras el titular siga vivo y en plazo. Un titular vencido se mata y se comprueba que su grupo
-  de procesos terminó. Entre turnos rige además el bloqueo de escritor de `.jz/policy`: los subagentes lo
-  toman al escribir. El controlador lo toma para verificar y confirmar y comprueba, antes de transferir,
-  que no lo retiene un proceso vivo.
+- `.jz-state/coord/<nombre>/state.json` y `events.jsonl` contienen la meta, la salud de cada motor, el
+  líder y su historial, el lease, el turno en vuelo, las tareas, el buzón, los checkpoints y el commit.
+  También quedan los logs de cada turno y los patches de cada checkpoint. Las escrituras van en serie y
+  son duraderas (temporal con `fsync`, `rename` atómico, `fsync` del directorio). `state.json` es la fuente
+  de verdad: al reanudar, `events.jsonl` se repara a partir de él si le faltan líneas o quedó una a medias.
+- Un solo controlador por state-dir: `controller.lock` se crea con `link(2)` y guarda pid, `starttime` y
+  `boot_id`. Otro `lead` o `resume` sobre el mismo state-dir se rechaza sin escribir nada. Un bloqueo
+  obsoleto sólo se recupera si su titular está demostradamente muerto (otro `starttime` u otro arranque);
+  se aparta como `controller.lock.stale-<token>` y queda como evidencia. Un bloqueo ilegible o un
+  `controller.lock.recover` huérfano no se tocan: los resuelve una persona. El estado se relee del disco
+  con el bloqueo tomado.
+- Lease de escritor: cada turno tiene un titular, un token, un pid con su identidad (`starttime` y
+  `boot_id`) y un plazo (timeout más 60 s). El token va en el entorno del motor (`JZ_COORD_LEASE`) antes
+  de lanzarlo, así que identifica al titular y a sus descendientes aunque el pid no llegue a registrarse.
+  Nadie escribe ni hereda mientras el titular siga vivo y en plazo, y cerrar la meta no borra el lease de
+  un titular vivo. Un titular vencido sólo se mata si su identidad queda demostrada (token o `starttime`);
+  un pid reutilizado por otro proceso nunca se toca, y si no se puede demostrar la meta queda en `blocked`.
+  Entre turnos rige además el bloqueo de escritor de `.jz/policy`: los subagentes lo toman al escribir. El
+  controlador lo toma para verificar y confirmar y comprueba, antes de transferir, que no lo retiene un
+  proceso vivo.
 - Checkpoint verificable tras cada turno: un árbol git de todo el worktree, cambios sin confirmar
   incluidos, creado en un índice temporal sin tocar el índice, las ramas ni el árbol. Se guardan también
-  HEAD, las rutas cambiadas y un patch. Antes de entregar la meta a otro motor, el árbol actual tiene que
-  coincidir con el del último checkpoint. Si los cambios desaparecieron, se restauran desde el patch y se
-  comprueba de nuevo. Si el árbol cambió por otra causa, la meta queda en `blocked`.
+  HEAD, las rutas cambiadas y un patch. Si un checkpoint no se puede crear, la meta queda en `blocked`
+  antes de otro turno. Antes de entregar la meta a otro motor y en cada `resume`, el árbol actual tiene que
+  coincidir con el del último checkpoint. Si sólo hubo pérdida (cada ruta distinta estaba cambiada en el
+  checkpoint y hoy vuelve a ser la de HEAD), esas rutas se restauran y se comprueba de nuevo el árbol. Si
+  el árbol cambió de cualquier otra forma, o HEAD se movió, la meta queda en `blocked` sin tocar nada.
 - Fallos de un turno: `quota` (30 min de espera), `provider` (5 min), `timeout`, `session-lost`,
   `abnormal` y `protocol`. En todos los casos el motor queda fuera y la meta pasa al otro motor disponible
   con un mensaje `transfer`. Si no queda ninguno, la meta queda en `blocked` con checkpoint `cuota`, y
@@ -128,10 +142,15 @@ Estado y seguridad:
 - `complete`: con el bloqueo de escritor tomado, se exige que las rutas estén dentro de la meta, se ejecutan
   los checks en `jz-run` y se comprueba que la huella no cambió. Después se confirma con `jz-git` y
   `Jz-Op: <meta>:<runId>:commit`, idéntico para todos los líderes y reanudaciones de una ejecución, así que
-  no hay commits duplicados. Por último se publica si `push: true`. Si algún check falla, los fallos vuelven
-  estructurados al líder.
+  no hay commits duplicados. Antes del commit se registra `committing`: si el controlador cae durante el
+  commit, `resume` repite la verificación y el commit con el mismo `Jz-Op` (que `jz-git` reutiliza) sin
+  otro turno de motor. Si cae durante el push, `resume` sólo repite el push y verifica el SHA remoto.
+  Tras el commit no puede quedar ningún cambio sin confirmar. Por último se publica si `push: true`. Si
+  algún check falla, los fallos vuelven estructurados al líder.
 - Si el controlador cae a mitad de un turno, `resume` no repite el turno a ciegas: espera o mata al titular
   según su lease, marca el turno como `interrupted`, toma un checkpoint y avisa al líder.
+  `jz-coord status` muestra el lease conservado y un commit pendiente.
+- Instalación, comprobación y rollback de la release: [`operacion/release-jz-coord.md`](operacion/release-jz-coord.md).
 - Fallos simulados (`--simulate kind:engine@turn[+Ns]`): sin `+Ns`, el turno no llega a lanzarse; con
   `+Ns`, el motor real se lanza y se mata a los N segundos. Quedan marcados como `simulated` en el estado y
   los eventos.
