@@ -399,12 +399,14 @@ test('a lease whose pid was never recorded still blocks while a process carries 
   const w = world({ scripts: { claude: orchestrator(), opencode: orchestrator() } });
   const dir = await stateDir();
   // Caída del controlador entre el inicio del turno y el registro del pid: el motor vive, sólo con su token.
-  runGoal(goal(), { ...w.adapters, runTurn: ({ token }) => { w.alive.add(token); return new Promise(() => {}); } }, { stateDir: dir, controller: controller(w, 1) });
+  let given = null;
+  runGoal(goal(), { ...w.adapters, runTurn: ({ token }) => { given = token; w.alive.add(token); return new Promise(() => {}); } }, { stateDir: dir, controller: controller(w, 1) });
   await settle();
   crash(w, 1);
   const saved = await readState(dir);
   assert.equal(saved.lease.pid, null);
-  assert.ok(saved.lease.token, 'the lease token is persisted before the engine starts');
+  assert.equal(typeof given, 'string', 'the engine receives the lease token');
+  assert.equal(saved.lease.token, given, 'the lease token is persisted before the engine starts');
   const result = await runGoal(saved.goal, w.adapters, { stateDir: dir, resume: saved, controller: controller(w, 2) });
   assert.equal(result.status, 'blocked');
   assert.match(result.reason, /lease held by claude/);
