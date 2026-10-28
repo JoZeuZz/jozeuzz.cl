@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# jz-checkpoint — registra un punto de recuperación en .jz-state/checkpoints/ y .jz-state/LATEST.md.
+# Combina lo que declara el agente (unidad, estado, problemas, siguiente paso) con el estado real
+# que calcula jz-state. "validado" exige que --unit sea, exactamente, la unidad canónica (unitId) de algún perfil
+# de .jz/profiles y que todos los perfiles que la declaran estén en VALIDADO para el estado actual (jz-verify).
+# Si la unidad no tiene perfil o alguno no está vigente, lo registra como "incompleto"; si alguno está BLOQUEADO o la
+# asociación no se puede determinar, como "bloqueado". Un perfil VALIDADO de otra unidad no basta, ni jz-run en verde.
+# Los demás estados admiten cualquier etiqueta de unidad (trabajo en curso sin perfil).
+#
+# Uso: .jz/bin/jz-checkpoint --unit "<unidad funcional>" --state validado|incompleto|bloqueado|cuota \
+#        [--next "<siguiente paso>"] [--issue "<problema abierto>"]... [--note .jz-state/notes/<archivo>.md]
+set -euo pipefail
+
+SELF=$(readlink -f "${BASH_SOURCE[0]}")
+WT=$(cd "$(dirname "$SELF")/../.." && pwd -P)
+STATE=$WT/.jz-state
+unit='' state='' next='' note=''
+issues=()
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --unit) unit=$2; shift 2 ;;
+    --state) state=$2; shift 2 ;;
+    --next) next=$2; shift 2 ;;
+    --issue) issues+=("$2"); shift 2 ;;
+    --note) note=$2; shift 2 ;;
+    *) echo "jz-checkpoint: argumento desconocido: $1" >&2; exit 2 ;;
+  esac
+done
+case $state in validado|incompleto|bloqueado|cuota) ;; *)
+  echo "jz-checkpoint: --state debe ser validado, incompleto, bloqueado o cuota" >&2; exit 2 ;;
+esac
+[[ -n $unit ]] || { echo "jz-checkpoint: falta --unit" >&2; exit 2; }
+# Los campos declarados ocupan una línea: un salto de línea fabricaría campos o veredictos en LATEST.md.
+oneline() { local v=${1//$'\r'/ }; printf '%s' "${v//$'\n'/ }"; }
+unit=$(oneline "$unit") next=$(oneline "$next")
+for i in "${!issues[@]}"; do issues[i]=$(oneline "${issues[i]}"); done
+if [[ -n $note ]]; then
+  note_real=$(readlink -m "$WT/$note")
+  case "$note_real" in "$STATE/notes/"*) ;; *)
+    echo "jz-checkpoint: --note debe estar en .jz-state/notes/" >&2; exit 2 ;;
+  esac
+fi
+
+fp=$("$WT/.jz/bin/jz-run" --fingerprint)
+green=''
+[[ -s $STATE/runs.jsonl ]] && green=$(jq -r --arg fp "$fp" 'select(.tree == $fp and .rc == 0) | .ts' "$STATE/runs.jsonl" | tail -n 1)
+# I2: "validado" exige una verificación reconocida vigente (jz-verify) de los perfiles que acreditan la unidad
+# declarada, no sólo una ejecución con rc=0 ni un perfil VALIDADO cualquiera. La asociación unidad–perfil sale de
+# .jz/profiles (plano de control), nunca de los argumentos, de las notas ni de .jz-state.
+vjson=$("$WT/.jz/bin/jz-verify" status --json 2>/dev/null) || true
+verification=$(jq -r 'if length == 0 then "ningún perfil registrado"
+  else map("\(.id) \(.state)\(if .registered and .unit then " [unidad \(.unit)]" else "" end)") | join(", ") end' \
+  <<<"${vjson:-[]}" 2>/dev/null) || verification='no se pudo consultar (jz-verify status)'
+# Cobertura: ninguna (ningún perfil del registro declara la unidad), validada (todos los que la declaran en VALIDADO),
+# bloqueada (alguno BLOQUEADO), incompleta (el resto) o indeterminada (sin estado legible o con un perfil del registro
+# que no se puede cargar, que podría declararla).
+coverage=$(jq -r --arg u "$unit" '
+  if type != "array" or any(.[]; type != "object" or (.registered | type) != "boolean") then "indeterminada"
+  elif any(.[]; .registered and (.unit | type) != "string") then "indeterminada"
+  else [.[] | select(.registered and .unit == $u)] as $a
+    | if ($a | length) == 0 then "ninguna"
+      elif all($a[]; .state == "VALIDADO") then "validada"
+      elif any($a[]; .state == "BLOQUEADO") then "bloqueada"
+      else "incompleta" end
+  end' <<<"${vjson:-null}" 2>/dev/null) || coverage=indeterminada
+crediting=$(jq -r --arg u "$unit" '[.[] | select(.registered and .unit == $u) | "\(.id) \(.state)"] | join(", ")' \
+  <<<"${vjson:-[]}" 2>/dev/null) || crediting=''
+case $coverage in
+  ninguna) coverage_line="ninguna (\"$unit\" no es la unidad canónica, unitId, de ningún perfil de .jz/profiles)" ;;
+  indeterminada) coverage_line='indeterminada (jz-verify status ilegible o algún perfil del registro no se puede cargar)' ;;
+  *) coverage_line="$unit — perfiles que la acreditan: $crediting" ;;
+esac
+warning=''
+if [[ $state == validado ]]; then
+  case $coverage in
+    validada) ;;
+    ninguna)
+      state=incompleto
+      warning="AVISO: se declaró \"validado\", pero \"$unit\" no es la unidad canónica de ningún perfil de .jz/profiles; se registra como incompleto. Un perfil VALIDADO de otra unidad no la acredita, ni una ejecución de jz-run en verde." ;;
+    incompleta)
+      state=incompleto
+      warning="AVISO: se declaró \"validado\", pero los perfiles que acreditan $unit no están todos en VALIDADO para el estado actual ($crediting): falta una verificación reconocida vigente (jz-verify run <perfil>); se registra como incompleto." ;;
+    *)
+      state=bloqueado
+      warning="AVISO: se declaró \"validado\", pero la cobertura de $unit no es comprobable (${crediting:-$coverage}); se registra como bloqueado: revisión humana." ;;
+  esac
+fi
+
+mkdir -p "$STATE/checkpoints"
+ts=$(date -u +%Y%m%dT%H%M%SZ)
+engine=${JZ_ENGINE:-unknown}
+file=$STATE/checkpoints/$ts-$engine.md
+{
+  echo "# Checkpoint $ts"
+  echo
+  echo "- Fecha: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "- Motor: $engine"
+  echo "- Unidad: $unit"
+  echo "- Estado declarado: $state"
+  echo "- Validación del árbol actual: ${green:-ninguna ejecución en verde} (jz-run con rc=0; no es una verificación reconocida)"
+  echo "- Verificación reconocida: $verification"
+  echo "- Cobertura de la unidad: $coverage_line"
+  echo "- Siguiente paso: ${next:-(no indicado)}"
+  [[ -n $warning ]] && echo "- $warning"
+  echo
+  echo "## Problemas abiertos"
+  if [[ ${#issues[@]} -eq 0 ]]; then echo "Ninguno declarado."; else printf -- '- %s\n' "${issues[@]}"; fi
+  if [[ -n $note ]]; then
+    echo
+    echo "## Notas ($note)"
+    cat "$note_real"
+  fi
+  echo
+  "$WT/.jz/bin/jz-state" 10 | sed 's/^# Estado jz/## Estado jz/' || true
+} > "$file"
+cp "$file" "$STATE/LATEST.md"
+[[ -n $warning ]] && echo "$warning" >&2
+echo "jz-checkpoint: ${file#"$WT"/} (copiado a .jz-state/LATEST.md)"

@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+image="$(tr -d '\r\n' < tooling/node-image.txt)"
+options=(--rm --user "$(id -u):$(id -g)" --volume "$PWD:/app" --workdir /app)
+
+for variable in DATABASE_URL PAYLOAD_SECRET NEXT_PUBLIC_SERVER_URL; do
+  if [[ -v "$variable" ]]; then
+    options+=(--env "$variable")
+  fi
+done
+
+if [[ "${JZ_NODE_NETWORK:-}" == "host" ]]; then
+  options+=(--network host)
+fi
+
+exec docker run "${options[@]}" "$image" "$@"

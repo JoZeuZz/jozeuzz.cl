@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# jz-install — instala el supervisor jz-autonomy y jz-git desde un commit revisado.
+# La copia queda fuera de todo worktree: los workers no pueden modificar el código que los supervisa ni el
+# GitOps que confirma su trabajo. Este script también vive en un árbol que escriben los workers, así que se
+# ejecuta desde el commit revisado, nunca desde el árbol:
+#   git -C <worktree> show <sha>:tools/jz-autonomy/bin/jz-install | bash -s -- <worktree> <sha>
+# Uso: jz-install <worktree> <sha-completo>   (imprime la ruta instalada)
+set -euo pipefail
+repo=${1:?uso: jz-install <worktree> <sha-completo>}
+sha=${2:?uso: jz-install <worktree> <sha-completo> (SHA de 40 caracteres revisado; sin valor por defecto)}
+[[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "jz-install: se exige un SHA completo de 40 caracteres" >&2; exit 2; }
+[[ $(git -C "$repo" rev-parse --verify "$sha^{commit}") == "$sha" ]] || { echo "jz-install: commit inexistente" >&2; exit 2; }
+base=${JZ_AI_HOME:-$HOME/.local/share/jz-ai}
+dest=$base/releases/$sha
+if [[ ! -d $dest ]]; then
+  mkdir -p "$base/releases"
+  tmp=$(mktemp -d "$base/releases/.tmp-$sha-XXXXXX")
+  git -C "$repo" archive "$sha" tools/jz-autonomy tools/jz-gitops | tar -x -C "$tmp"
+  printf '%s\n' "$sha" > "$tmp/REVISION"
+  chmod -R a-w "$tmp"
+  mv "$tmp" "$dest"
+fi
+ln -sfn "releases/$sha" "$base/current"
+echo "$dest"

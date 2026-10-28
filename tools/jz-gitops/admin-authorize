@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# admin-authorize — intervención administrativa única de JZ-AI V2. La ejecuta el humano, nunca un agente.
+#
+# 1. Autoriza el push GitOps de jz-autonomy: escribe ~/.config/jz-ai/gitops.json con el remoto exacto y los
+#    patrones de rama permitidos (jz-git excluye siempre main, master y production y nunca hace force-push).
+# 2. Plano de control: los perfiles OpenCode de implementación pasan de `mode: subagent` a `mode: all`, para
+#    que `opencode run --agent jz-implementer` los use como primarios. Con `subagent`, OpenCode cae al agente
+#    por defecto sin política jz (verificado el 2026-10-27). La política y los permisos no cambian.
+# 3. Publica la rama JZ-AI con el jz-git instalado y verifica que el remoto tiene el SHA local.
+#
+# Uso (desde la release instalada, nunca desde el árbol que escriben los workers):
+#   ~/.local/share/jz-ai/current/tools/jz-gitops/admin-authorize <worktree> [patrones separados por comas]
+set -euo pipefail
+repo=$(cd "${1:?uso: admin-authorize <worktree> [patrones]}" && pwd -P)
+patterns=${2:-chore/jz-*,feat/*,fix/*,docs/*,work/*,integ/*}
+branch=$(git -C "$repo" branch --show-current)
+gitops=${JZ_AI_HOME:-$HOME/.local/share/jz-ai}/current/tools/jz-gitops/jz-git.mjs
+[[ -f $gitops ]] || { echo "falta $gitops: instala la release (docs/OPERACION-JZ-AI.md)" >&2; exit 1; }
+
+# 1. Política GitOps.
+url=$(git -C "$repo" remote get-url origin)
+dir=${XDG_CONFIG_HOME:-$HOME/.config}/jz-ai
+mkdir -p "$dir" && chmod 700 "$dir"
+tmp=$(mktemp "$dir/.gitops.XXXXXX")
+jq -n --arg url "$url" --arg patterns "$patterns" --arg by "$(git -C "$repo" config user.name)" \
+  --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  '{schema: "jz-gitops-policy-v1", authorizedBy: $by, authorizedAt: $at,
+    push: {remotes: {origin: $url}, branches: ($patterns | split(","))}}' > "$tmp"
+chmod 600 "$tmp" && mv "$tmp" "$dir/gitops.json"
+echo "1/3 política GitOps: $dir/gitops.json"
+
+# 2. Perfiles OpenCode primarios (sólo la línea mode).
+changed=()
+for f in .opencode/agents/jz-implementer.md .opencode/agents/jz-implementer-copilot.md; do
+  if grep -qx 'mode: subagent' "$repo/$f"; then
+    sed -i 's/^mode: subagent$/mode: all/' "$repo/$f"
+    changed+=("$f")
+  fi
+done
+if ((${#changed[@]})); then
+  git -C "$repo" diff --stat -- "${changed[@]}"
+  git -C "$repo" commit -q -m "chore(agents): let OpenCode run jz implementers as primary agents
+
+opencode run --agent with a subagent-only profile falls back to the default
+agent without the jz policy. mode: all keeps the same permissions and
+policy (node denied, jz-run allowed; verified 2026-10-27).
+
+Authorized-by: $(git -C "$repo" config user.name)" -- "${changed[@]}"
+  echo "2/3 perfiles OpenCode: $(git -C "$repo" rev-parse --short HEAD)"
+else
+  echo "2/3 perfiles OpenCode: ya primarios"
+fi
+
+# 3. Publicación verificada.
+# Sólo cuenta como publicado si jz-git devuelve ok y el remoto tiene el SHA local.
+out=$(node "$gitops" push --repo "$repo" --branch "$branch")
+echo "$out"
+jq -e '.ok == true' >/dev/null <<<"$out" || { echo "3/3 push FALLIDO" >&2; exit 1; }
+[[ $(git -C "$repo" ls-remote origin "refs/heads/$branch" | cut -f1) == $(git -C "$repo" rev-parse HEAD) ]] \
+  || { echo "3/3 el remoto no tiene el SHA local" >&2; exit 1; }
+echo "3/3 publicado $branch"
