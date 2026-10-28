@@ -20,8 +20,8 @@ const hash = (value) => createHash('sha256').update(JSON.stringify(value)).diges
 
 // Mundo sintético: un árbol de archivos, un HEAD y motores guionizados que leen el prompt real.
 function world({ scripts, checks = () => 0 }) {
-  const w = { files: {}, head: {}, commits: [], turns: [], prompts: [], killed: [], alive: new Set(), ops: new Set(), lock: null, checkpoints: [] };
-  const tree = (files) => hash(files);
+  const w = { files: {}, head: {}, commits: [], turns: [], prompts: [], killed: [], alive: new Set(), ops: new Set(), lock: null, checkpoints: [], pushes: 0, remote: null, controllers: new Set() };
+  const tree = (files) => hash(Object.fromEntries(Object.entries(files).sort(([a], [b]) => a.localeCompare(b))));
   const headSha = () => (w.commits.at(-1)?.sha ?? 'base');
   const changed = () => Object.keys({ ...w.files, ...w.head }).filter((p) => w.files[p] !== w.head[p]).sort();
   w.adapters = {
@@ -35,11 +35,21 @@ function world({ scripts, checks = () => 0 }) {
       const out = await script({ prompt: parsed, files: w.files, n });
       return { rc: 0, pid: 1000 + n, ...out };
     },
-    terminated: async ({ pid }) => !w.alive.has(pid),
-    kill: async ({ pid }) => { w.killed.push(pid); w.alive.delete(pid); },
+    terminated: async ({ pid, token }) => !w.alive.has(pid) && !w.alive.has(token),
+    kill: async ({ pid, token }) => { w.killed.push(pid); w.alive.delete(pid); w.alive.delete(token); },
     writer: async () => ({ alive: Boolean(w.lock), holder: w.lock }),
     snapshot: async () => ({ rc: 0, head: headSha(), tree: tree(w.files), paths: changed() }),
-    restore: async ({ tree: t }) => { const cp = w.saved[t]; if (cp) w.files = { ...cp }; return { rc: cp ? 0 : 1 }; },
+    restore: async ({ tree: t, paths: only }) => {
+      const cp = w.saved[t];
+      if (!cp) return { rc: 1 };
+      for (const p of only) { if (p in cp) w.files[p] = cp[p]; else delete w.files[p]; }
+      return { rc: 0 };
+    },
+    compare: async ({ from, to }) => {
+      const a = w.saved[from] ?? {};
+      const b = w.saved[to] ?? {};
+      return { rc: 0, paths: Object.keys({ ...a, ...b }).filter((p) => a[p] !== b[p]).sort() };
+    },
     inspectChanges: async () => ({ paths: changed() }),
     runCheck: async ({ check }) => ({ rc: checks({ check, files: w.files }), log: 'log' }),
     fingerprint: async () => ({ rc: 0, fingerprint: tree(w.files) }),
@@ -53,6 +63,7 @@ function world({ scripts, checks = () => 0 }) {
       w.head = { ...w.files };
       return { rc: 0, head: sha };
     },
+    push: async () => { w.pushes += 1; w.remote = headSha(); return { rc: 0, remoteSha: headSha() }; },
     checkpoint: async ({ kind }) => { w.checkpoints.push(kind); return { rc: 0 }; }
   };
   w.saved = {};
@@ -87,6 +98,15 @@ function orchestrator({ delegateWordCount = false } = {}) {
 async function stateDir() {
   return mkdtemp(join(tmpdir(), 'jz-coord-test-'));
 }
+
+// Controlador simulado: identidad propia y una vida que el test termina (caída) a voluntad.
+function controller(w, pid) {
+  w.controllers.add(pid);
+  return { self: { pid, start: String(pid), boot: 'test-boot' }, alive: (holder) => w.controllers.has(holder.pid) };
+}
+const crash = (w, pid) => w.controllers.delete(pid);
+const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+const readState = async (dir) => JSON.parse(await readFile(join(dir, 'state.json'), 'utf8'));
 
 for (const lead of ['claude', 'opencode']) {
   test(`${lead} leads a full cycle alone: plan, implement, verify, commit and checkpoint`, async () => {
@@ -174,19 +194,20 @@ test('no transfer while the previous writer holds a valid lease; an expired hold
   const base = { stateDir: dir, now: () => now };
   // Caída del controlador durante el turno 1: el turno no vuelve nunca y el motor (pid 4242) sigue vivo.
   w.alive.add(4242);
-  runGoal(goal(), { ...w.adapters, runTurn: ({ onSpawn }) => { onSpawn(4242); return new Promise(() => {}); } }, base);
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  const saved = JSON.parse(await readFile(join(dir, 'state.json'), 'utf8'));
+  runGoal(goal(), { ...w.adapters, runTurn: ({ onSpawn }) => { onSpawn(4242); return new Promise(() => {}); } }, { ...base, controller: controller(w, 1) });
+  await settle();
+  crash(w, 1);
+  const saved = await readState(dir);
   assert.equal(saved.inflight.pid, 4242);
   assert.equal(saved.lease.pid, 4242);
   w.files['src/slug.js'] = 'partial';
-  const blocked = await runGoal(saved.goal, w.adapters, { ...base, resume: structuredClone(saved) });
+  const blocked = await runGoal(saved.goal, w.adapters, { ...base, resume: structuredClone(saved), controller: controller(w, 2) });
   assert.equal(blocked.status, 'blocked');
   assert.match(blocked.reason, /lease held by claude \(pid 4242\)/);
   assert.deepEqual(w.killed, []);
   // Plazo del lease: timeoutMinutes (30) más el margen de 60 s.
   now += 32 * 60_000;
-  const resumed = await runGoal(saved.goal, w.adapters, { ...base, resume: structuredClone(saved) });
+  const resumed = await runGoal(saved.goal, w.adapters, { ...base, resume: await readState(dir), controller: controller(w, 3) });
   assert.deepEqual(w.killed, [4242], 'the expired holder is killed before anyone else writes');
   assert.equal(resumed.status, 'completed');
 });
@@ -197,13 +218,14 @@ test('resume after a controller crash marks the in-flight turn interrupted and d
   runGoal(goal(), { ...w.adapters, runTurn: (args) => {
     if (args.n === 2) { args.onSpawn(777); return new Promise(() => {}); }
     return w.adapters.runTurn(args);
-  } }, { stateDir: dir });
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  const state = JSON.parse(await readFile(join(dir, 'state.json'), 'utf8'));
+  } }, { stateDir: dir, controller: controller(w, 1) });
+  await settle();
+  crash(w, 1);
+  const state = await readState(dir);
   assert.equal(state.inflight.n, 2);
   w.turns = [];
   w.prompts = [];
-  const result = await runGoal(state.goal, w.adapters, { stateDir: dir, resume: state });
+  const result = await runGoal(state.goal, w.adapters, { stateDir: dir, resume: state, controller: controller(w, 2) });
   assert.equal(result.status, 'completed');
   assert.deepEqual(w.turns, ['3:claude:lead', '4:claude:lead']);
   assert.ok(w.prompts[0].inbox.some((m) => m.kind === 'info' && /interrupted/.test(m.body)));
@@ -350,4 +372,225 @@ test('a lead turn that writes outside the goal blocks before any further turn', 
   assert.equal(result.status, 'blocked');
   assert.match(result.reason, /claude lead turn changed paths outside the goal: README.md/);
   assert.deepEqual(w.turns, ['1:claude:lead']);
+});
+
+// ---- Hardening de concurrencia y recuperación ----
+
+test('a blocked resume keeps the live lease and the in-flight turn: a later resume still refuses to write', async () => {
+  const w = world({ scripts: { claude: orchestrator(), opencode: orchestrator() } });
+  const dir = await stateDir();
+  w.alive.add(4242);
+  runGoal(goal(), { ...w.adapters, runTurn: ({ onSpawn }) => { onSpawn(4242); return new Promise(() => {}); } }, { stateDir: dir, controller: controller(w, 1) });
+  await settle();
+  crash(w, 1);
+  const first = await runGoal((await readState(dir)).goal, w.adapters, { stateDir: dir, resume: await readState(dir), controller: controller(w, 2) });
+  assert.equal(first.status, 'blocked');
+  const kept = await readState(dir);
+  assert.equal(kept.lease?.pid, 4242, 'close() must not drop the lease of a live holder');
+  assert.equal(kept.inflight?.pid, 4242, 'close() must not forget the in-flight turn of a live holder');
+  const second = await runGoal(kept.goal, w.adapters, { stateDir: dir, resume: kept, controller: controller(w, 3) });
+  assert.equal(second.status, 'blocked');
+  assert.match(second.reason, /lease held by claude \(pid 4242\)/);
+  assert.equal(w.turns.length, 0, 'no engine turn runs while the holder is alive');
+  assert.equal(w.commits.length, 0);
+});
+
+test('a lease whose pid was never recorded still blocks while a process carries its token', async () => {
+  const w = world({ scripts: { claude: orchestrator(), opencode: orchestrator() } });
+  const dir = await stateDir();
+  // Caída del controlador entre el inicio del turno y el registro del pid: el motor vive, sólo con su token.
+  runGoal(goal(), { ...w.adapters, runTurn: ({ token }) => { w.alive.add(token); return new Promise(() => {}); } }, { stateDir: dir, controller: controller(w, 1) });
+  await settle();
+  crash(w, 1);
+  const saved = await readState(dir);
+  assert.equal(saved.lease.pid, null);
+  assert.ok(saved.lease.token, 'the lease token is persisted before the engine starts');
+  const result = await runGoal(saved.goal, w.adapters, { stateDir: dir, resume: saved, controller: controller(w, 2) });
+  assert.equal(result.status, 'blocked');
+  assert.match(result.reason, /lease held by claude/);
+  assert.equal(w.turns.length, 0);
+});
+
+test('a second controller on the same state-dir is refused without touching the state while the first is alive', async () => {
+  const w = world({ scripts: { claude: orchestrator(), opencode: orchestrator() } });
+  const dir = await stateDir();
+  runGoal(goal(), { ...w.adapters, runTurn: (args) => (args.n === 2 ? new Promise(() => {}) : w.adapters.runTurn(args)) }, { stateDir: dir, controller: controller(w, 1) });
+  await settle();
+  const before = await readFile(join(dir, 'state.json'), 'utf8');
+  const events = await readFile(join(dir, 'events.jsonl'), 'utf8');
+  const second = await runGoal(JSON.parse(before).goal, w.adapters, { stateDir: dir, resume: JSON.parse(before), controller: controller(w, 2) });
+  assert.equal(second.status, 'blocked');
+  assert.match(second.reason, /controller .*active/);
+  assert.equal(await readFile(join(dir, 'state.json'), 'utf8'), before, 'the refused controller does not write state.json');
+  assert.equal(await readFile(join(dir, 'events.jsonl'), 'utf8'), events, 'nor events.jsonl');
+  assert.deepEqual(w.turns, ['1:claude:lead'], 'the refused controller runs no turn');
+});
+
+test('a stale controller lock is recovered only once its holder is proven dead, keeping the old lock as evidence', async () => {
+  const w = world({ scripts: { claude: orchestrator(), opencode: orchestrator() } });
+  const dir = await stateDir();
+  runGoal(goal(), { ...w.adapters, runTurn: (args) => (args.n === 2 ? new Promise(() => {}) : w.adapters.runTurn(args)) }, { stateDir: dir, controller: controller(w, 1) });
+  await settle();
+  crash(w, 1);
+  const result = await runGoal((await readState(dir)).goal, w.adapters, { stateDir: dir, resume: await readState(dir), controller: controller(w, 2) });
+  assert.equal(result.status, 'completed');
+  const { readdir } = await import('node:fs/promises');
+  const names = await readdir(dir);
+  assert.ok(names.some((n) => n.startsWith('controller.lock.stale-')), 'the dead holder lock is kept, not deleted');
+  assert.ok(!names.includes('controller.lock'), 'the lock is released at the end');
+  const events = (await readState(dir)).events;
+  assert.ok(events.some((e) => e.event === 'controller-recovered' && e.holder.pid === 1));
+});
+
+test('an unreadable controller lock is never removed blindly', async () => {
+  const w = world({ scripts: { claude: orchestrator() } });
+  const dir = await stateDir();
+  await runGoal(goal({ engines: ['claude'] }), { ...w.adapters, runTurn: async (args) => (args.n === 1 ? { rc: 0, text: reply([{ type: 'blocked', reason: 'pause' }]), pid: 1 } : w.adapters.runTurn(args)) }, { stateDir: dir, controller: controller(w, 1) });
+  const { writeFile: write } = await import('node:fs/promises');
+  await write(join(dir, 'controller.lock'), '{"pid":');
+  const result = await runGoal((await readState(dir)).goal, w.adapters, { stateDir: dir, resume: await readState(dir), controller: controller(w, 2) });
+  assert.equal(result.status, 'blocked');
+  assert.match(result.reason, /controller lock unreadable/);
+  assert.equal(await readFile(join(dir, 'controller.lock'), 'utf8'), '{"pid":');
+});
+
+test('resume repairs events.jsonl from state.json after a crash between both writes (missing and torn lines)', async () => {
+  const w = world({ scripts: { claude: orchestrator() } });
+  const dir = await stateDir();
+  await runGoal(goal({ engines: ['claude'] }), { ...w.adapters, runTurn: async (args) => (args.n === 2 ? { rc: 0, text: reply([{ type: 'blocked', reason: 'pause' }]), pid: 2 } : w.adapters.runTurn(args)) }, { stateDir: dir, controller: controller(w, 1) });
+  const lines = (await readFile(join(dir, 'events.jsonl'), 'utf8')).trim().split('\n');
+  const { writeFile: write } = await import('node:fs/promises');
+  // La última línea nunca llegó y la anterior quedó a medias.
+  await write(join(dir, 'events.jsonl'), `${lines.slice(0, -2).join('\n')}\n${lines.at(-2).slice(0, 20)}`);
+  const result = await runGoal((await readState(dir)).goal, w.adapters, { stateDir: dir, resume: await readState(dir), controller: controller(w, 2) });
+  assert.equal(result.status, 'completed');
+  const state = await readState(dir);
+  const log = (await readFile(join(dir, 'events.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(log, state.events, 'events.jsonl mirrors the authoritative state.json events');
+  assert.ok(state.events.some((e) => e.event === 'events-repaired'));
+});
+
+test('persists are serialized: a slow early write never overwrites a later state', async () => {
+  const w = world({ scripts: { claude: orchestrator() } });
+  const dir = await stateDir();
+  const fsp = await import('node:fs/promises');
+  let delayed = false;
+  const fs = {
+    rename: async (from, to) => {
+      const text = await fsp.readFile(from, 'utf8').catch(() => '');
+      if (!delayed && /"inflight":\{[^}]*"pid":1001/.test(text)) { delayed = true; await new Promise((resolve) => setTimeout(resolve, 80)); }
+      return fsp.rename(from, to);
+    }
+  };
+  const runTurn = w.adapters.runTurn;
+  const result = await runGoal(goal({ engines: ['claude'] }), { ...w.adapters, runTurn: async (args) => { if (args.n === 1) args.onSpawn(1001, null); return runTurn(args); } }, { stateDir: dir, controller: controller(w, 1), fs });
+  assert.equal(result.status, 'completed');
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const state = await readState(dir);
+  assert.ok(delayed);
+  assert.equal(state.status, 'completed', 'state.json is the final state, not the delayed early write');
+  assert.equal(state.inflight, null);
+});
+
+test('a failed checkpoint after a turn blocks the run before any other turn or transfer', async () => {
+  const w = world({ scripts: { claude: orchestrator(), opencode: orchestrator() } });
+  const snapshot = w.adapters.snapshot;
+  w.adapters.snapshot = async (args) => (args.n === 2 ? { rc: 1 } : snapshot(args));
+  const result = await runGoal(goal(), w.adapters, { stateDir: await stateDir(), controller: controller(w, 1) });
+  assert.equal(result.status, 'blocked');
+  assert.match(result.reason, /checkpoint failed after turn 1/);
+  assert.deepEqual(w.turns, ['1:claude:lead']);
+});
+
+test('a checkpoint adapter that throws at start blocks without running any turn', async () => {
+  const w = world({ scripts: { claude: orchestrator() } });
+  w.adapters.snapshot = async () => { throw new Error('ENOTDIR'); };
+  const result = await runGoal(goal({ engines: ['claude'] }), w.adapters, { stateDir: await stateDir(), controller: controller(w, 1) });
+  assert.equal(result.status, 'blocked');
+  assert.match(result.reason, /checkpoint failed at start/);
+  assert.deepEqual(w.turns, []);
+});
+
+// El líder pide una pausa en el turno indicado (una vez): el run se cierra con checkpoint y se reanuda después.
+function pausing(at) {
+  let paused = false;
+  return async (ctx) => {
+    if (!paused && ctx.prompt.turn === at) { paused = true; return { text: reply([{ type: 'blocked', reason: 'pause' }]) }; }
+    return orchestrator()(ctx);
+  };
+}
+
+test('resume restores changes lost after a valid checkpoint even when the leader does not change', async () => {
+  const w = world({ scripts: { claude: pausing(2) } });
+  const dir = await stateDir();
+  const first = await runGoal(goal({ engines: ['claude'] }), w.adapters, { stateDir: dir, controller: controller(w, 1) });
+  assert.equal(first.status, 'blocked');
+  const expected = { ...w.files };
+  w.files = {};
+  const result = await runGoal((await readState(dir)).goal, w.adapters, { stateDir: dir, resume: await readState(dir), controller: controller(w, 2) });
+  assert.equal(result.status, 'completed');
+  const state = await readState(dir);
+  assert.ok(state.events.some((e) => e.event === 'restored'), 'the lost work is restored from the checkpoint');
+  assert.equal(w.commits[0].files['src/slug.js'], expected['src/slug.js']);
+  assert.deepEqual(w.turns, ['1:claude:lead', '2:claude:lead', '3:claude:lead', '4:claude:lead']);
+});
+
+test('a partial loss is restored path by path when every differing path only lost its change', async () => {
+  const w = world({ scripts: { claude: pausing(3) } });
+  const dir = await stateDir();
+  await runGoal(goal({ engines: ['claude'] }), w.adapters, { stateDir: dir, controller: controller(w, 1) });
+  const expected = { ...w.files };
+  delete w.files['src/slug.js'];
+  const result = await runGoal((await readState(dir)).goal, w.adapters, { stateDir: dir, resume: await readState(dir), controller: controller(w, 2) });
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(w.commits[0].files, expected);
+  assert.ok((await readState(dir)).events.some((e) => e.event === 'restored'));
+  assert.deepEqual(w.turns, ['1:claude:lead', '2:claude:lead', '3:claude:lead', '4:claude:lead'], 'the restored work is not redone');
+});
+
+test('a divergent tree on resume blocks and is left exactly as found', async () => {
+  const w = world({ scripts: { claude: pausing(3) } });
+  const dir = await stateDir();
+  await runGoal(goal({ engines: ['claude'] }), w.adapters, { stateDir: dir, controller: controller(w, 1) });
+  delete w.files['src/slug.js'];
+  w.files['src/words.js'] = 'someone else edited this';
+  const found = { ...w.files };
+  const result = await runGoal((await readState(dir)).goal, w.adapters, { stateDir: dir, resume: await readState(dir), controller: controller(w, 2) });
+  assert.equal(result.status, 'blocked');
+  assert.match(result.reason, /worktree changed since checkpoint/);
+  assert.deepEqual(w.files, found, 'nothing is overwritten');
+  assert.equal(w.commits.length, 0);
+});
+
+test('a controller crash during the commit resumes into verification and commits exactly once, without an engine turn', async () => {
+  for (const when of ['before', 'after']) {
+    const w = world({ scripts: { claude: orchestrator() } });
+    const dir = await stateDir();
+    const commit = w.adapters.commit;
+    runGoal(goal({ engines: ['claude'] }), { ...w.adapters, commit: async (args) => { if (when === 'after') await commit(args); return new Promise(() => {}); } }, { stateDir: dir, controller: controller(w, 1) });
+    await settle();
+    crash(w, 1);
+    const turns = [...w.turns];
+    const result = await runGoal((await readState(dir)).goal, w.adapters, { stateDir: dir, resume: await readState(dir), controller: controller(w, 2) });
+    assert.equal(result.status, 'completed', when);
+    assert.equal(w.commits.length, 1, `${when}: one commit`);
+    assert.deepEqual(w.turns, turns, `${when}: no extra engine turn after the crash`);
+    assert.equal(result.commit.reused, when === 'after');
+  }
+});
+
+test('a controller crash during the push resumes into the push only, without a second commit or turn', async () => {
+  const w = world({ scripts: { claude: orchestrator() } });
+  const dir = await stateDir();
+  const push = w.adapters.push;
+  runGoal(goal({ engines: ['claude'], push: true }), { ...w.adapters, push: async (args) => { await push(args); return new Promise(() => {}); } }, { stateDir: dir, controller: controller(w, 1) });
+  await settle();
+  crash(w, 1);
+  const turns = [...w.turns];
+  const result = await runGoal((await readState(dir)).goal, w.adapters, { stateDir: dir, resume: await readState(dir), controller: controller(w, 2) });
+  assert.equal(result.status, 'completed');
+  assert.equal(w.commits.length, 1);
+  assert.equal(w.pushes, 2, 'the push is retried (jz-git push is idempotent)');
+  assert.deepEqual(w.turns, turns);
+  assert.equal(result.push.remoteSha, w.commits[0].sha);
 });

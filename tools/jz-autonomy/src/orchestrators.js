@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 
 import { buildClaudeEnv, claudeResultFailed, findBinary, runEngineProcess } from './engines.js';
 import { buildOpenCodeEnv, createOpenCodeAdapters, openCodeAgentMode } from './opencode.js';
+import { bootId, carriesToken, holders, identify, LEASE_ENV, processStart, sameProcess } from './proc.js';
 
 // Adaptadores reales de jz-coord: lanzan Claude Code u OpenCode con su perfil de orquestador (jz-orchestrator),
 // que delega en sus propios subagentes jz-*. El resto (checks, inspección, huella, commit, push) reutiliza los
@@ -60,6 +61,21 @@ export function groupTerminated(pid, kill = process.kill) {
   return true;
 }
 
+// El titular de un lease terminó si ningún proceso lleva su token y ni él ni su grupo siguen vivos. Con la
+// identidad registrada, un pid que hoy es otro proceso (otro starttime) o de otro arranque cuenta como
+// terminado: el kernel sólo reutiliza un pid cuando ya no es el pgid de ningún grupo, así que el grupo del
+// motor tampoco existe. Si el líder no existe pero su grupo sí, no se puede descartar: sigue vivo.
+export function holderTerminated({ pid, identity, token }, kill = process.kill) {
+  if (identity?.boot && identity.boot !== bootId()) return true;
+  if (holders(token).length) return false;
+  if (!Number.isInteger(pid) || pid <= 0) return true;
+  if (identity) {
+    const start = processStart(pid);
+    if (start) return start !== identity.start;
+  }
+  return groupTerminated(pid, kill);
+}
+
 export async function isOrchestrator(pid, readFile = nativeReadFile) {
   try {
     const argv = String(await readFile(`/proc/${pid}/cmdline`, 'utf8')).split('\0');
@@ -87,7 +103,7 @@ export function createCoordAdapters(options) {
   let policy;
   const loadPolicy = async () => (policy ??= await import(pathToFileURL(join(root, '.jz/policy/policy.mjs')).href));
 
-  async function runTurn({ engine, role, prompt, n, timeoutMs, fault, onSpawn }) {
+  async function runTurn({ engine, role, prompt, n, timeoutMs, fault, onSpawn, token }) {
     // Cuota simulada sin lanzar el motor: el turno no llega a empezar.
     if (fault && !fault.afterMs) return { rc: 75, text: '', tail: `simulated ${fault.kind}`, pid: null };
     const bin = bins[engine];
@@ -103,13 +119,16 @@ export function createCoordAdapters(options) {
       args = ['run', '--dir', root, '--agent', ORCHESTRATOR, '--format', 'json', prompt];
       env = buildOpenCodeEnv(options.env ?? process.env);
     }
+    if (token) env = { ...env, [LEASE_ENV]: token };
     const stdoutPath = join(stateDir, `turn-${n}-${engine}-${role}.stdout.log`);
     const stderrPath = join(stateDir, `turn-${n}-${engine}-${role}.stderr.log`);
     const out = await runEngineProcess({
       spawn, bin, args, cwd: root, env, stdoutPath, stderrPath,
       // Con un fallo simulado a mitad de turno, el plazo es el del fallo: el motor real muere trabajando.
       timeoutMs: fault?.afterMs || timeoutMs, killGraceMs: options.killGraceMs, setTimer: options.setTimer, clearTimer: options.clearTimer,
-      abortOn: engine === 'opencode' ? FALLBACK : null, onSpawn
+      abortOn: engine === 'opencode' ? FALLBACK : null,
+      // La identidad se lee en el acto: el hijo aún no se ha recogido, así que su /proc/<pid>/stat es el suyo.
+      onSpawn: typeof onSpawn === 'function' ? (pid) => onSpawn(pid, identify(pid)) : null
     });
     // Los streams se vacían al cerrar; el texto completo se lee del log, no del final acotado en memoria.
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -148,11 +167,19 @@ export function createCoordAdapters(options) {
     }
   }
 
-  async function restore({ tree, head }) {
-    const patch = await git(['diff-tree', '-p', '--binary', '--no-renames', head, tree]);
-    if (patch.rc !== 0) return { rc: 1 };
+  // Restaura desde el checkpoint sólo las rutas indicadas (las que jz-coord comprobó que sólo perdieron su
+  // cambio): el patch HEAD..checkpoint de esas rutas se aplica sobre un árbol que en ellas es igual a HEAD.
+  async function restore({ tree, head, paths }) {
+    if (!Array.isArray(paths) || paths.length === 0) return { rc: 1 };
+    const patch = await git(['diff-tree', '-p', '--binary', '--no-renames', head, tree, '--', ...paths.map((p) => `:(literal)${p}`)]);
+    if (patch.rc !== 0 || !String(patch.stdout).trim()) return { rc: 1 };
     const applied = await git(['apply', '--whitespace=nowarn'], { input: patch.stdout });
     return { rc: applied.rc };
+  }
+
+  async function compare({ from, to }) {
+    const out = await git(['diff-tree', '-r', '--name-only', '--no-renames', from, to]);
+    return out.rc === 0 ? { rc: 0, paths: String(out.stdout).split('\n').filter(Boolean) } : { rc: 1, paths: [] };
   }
 
   return {
@@ -169,13 +196,15 @@ export function createCoordAdapters(options) {
       return { rc: out.rc };
     },
     runTurn,
-    terminated: async ({ pid }) => groupTerminated(pid),
-    async kill({ pid }) {
-      if (!Number.isInteger(pid) || pid <= 0) return;
-      // El pid sale del estado: sólo se mata si sigue siendo un orquestador lanzado por jz-coord (no un pid reciclado).
-      if (!(await isOrchestrator(pid, readFile))) return;
-      try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch {} }
-      await new Promise((resolve) => setTimeout(resolve, 200));
+    terminated: async (holder) => holderTerminated(holder),
+    // Sólo se mata lo que se demuestra del turno: el líder con su identidad (starttime y boot) y el token del
+    // lease en su entorno, todo su grupo; y cualquier proceso que lleve el token. Un pid reciclado no se toca.
+    async kill({ pid, identity, token }) {
+      const targets = holders(token).map((h) => h.pid);
+      const leader = Number.isInteger(pid) && pid > 0 && identity && sameProcess(identity) && carriesToken(pid, token) && await isOrchestrator(pid, readFile);
+      if (leader) { try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch {} } }
+      for (const target of targets) { try { process.kill(target, 'SIGKILL'); } catch {} }
+      if (leader || targets.length) await new Promise((resolve) => setTimeout(resolve, 200));
     },
     async writer() {
       const p = await loadPolicy();
@@ -183,6 +212,7 @@ export function createCoordAdapters(options) {
       return { held: Boolean(cur), alive: Boolean(cur) && p.pidAlive(cur.pid), holder: cur ? `${cur.agent} (${cur.engine}, pid ${cur.pid})` : null };
     },
     snapshot,
-    restore
+    restore,
+    compare
   };
 }
