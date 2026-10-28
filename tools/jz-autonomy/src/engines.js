@@ -34,7 +34,7 @@ export function buildClaudeEnv(source = {}) {
 }
 
 // Lanza un proceso del motor con timeout y guarda stdout/stderr en el state-dir; nunca devuelve la salida cruda.
-export function runEngineProcess({ spawn = nativeSpawn, bin, args, cwd, env, stdoutPath, stderrPath, timeoutMs, killGraceMs = 5000, setTimer = setTimeout, clearTimer = clearTimeout, abortOn = null }) {
+export function runEngineProcess({ spawn = nativeSpawn, bin, args, cwd, env, stdoutPath, stderrPath, timeoutMs, killGraceMs = 5000, setTimer = setTimeout, clearTimer = clearTimeout, abortOn = null, onSpawn = null }) {
   return new Promise((resolve) => {
     let child;
     try {
@@ -44,6 +44,8 @@ export function runEngineProcess({ spawn = nativeSpawn, bin, args, cwd, env, std
       resolve({ rc: 1, tail: '' });
       return;
     }
+    // jz-coord registra el pid antes de esperar: tras una caída del controlador comprueba que el grupo terminó.
+    if (typeof onSpawn === 'function' && Number.isInteger(child.pid)) onSpawn(child.pid);
     const killGroup = (signal) => {
       try { process.kill(-child.pid, signal); } catch { try { child.kill(signal); } catch {} }
     };
@@ -62,14 +64,14 @@ export function runEngineProcess({ spawn = nativeSpawn, bin, args, cwd, env, std
     let closed = false;
     let timedOut = false;
     let grace;
-    const finish = (rc) => {
+    const finish = (rc, signal = null) => {
       if (closed) return;
       closed = true;
       clearTimer(timeout);
       clearTimer(grace);
       // Al terminar el motor no debe quedar ningún proceso suyo escribiendo en el worktree.
       if (Number.isInteger(child.pid)) killGroup('SIGKILL');
-      resolve({ rc: aborted ? 1 : Number.isInteger(rc) ? rc : 1, tail, timedOut, aborted });
+      resolve({ rc: aborted ? 1 : Number.isInteger(rc) ? rc : 1, tail, timedOut, aborted, pid: child.pid, signal });
     };
     const timeout = setTimer(() => {
       timedOut = true;
@@ -77,7 +79,7 @@ export function runEngineProcess({ spawn = nativeSpawn, bin, args, cwd, env, std
       grace = setTimer(() => { killGroup('SIGKILL'); finish(124); }, killGraceMs);
     }, timeoutMs);
     child.once('error', () => finish(1));
-    child.once('close', (rc) => finish(timedOut ? 124 : rc));
+    child.once('close', (rc, signal) => finish(timedOut ? 124 : rc, signal ?? null));
   });
 }
 

@@ -207,6 +207,14 @@ test('commit returns capability missing and calls the installed jz-git with the 
   assert.equal(JSON.stringify(calls[0].options.env).includes('CANARY'), false);
 });
 
+test('commit keeps the reused flag of an already confirmed Jz-Op', async () => {
+  const adapters = createOpenCodeAdapters({
+    root: '/repo', stateDir: '/state', realpath: async (path) => path, exists: async () => true, node: '/usr/bin/node', gitops: '/opt/jz/jz-git.mjs',
+    execFile: async () => ({ rc: 0, stdout: '{"ok":true,"head":"abc123","reused":true,"evidence":"Jz-Op U:run:commit ya confirmado"}\n' })
+  });
+  assert.deepEqual(await adapters.commit({ objective: { ...objective, workspace: '.' }, op: 'U:run:commit' }), { rc: 0, head: 'abc123', reused: true, evidence: 'Jz-Op U:run:commit ya confirmado' });
+});
+
 test('push returns remote SHA; malformed helper output and checkpoint keep only rc-safe fields', async () => {
   const adapters = createOpenCodeAdapters({
     root: '/repo', stateDir: '/state', realpath: async (path) => path, exists: async () => true, node: '/usr/bin/node', gitops: '/opt/jz/jz-git.mjs',

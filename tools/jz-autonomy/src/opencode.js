@@ -215,6 +215,7 @@ function parseGitops(output) {
         rc: output.rc,
         ...(typeof parsed.head === 'string' ? { head: parsed.head } : {}),
         ...(typeof parsed.remoteSha === 'string' ? { remoteSha: parsed.remoteSha } : {}),
+        ...(parsed.reused === true ? { reused: true } : {}),
         evidence: typeof parsed.evidence === 'string' ? parsed.evidence : typeof parsed.error === 'string' ? parsed.error : 'jz-git'
       };
     }
